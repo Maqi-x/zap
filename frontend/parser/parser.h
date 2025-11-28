@@ -7,12 +7,27 @@
 #include <vector>
 #include "../token/token.h"
 #include "../ast/node.h"
+#include "../ast/arena.h"
+#include <string>
+
+struct ParseError {
+    std::string message;
+    unsigned long pos;
+    unsigned long line;
+    unsigned long column;
+    std::string tokenValue;
+};
 
 class Parser {
     public:
     std::vector<Token> tokens;
     unsigned long pos;
-    std::vector<Node> Parse(std::vector<Token> *tokens);
+    NodeArena arena;
+    std::string source;
+    std::vector<ParseError> errors;
+    bool lastConsumeSynthetic = false;
+    
+    NodeArena Parse(std::vector<Token> *tokens, std::string_view src = "");
     Token Peek();
     Token Advance();
     Token Previous();
@@ -20,7 +35,12 @@ class Parser {
     Token Consume(TokenType expectedType, std::string errMsg);
     Node ParseStatement();
     Node ParseFunction();
-    Node ParseParams();
+    std::vector<Param> ParseParams();
+    void ParseBody(Node &funcNode);
+    Node ParseReturn();
+    void AddError(const std::string &msg, const Token &tok);
+    void ReportErrors();
+    void Synchronize(TokenType expectedType);
 };
 
 #endif //IGNIS_PARSER_H

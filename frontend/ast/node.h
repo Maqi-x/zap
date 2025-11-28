@@ -37,5 +37,6 @@ struct Node {
     std::vector<Param> paramList;
     // Children are stored as indices into a NodeArena
     std::vector<NodeId> body;
+    int intValue;
 };
 #endif //IGNIS_NODE_H

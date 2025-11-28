@@ -17,6 +17,7 @@ enum TokenType {
     RBrace,
     Semi,
     Colon,
+    Comma,
     ConstInt,
     Operator,
     Assign,

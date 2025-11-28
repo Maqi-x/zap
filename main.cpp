@@ -18,10 +18,11 @@ void help() {
 
 int main(int argc, char* argv[]) {
     //ignis -c file.ign fil1.ign
-    std::string_view inp("fn main(){"
-                         "let a: i32 = 5*5;"
-                         "return 0;"
-                         "}");
+    std::string_view inp(
+
+        "fn main({"
+        "return 0;"
+        "}");
 
     Lexer lexer;
     auto toks = lexer.Tokenize(inp);
@@ -30,7 +31,7 @@ int main(int argc, char* argv[]) {
         std::cout<<"type= "<<tok.type<<" value= "<<tok.value<<std::endl;
     }
     Parser parser;
-    parser.Parse(&toks);
+    parser.Parse(&toks, inp);
     // if (argc < 2) {
     //     help();
     // }else {

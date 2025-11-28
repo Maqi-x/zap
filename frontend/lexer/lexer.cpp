@@ -68,6 +68,11 @@ std::vector<Token> Lexer::Tokenize(std::string_view content) {
             Advance();
             continue;
         }
+        if (c == ',') {
+            tokens.emplace_back(TokenType::Comma, pos, std::string_view(current_file.data() + pos, 1));
+            Advance();
+            continue;
+        }
         // + - / * %
         if (isOperator(c)) {
             tokens.emplace_back(TokenType::Operator, pos, std::string_view(current_file.data() + pos, 1));

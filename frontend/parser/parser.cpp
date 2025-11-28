@@ -3,23 +3,25 @@
 //
 
 #include "parser.h"
-
-#include <pthread.h>
 #include <stdexcept>
+#include <iostream>
+#include <algorithm>
 
-std::vector<Node> Parser::Parse(std::vector<Token>* tokensInput) {
+NodeArena Parser::Parse(std::vector<Token>* tokensInput, std::string_view src) {
 
     tokens = *tokensInput;
     pos = 0;
-
-    std::vector<Node> nodes;
-
+    arena = NodeArena();
+    source = std::string(src);
+    errors.clear();
 
     while (!IsAtEnd()) {
-        nodes.push_back(ParseStatement());
+        ParseStatement();
     }
 
-    return nodes;
+    ReportErrors();
+
+    return arena;
 }
 
 Node Parser::ParseStatement() {
@@ -27,15 +29,108 @@ Node Parser::ParseStatement() {
         return ParseFunction();
     }
     else {
-        throw std::runtime_error("statement of type: "+ std::string(Peek().value)+" is not implemented yet");
+        AddError(std::string("statement of type: ") + std::string(Peek().value) + " is not implemented yet", Peek());
+        Advance();
+        return Node();
     }
 }
 
 Node Parser::ParseFunction() {
     Advance();
-    std::string_view funcName = Peek().value;
-    Consume(TokenType::LParen, "Expected '('");
+    Token nameTok = Consume(TokenType::Id, "Expected function name");
+    std::string_view funcName = nameTok.value;
+
+    Token lparenTok = Consume(TokenType::LParen, "Expected '('");
+    std::vector<Param> params;
+    if (!lastConsumeSynthetic) {
+        params = ParseParams();
+        Token rparenTok = Consume(TokenType::RParen, "Expected ')'");
+        if (lastConsumeSynthetic) {
+
+            Synchronize(TokenType::LBrace);
+        }
+    } else {
+        // missing '(', synchronize to the function body start
+        Synchronize(TokenType::LBrace);
+    }
+
+    Consume(TokenType::LBrace, "Expected '{'");
+    
+    Node funcNode;
+    funcNode.nodeType = NodeType::TFun;
+    funcNode.funcName = funcName;
+    funcNode.paramList = params;
+    
+    ParseBody(funcNode);
+    
+    Consume(TokenType::RBrace, "Expected '}'");
+    
+    return funcNode;
 }
+
+std::vector<Param> Parser::ParseParams() {
+    std::vector<Param> params;
+    while (Peek().type != TokenType::RParen) {
+
+        if (Peek().type == TokenType::LBrace || Peek().type == TokenType::EOF_TOKEN) {
+            break;
+        }
+
+        std::string paramName = std::string(Consume(TokenType::Id, "Expected parameter name").value);
+        Consume(TokenType::Colon, "Expected ':' after parameter name");
+        std::string typeName = std::string(Consume(TokenType::Id, "Expected type name").value);
+
+        IgnType paramType;
+        paramType.isPtr = false;
+        paramType.isStruct = false;
+        paramType.isArray = false;
+        paramType.isRef = false;
+        paramType.base = typeName;
+
+        Param param;
+        param.name = paramName;
+        param.type = paramType;
+
+        params.push_back(param);
+
+        if (Peek().type == TokenType::Comma) {
+            Advance();
+        } else {
+            break;
+        }
+    }
+    return params;
+}
+
+void Parser::ParseBody(Node &funcNode) {
+    while (!IsAtEnd() && Peek().type != TokenType::RBrace) {
+        if (Peek().type == TokenType::KReturn) {
+            Node returnNode = ParseReturn();
+            NodeId childId = arena.create(returnNode);
+            funcNode.body.push_back(childId);
+        } else {
+            AddError(std::string("Statement type not yet supported in body: ") + std::string(Peek().value), Peek());
+            // synchronize to next statement boundary to avoid cascading errors
+            Synchronize(TokenType::RBrace);
+            if (Peek().type == TokenType::Semi) Advance();
+        }
+    }
+}
+
+Node Parser::ParseReturn() {
+    Consume(TokenType::KReturn, "Expected 'return'");
+    
+    Node returnNode;
+    returnNode.nodeType = NodeType::TRet;
+
+    Token returnValue = Consume(TokenType::ConstInt, "Expected return value");
+    returnNode.intValue = std::stoi(std::string(returnValue.value));
+    
+    Consume(TokenType::Semi, "Expected ';' after return statement");
+    
+    return returnNode;
+}
+
 
 Token Parser::Peek() {
     if (IsAtEnd()) {
@@ -59,9 +154,73 @@ bool Parser::IsAtEnd() {
 
 Token Parser::Consume(TokenType expectedType, std::string errMsg) {
     if (Peek().type == expectedType) {
+        lastConsumeSynthetic = false;
         return Advance();
     }
-    throw std::runtime_error(
-        errMsg + " Found: " + std::string(Peek().value)
-    );
+    AddError(errMsg + " Found: " + std::string(Peek().value), Peek());
+
+    // Attempt to synchronize: advance until we find the expected token or a safe recovery token
+    while (!IsAtEnd()) {
+        TokenType t = Peek().type;
+        if (t == expectedType) {
+            return Advance();
+        }
+
+        if (t == TokenType::Semi || t == TokenType::RBrace || t == TokenType::RParen || t == TokenType::Comma || t == TokenType::EOF_TOKEN || (expectedType == TokenType::RParen && t == TokenType::LBrace)) {
+            // stop synchronizing here; return a synthetic token for the expected type
+            break;
+        }
+        Advance();
+    }
+
+
+    unsigned long curPos = pos < tokens.size() ? tokens[pos].pos : (unsigned long)source.size();
+    std::string_view emptyView = curPos <= source.size() ? std::string_view(source.data() + curPos, 0) : std::string_view();
+    lastConsumeSynthetic = true;
+    return Token(expectedType, curPos, emptyView);
+}
+
+void Parser::Synchronize(TokenType expectedType) {
+
+    while (!IsAtEnd() && Peek().type != expectedType) {
+        TokenType t = Peek().type;
+        if (t == TokenType::Semi || t == TokenType::RBrace || t == TokenType::RParen || t == TokenType::EOF_TOKEN) {
+            return;
+        }
+        Advance();
+    }
+}
+
+void Parser::AddError(const std::string &msg, const Token &tok) {
+    ParseError e;
+    e.message = msg;
+    e.pos = tok.pos;
+    e.tokenValue = std::string(tok.value);
+
+
+    unsigned long line = 1;
+    unsigned long column = 1;
+    unsigned long maxPos = std::min<unsigned long>(tok.pos, source.size());
+    for (unsigned long i = 0; i < maxPos; ++i) {
+        if (source[i] == '\n') {
+            ++line;
+            column = 1;
+        } else {
+            ++column;
+        }
+    }
+    e.line = line;
+    e.column = column;
+
+    errors.push_back(e);
+}
+
+void Parser::ReportErrors() {
+    if (errors.empty()) return;
+    std::cerr << "Found " << errors.size() << " parse error(s):\n";
+    for (auto &e : errors) {
+        std::cerr << "Error: " << e.message << " at line " << e.line << ", column " << e.column;
+        if (!e.tokenValue.empty()) std::cerr << " (token: '" << e.tokenValue << "')";
+        std::cerr << "\n";
+    }
 }
