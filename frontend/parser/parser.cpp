@@ -255,6 +255,11 @@ void Parser::ParseBody(NodeId funcId)
                 arena.get(funcId).vars.push_back(var);
             }
         }
+        else if (Peek().type == TokenType::KIF) {
+            Node ifNode = ParseIf();
+            NodeId ifId = arena.create(ifNode);
+            arena.get(funcId).body.push_back(ifId);
+        }
         else
         {
             AddError(std::string("Statement type not yet supported in body: ") + std::string(Peek().value), Peek());
@@ -265,6 +270,11 @@ void Parser::ParseBody(NodeId funcId)
         }
     }
 }
+
+Node Parser::ParseIf() {
+
+}
+
 
 Node Parser::ParseReturn()
 {
@@ -342,9 +352,26 @@ Node Parser::ParseAssignment()
 
 Node Parser::ParseExpr()
 {
-    Node left = ParseTerm();
+    Node left = ParseLogic();
     while (Peek().type == TokenType::Operator && (Peek().value == "+" || Peek().value == "-"))
     {
+        Token op = Advance();
+        Node right = ParseLogic();
+        Node binNode;
+        binNode.nodeType = NodeType::TExpr;
+        binNode.exprKind = ExprType::ExprBinary;
+        binNode.op = std::string(op.value);
+        binNode.exprType.base = PrimType::PTI32;
+        binNode.body.push_back(arena.create(left));
+        binNode.body.push_back(arena.create(right));
+        left = binNode;
+    }
+    return left;
+}
+
+Node Parser::ParseLogic() {
+    Node left = ParseTerm();
+    while (Peek().type == TokenType::Operator && (Peek().value == "<" || Peek().value == ">" || Peek().value == "<=" || Peek().value == ">=" || Peek().value == "==" || Peek().value == "!=")) {
         Token op = Advance();
         Node right = ParseTerm();
         Node binNode;
@@ -359,7 +386,7 @@ Node Parser::ParseExpr()
     return left;
 }
 
-// ParseTerm obsługuje *, /, %
+
 Node Parser::ParseTerm()
 {
     Node left = ParseFactor();

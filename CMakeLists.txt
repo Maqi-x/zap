@@ -16,4 +16,4 @@ add_executable(Ignis main.cpp
         frontend/sema/sema.cpp
         backend/C/codegen.h
         backend/C/codegen.cpp
-        )
+)

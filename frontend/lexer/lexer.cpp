@@ -65,10 +65,23 @@ std::vector<Token> Lexer::Tokenize(std::string_view content)
             Advance();
             continue;
         }
-        // =
+        // =, ==
         if (c == '=')
         {
-            tokens.emplace_back(TokenType::Assign, pos, std::string_view(current_file.data() + pos, 1));
+            if (Peek(1) == '=') {
+                tokens.emplace_back(TokenType::Operator, pos, std::string_view(current_file.data() + pos, 2));
+                Advance();
+                Advance();
+                continue;
+            }else {
+                tokens.emplace_back(TokenType::Assign, pos, std::string_view(current_file.data() + pos, 1));
+                Advance();
+                continue;
+            }
+        }
+        // > , <
+        if (c == '<' || c == '>') {
+            tokens.emplace_back(TokenType::Operator, pos, std::string_view(current_file.data() + pos, 1));
             Advance();
             continue;
         }

@@ -42,10 +42,12 @@ public:
     void ParseBody(NodeId funcId);
     Node ParseReturn();
     Node ParseLet();
+    Node ParseIf();
     Node ParseAssignment();
     Node ParseExpr();
     Node ParseTerm();
     Node ParseFactor();
+    Node ParseLogic();
     void AddError(const std::string &msg, const Token &tok);
     void ReportErrors(const std::string &filePath = "");
     void Synchronize(TokenType expectedType);
