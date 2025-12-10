@@ -11,17 +11,9 @@ Ignis is a modern compiled programming language designed with a focus on clarity
   - [Prerequisites](#prerequisites)
   - [Installation](#installation)
   - [Building from Source](#building-from-source)
-- [Language Syntax](#language-syntax)
-  - [Functions](#functions)
-  - [Variables](#variables)
-  - [Types](#types)
-  - [Function Calls](#function-calls)
-- [Usage](#usage)
   - [Compiling to C](#compiling-to-c)
   - [Running Programs](#running-programs)
-- [Examples](#examples)
 - [Architecture](#architecture)
-- [Project Structure](#project-structure)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -65,66 +57,16 @@ make
 ./Ignis -h
 ```
 
-## Language Syntax
-
-### Functions
-
-Define functions with the `fn` keyword:
-
-```ignis
-fn greet(name: string) -> void{
-    writeLn("Hello, " + name);
-}
-```
-
-**Forward declaration**:
+### Hello World
+**hello.ign:**
 ```ignis
 fn writeLn(str: string, ...) -> i32;
-```
 
-### Variables
-
-Declare mutable variables with `let`:
-
-```ignis
-fn main() -> i32 {
-    let count: i32 = 42;
-    let message: string = "Hello, World!";
-    return 0;
-}
-```
-
-### Types
-
-Ignis supports the following primitive types:
-
-| Type | Description | C Equivalent |
-|------|-------------|--------------|
-| `i32` | 32-bit signed integer | `int32_t` |
-| `f32` | 32-bit floating-point | `float` |
-| `string` | String | `const char*` |
-| `bool` | Boolean | `bool` |
-| `char` | Character | `char` |
-| `void` | No type | `void` |
-
-### Function Calls
-
-Call functions with arguments:
-
-```ignis
 fn main() -> i32 {
     writeLn("Hello, World!");
-    writeLn("Value: ", 42);
     return 0;
 }
 ```
-
-**Variadic arguments** are supported using `...`:
-```ignis
-fn printf(format: string, ...) -> i32;
-```
-
-## Usage
 
 ### Compiling to C
 
@@ -145,39 +87,12 @@ gcc -o program output.c ignis_std.c
 ./program
 ```
 
-## Examples
-
-### Hello World
-
-**hello.ign:**
-```ignis
-fn writeLn(str: string, ...) -> i32;
-
-fn main() -> i32 {
-    writeLn("Hello, World!");
-    return 0;
-}
-```
-
 Compile and run:
 ```bash
 ./Ignis -cc hello.ign hello.c
 gcc -o hello hello.c ignis_std.c
 ./hello
 ```
-
-### Working with Variables
-
-```ignis
-fn main() -> i32 {
-    let x: i32 = 10;
-    let y: i32 = 20;
-    let sum: i32 = x + y;
-    writeLn("Sum: ", sum);
-    return 0;
-}
-```
-
 ## Architecture
 
 Ignis uses a multi-stage compilation pipeline:
@@ -227,30 +142,26 @@ To contribute:
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-## Roadmap
-
-### Phase 1 (Current)
-- [x] Basic function definitions
-- [x] Function calls with arguments
-- [x] Variable declarations
-- [x] Return statements
-- [x] Lexer, Parser, Semantic Analyzer
-- [x] C code generation
-
-### Phase 2 (Planned)
-- [x] Control flow (if/else, loops)
-- [x] Operators (arithmetic, logical, comparison)
-- [ ] Arrays and pointers
-- [ ] Structs and enums
-- [ ] Error handling
-- [ ] More type support
-
-### Phase 3 (Future)
-- [ ] Modules and imports
-- [ ] Generics/Templates
-- [ ] Traits/Interfaces
-- [ ] Pattern matching
-- [ ] Direct compilation (without C intermediate)
+| Phase         | feature                                     | Status |
+|---------------|---------------------------------------------|--------|
+| **pre-alpha** | Basic function definitions                  | ✔️     |
+|               | Function calls with arguments               | ✔️     |
+|               | Variable declarations                       | ✔️     |
+|               | Return statements                           | ✔️     |
+|               | Lexer, Parser, Semantic Analyzer            | ✔️     |
+|               | C code generation                           | ✔️     |
+|               | Control flow (if/else, loops)               | ✔️     |
+|               | Operators (arithmetic, logical, comparison) | ✔️     |
+|               | Arrays and pointers                         | ⚒️     |
+|               | Structs and enums                           | ⚒️     |
+|               | Error handling                              | ⏳      |
+|               | More type support                           | ⏳      |
+|               | Modules and imports                         | ⏳      |
+|               | Generics/Templates                          | ⏳      |
+| **1.0**       | Direct compilation (LLVM)                   | ⏳      |
+|               | Standard library                            | ⚒️     | 
+|               | Traits/Interfaces)                          | ⏳      |
+|               | Pattern matching                            | ⏳      |
 
 ## License
 
