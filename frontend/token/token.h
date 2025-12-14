@@ -6,13 +6,15 @@
 #define IGNIS_TOKEN_H
 #include <string_view>
 
-enum TokenType {
+enum TokenType
+{
   KFn,
   KReturn,
   KLet,
   KIF,
   KWhile,
   KStruct,
+  KEnum,   // enum keyword for enum declarations
   KModule, // module keyword for namespaces
   KImport, // import keyword for importing modules
   KExtern, // extern keyword for C interoperability
@@ -37,12 +39,14 @@ enum TokenType {
   EOF_TOKEN
 };
 
-struct Token {
+struct Token
+{
   TokenType type;
   unsigned long pos;
   std::string_view value;
 
-  Token(TokenType t, unsigned long pos, std::string_view val) {
+  Token(TokenType t, unsigned long pos, std::string_view val)
+  {
     this->type = t;
     this->pos = pos;
     this->value = val;

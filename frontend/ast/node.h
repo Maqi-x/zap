@@ -21,6 +21,7 @@ enum NodeType
   TExpr,
   TAssign,
   TStruct,
+  TEnum,   // for enum declarations
   TModule, // for namespace/module declarations
   TImport, // for import statements
 };
@@ -86,6 +87,17 @@ struct StructDef
   std::vector<StructField> fields;
 };
 
+struct EnumEntry
+{
+  std::string name;
+};
+
+struct EnumDef
+{
+  std::string name;
+  std::vector<EnumEntry> entries;
+};
+
 struct ModuleDef
 {
   std::vector<std::string> namespaces;
@@ -109,6 +121,7 @@ struct Node
   bool isDeclaration = false; // true for fn foo(); false for fn foo() { ... }
   bool isExtern = false;      // true for extern fn foo
   StructDef structDef;
+  EnumDef enumDef;     // for TEnum nodes
   ModuleDef moduleDef; // for TModule nodes
   std::map<std::string, NodeId> structFields;
   NodeId fieldObject;

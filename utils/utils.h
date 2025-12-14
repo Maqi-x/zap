@@ -9,81 +9,148 @@
 #include <string>
 #include <string_view>
 
-inline bool isAlpha(char c) {
+inline bool isAlpha(char c)
+{
   return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
 }
 
-inline bool isKeyword(std::string_view keyword) {
-  if (keyword == "fn") {
+inline bool isKeyword(std::string_view keyword)
+{
+  if (keyword == "fn")
+  {
     return true;
-  } else if (keyword == "return") {
+  }
+  else if (keyword == "return")
+  {
     return true;
-  } else if (keyword == "let") {
+  }
+  else if (keyword == "let")
+  {
     return true;
-  } else if (keyword == "if") {
+  }
+  else if (keyword == "if")
+  {
     return true;
-  } else if (keyword == "while") {
+  }
+  else if (keyword == "while")
+  {
     return true;
-  } else if (keyword == "struct") {
+  }
+  else if (keyword == "struct")
+  {
     return true;
-  } else if (keyword == "module") {
+  }
+  else if (keyword == "enum")
+  {
     return true;
-  } else if (keyword == "import") {
+  }
+  else if (keyword == "module")
+  {
     return true;
-  } else if (keyword == "extern") {
+  }
+  else if (keyword == "import")
+  {
     return true;
-  } else {
+  }
+  else if (keyword == "extern")
+  {
+    return true;
+  }
+  else
+  {
     return false;
   }
 }
 
-inline bool isOperator(char op) {
-  if (op == '+' || op == '-' || op == '/' || op == '%') {
+inline bool isOperator(char op)
+{
+  if (op == '+' || op == '-' || op == '/' || op == '%')
+  {
     return true;
-  } else {
+  }
+  else
+  {
     return false;
   }
 }
 
-inline TokenType getTokenType(std::string_view token) {
-  if (token == "fn") {
+inline TokenType getTokenType(std::string_view token)
+{
+  if (token == "fn")
+  {
     return TokenType::KFn;
-  } else if (token == "return") {
+  }
+  else if (token == "return")
+  {
     return TokenType::KReturn;
-  } else if (token == "let") {
+  }
+  else if (token == "let")
+  {
     return TokenType::KLet;
-  } else if (token == "if") {
+  }
+  else if (token == "if")
+  {
     return TokenType::KIF;
-  } else if (token == "while") {
+  }
+  else if (token == "while")
+  {
     return TokenType::KWhile;
-  } else if (token == "struct") {
+  }
+  else if (token == "struct")
+  {
     return TokenType::KStruct;
-  } else if (token == "module") {
+  }
+  else if (token == "enum")
+  {
+    return TokenType::KEnum;
+  }
+  else if (token == "module")
+  {
     return TokenType::KModule;
-  } else if (token == "import") {
+  }
+  else if (token == "import")
+  {
     return TokenType::KImport;
-  } else if (token == "extern") {
+  }
+  else if (token == "extern")
+  {
     return TokenType::KExtern;
-  } else {
+  }
+  else
+  {
     // TODO: add to error list
     exit(1);
   }
 }
 
-inline PrimType stringToPrimType(const std::string &typeStr) {
-  if (typeStr == "i32") {
+inline PrimType stringToPrimType(const std::string &typeStr)
+{
+  if (typeStr == "i32")
+  {
     return PrimType::PTI32;
-  } else if (typeStr == "f32") {
+  }
+  else if (typeStr == "f32")
+  {
     return PrimType::PTF32;
-  } else if (typeStr == "bool") {
+  }
+  else if (typeStr == "bool")
+  {
     return PrimType::PTBool;
-  } else if (typeStr == "char") {
+  }
+  else if (typeStr == "char")
+  {
     return PrimType::PTChar;
-  } else if (typeStr == "string") {
+  }
+  else if (typeStr == "string")
+  {
     return PrimType::PTString;
-  } else if (typeStr == "void") {
+  }
+  else if (typeStr == "void")
+  {
     return PrimType::PTVoid;
-  } else {
+  }
+  else
+  {
     return PrimType::PTUserType;
   }
 }

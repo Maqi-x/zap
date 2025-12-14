@@ -23,6 +23,7 @@ namespace ignis
         code << "\n";
 
         std::set<std::string> emittedStructs;
+        std::set<std::string> emittedEnums;
         std::set<std::string> emittedFuncs;
         for (size_t i = 0; i < arena.size(); ++i)
         {
@@ -34,6 +35,13 @@ namespace ignis
             if (emittedStructs.count(node.funcName))
               continue;
             emittedStructs.insert(node.funcName);
+            emitNode(node, arena, "");
+          }
+          else if (node.nodeType == TEnum)
+          {
+            if (emittedEnums.count(node.funcName))
+              continue;
+            emittedEnums.insert(node.funcName);
             emitNode(node, arena, "");
           }
         }
@@ -112,6 +120,20 @@ namespace ignis
             }
             code << "} " << mangled << ";\n\n";
           }
+          break;
+        }
+        case TEnum:
+        {
+          std::string mangled = mangle(node.funcName);
+          code << "typedef enum " << mangled << " {\n";
+          for (size_t i = 0; i < node.enumDef.entries.size(); ++i)
+          {
+            code << "    " << mangled << "_" << node.enumDef.entries[i].name;
+            if (i < node.enumDef.entries.size() - 1)
+              code << ",";
+            code << "\n";
+          }
+          code << "} " << mangled << ";\n\n";
           break;
         }
         case TFun:
@@ -439,7 +461,7 @@ namespace ignis
           if (i + 1 < name.size() && name[i] == ':' && name[i + 1] == ':')
           {
             out += '_';
-            ++i; // skip next ':'
+            ++i;
             continue;
           }
           char c = name[i];
@@ -450,7 +472,7 @@ namespace ignis
           }
           else if (c == '_')
           {
-            out += "__"; // avoid collisions with our separator
+            out += "__";
           }
           else
           {

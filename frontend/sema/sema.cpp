@@ -149,6 +149,82 @@ void SemanticAnalyzer::AnalyzeFunctionBody(Node &funcNode, NodeArena &arena,
     {
       AnalyzeExpression(childNode, arena, source);
     }
+    else if (childNode.nodeType == NodeType::TIf)
+    {
+      // Analyze condition
+      if (childNode.body.size() > 0)
+      {
+        Node &condNode = arena.get(childNode.body[0]);
+        AnalyzeExpression(condNode, arena, source);
+      }
+      // Analyze body statements
+      for (size_t i = 1; i < childNode.body.size(); ++i)
+      {
+        Node &stmtNode = arena.get(childNode.body[i]);
+        if (stmtNode.nodeType == NodeType::TRet)
+        {
+          AnalyzeReturnStatement(stmtNode, arena, source);
+        }
+        else if (stmtNode.nodeType == NodeType::TLet)
+        {
+          AnalyzeLetStatement(stmtNode, arena, source);
+        }
+        else if (stmtNode.nodeType == NodeType::TAssign)
+        {
+          // Analyze assignment RHS expression
+          if (stmtNode.body.size() > 0)
+          {
+            Node &rhsExpr = arena.get(stmtNode.body[0]);
+            AnalyzeExpression(rhsExpr, arena, source);
+          }
+        }
+        else if (stmtNode.nodeType == NodeType::TExpr)
+        {
+          AnalyzeExpression(stmtNode, arena, source);
+        }
+        else if (stmtNode.nodeType == NodeType::TIf ||
+                 stmtNode.nodeType == NodeType::TWhile)
+        {
+          // Recursively handle nested if/while statements
+          // For now, just skip them - proper implementation would recurse
+        }
+      }
+    }
+    else if (childNode.nodeType == NodeType::TWhile)
+    {
+      // Analyze condition
+      if (childNode.body.size() > 0)
+      {
+        Node &condNode = arena.get(childNode.body[0]);
+        AnalyzeExpression(condNode, arena, source);
+      }
+      // Analyze body statements
+      for (size_t i = 1; i < childNode.body.size(); ++i)
+      {
+        Node &stmtNode = arena.get(childNode.body[i]);
+        if (stmtNode.nodeType == NodeType::TRet)
+        {
+          AnalyzeReturnStatement(stmtNode, arena, source);
+        }
+        else if (stmtNode.nodeType == NodeType::TLet)
+        {
+          AnalyzeLetStatement(stmtNode, arena, source);
+        }
+        else if (stmtNode.nodeType == NodeType::TAssign)
+        {
+          // Analyze assignment RHS expression
+          if (stmtNode.body.size() > 0)
+          {
+            Node &rhsExpr = arena.get(stmtNode.body[0]);
+            AnalyzeExpression(rhsExpr, arena, source);
+          }
+        }
+        else if (stmtNode.nodeType == NodeType::TExpr)
+        {
+          AnalyzeExpression(stmtNode, arena, source);
+        }
+      }
+    }
     else
     {
       std::cout << "Sema: Function body node type " << childNode.nodeType
@@ -373,6 +449,16 @@ void SemanticAnalyzer::AnalyzeExpression(Node &exprNode, NodeArena &arena,
 
   if (exprNode.exprKind == ExprType::ExprFuncCall)
   {
+    // Analyze function call arguments recursively
+    for (NodeId argId : exprNode.exprArgs)
+    {
+      if (argId < arena.size())
+      {
+        Node &argNode = arena.get(argId);
+        AnalyzeExpression(argNode, arena, source);
+      }
+    }
+
     std::string resolvedName = exprNode.funcName;
 
     size_t firstColonPos = exprNode.funcName.find("::");
@@ -401,6 +487,30 @@ void SemanticAnalyzer::AnalyzeExpression(Node &exprNode, NodeArena &arena,
     }
     std::cout << "Sema: Warning - Function '" << exprNode.funcName
               << "' not found in registered symbols\n";
+    return;
+  }
+
+  if (exprNode.exprKind == ExprType::ExprBinary)
+  {
+
+    if (exprNode.body.size() >= 2)
+    {
+      Node &leftOp = arena.get(exprNode.body[0]);
+      Node &rightOp = arena.get(exprNode.body[1]);
+      AnalyzeExpression(leftOp, arena, source);
+      AnalyzeExpression(rightOp, arena, source);
+    }
+    return;
+  }
+
+  if (exprNode.exprKind == ExprType::ExprUnary)
+  {
+    // Analyze operand of unary expression
+    if (exprNode.body.size() >= 1)
+    {
+      Node &operand = arena.get(exprNode.body[0]);
+      AnalyzeExpression(operand, arena, source);
+    }
     return;
   }
 

@@ -41,6 +41,11 @@ Node Parser::ParseStatement()
     definedStructs.insert(structNode.funcName);
     return structNode;
   }
+  else if (Peek().type == TokenType::KEnum)
+  {
+    Node enumNode = ParseEnum();
+    return enumNode;
+  }
   else if (Peek().type == TokenType::KModule)
   {
     Node moduleNode = ParseModule();
@@ -129,7 +134,7 @@ Node Parser::ParseFunction(bool isExtern)
   {
     // Declaration only
     funcNode.isDeclaration = true;
-    funcNode.isExtern = isExtern; // Set extern flag
+    funcNode.isExtern = isExtern;
     Consume(TokenType::Semi, "Expected ';' after function declaration");
   }
   else
@@ -212,6 +217,68 @@ Node Parser::ParseStruct()
   return arena.get(structId);
 }
 
+Node Parser::ParseEnum()
+{
+  Consume(TokenType::KEnum, "Expected 'enum'");
+
+  Token enumNameTok = Consume(TokenType::Id, "Expected enum name");
+  std::string enumName = std::string(enumNameTok.value);
+
+  std::string qualifiedEnumName;
+  if (!currentNamespace.empty())
+  {
+    qualifiedEnumName = "";
+    for (size_t i = 0; i < currentNamespace.size(); ++i)
+    {
+      if (i)
+        qualifiedEnumName += "::";
+      qualifiedEnumName += currentNamespace[i];
+    }
+    qualifiedEnumName += "::";
+    qualifiedEnumName += enumName;
+  }
+  else
+  {
+    qualifiedEnumName = enumName;
+  }
+
+  Consume(TokenType::LBrace, "Expected '{' after enum name");
+
+  Node enumNode;
+  enumNode.nodeType = NodeType::TEnum;
+  enumNode.funcName = qualifiedEnumName;
+
+  std::vector<EnumEntry> entries;
+
+  while (Peek().type != TokenType::RBrace && !IsAtEnd())
+  {
+    Token entryNameTok = Consume(TokenType::Id, "Expected enum entry name");
+    std::string entryName = std::string(entryNameTok.value);
+
+    EnumEntry entry;
+    entry.name = entryName;
+    entries.push_back(entry);
+
+    if (Peek().type == TokenType::Comma)
+    {
+      Advance();
+    }
+    else if (Peek().type != TokenType::RBrace)
+    {
+      AddError("Expected ',' or '}' after enum entry", Peek());
+      break;
+    }
+  }
+
+  Consume(TokenType::RBrace, "Expected '}' after enum entries");
+
+  enumNode.enumDef.name = qualifiedEnumName;
+  enumNode.enumDef.entries = entries;
+
+  NodeId enumId = arena.create(enumNode);
+  return arena.get(enumId);
+}
+
 Node Parser::ParseModule()
 {
   Consume(TokenType::KModule, "Expected 'module'");
@@ -256,6 +323,12 @@ Node Parser::ParseModule()
       definedStructs.insert(structNode.funcName);
       NodeId structId = arena.create(structNode);
       arena.get(moduleId).body.push_back(structId);
+    }
+    else if (Peek().type == TokenType::KEnum)
+    {
+      Node enumNode = ParseEnum();
+      NodeId enumId = arena.create(enumNode);
+      arena.get(moduleId).body.push_back(enumId);
     }
     else if (Peek().type == TokenType::KModule)
     {
@@ -324,7 +397,7 @@ Node Parser::ParseImport()
   }
   else
   {
-    // Build possibly qualified import name: std::io
+
     while (Peek().type == TokenType::DoubleColon)
     {
       Advance(); // consume '::'
@@ -365,7 +438,6 @@ IgnType Parser::ParseType()
     type.isPtr = true;
   }
 
-  // Parse base type, potentially with namespace: Name1::Name2::Type
   Token typeNameTok = Consume(TokenType::Id, "Expected type name");
   std::string typeName = std::string(typeNameTok.value);
 
@@ -458,16 +530,15 @@ void Parser::ParseBody(NodeId funcId)
     }
     else if (Peek().type == TokenType::Id)
     {
-      // Check lookahead tokens to determine what kind of statement this is
+
       TokenType next = Peek(1).type;
 
-      // Determine if this might be a qualified name (with ::)
       size_t lookahead = 1;
       while (lookahead < 10 && Peek(lookahead).type == TokenType::DoubleColon)
       {
-        lookahead++; // skip ::
+        lookahead++;
         if (lookahead < 10 && Peek(lookahead).type == TokenType::Id)
-          lookahead++; // skip next identifier
+          lookahead++;
         next = (lookahead < 10) ? Peek(lookahead).type : TokenType::EOF_TOKEN;
       }
 
@@ -489,7 +560,7 @@ void Parser::ParseBody(NodeId funcId)
       }
       else if (next == TokenType::LParen)
       {
-        // This is a function call (possibly qualified), parse as expression
+
         Node exprNode = ParseExpr();
         NodeId exprId = arena.create(exprNode);
         arena.get(funcId).body.push_back(exprId);
@@ -766,8 +837,9 @@ Node Parser::ParseTerm()
     left = fieldAccess;
   }
 
-  while (Peek().type == TokenType::Operator &&
-         (Peek().value == "*" || Peek().value == "/" || Peek().value == "%"))
+  while ((Peek().type == TokenType::Operator &&
+          (Peek().value == "/" || Peek().value == "%")) ||
+         Peek().type == TokenType::Star)
   {
     Token op = Advance();
     Node right = ParseFactor();
@@ -907,7 +979,7 @@ Node Parser::ParseFactor()
     }
     else
     {
-      // bare identifier (variable access or similar)
+
       exprNode.exprKind = ExprType::ExprInt; // placeholder
       exprNode.funcName = fullName;
       exprNode.exprType.base =
@@ -972,7 +1044,11 @@ Token Parser::Consume(TokenType expectedType, std::string errMsg)
         t == TokenType::EOF_TOKEN ||
         (expectedType == TokenType::RParen && t == TokenType::LBrace))
     {
-      // stop synchronizing here; return a synthetic token for the expected type
+
+      if (t != TokenType::EOF_TOKEN)
+      {
+        Advance();
+      }
       break;
     }
     Advance();

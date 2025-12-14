@@ -198,8 +198,6 @@ std::vector<Token> Lexer::Tokenize(std::string_view content)
       }
     }
 
-    // + - % (operators, but * is handled separately for pointers, / handled
-    // above)
     if (isOperator(c))
     {
       tokens.emplace_back(TokenType::Operator, pos,

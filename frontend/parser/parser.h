@@ -42,6 +42,7 @@ public:
   Node ParseStatement();
   Node ParseFunction(bool isExtern = false);
   Node ParseStruct();
+  Node ParseEnum();
   Node ParseModule();
   Node ParseImport();
   IgnType ParseType();
