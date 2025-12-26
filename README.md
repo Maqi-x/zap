@@ -96,4 +96,4 @@ Repository:
 
 **Zap**
 
-> Go, with Go’s problems fixed.
+> Go, without Go problems
