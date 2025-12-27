@@ -21,7 +21,7 @@ This document tracks the planned development of the Zap programming language.
 - [ ] enum
 - [ ] struct
 
-## Phase 2 - Core
+## Phase 1 - Core
 
 - [ ] Garbage collector
 
@@ -33,7 +33,7 @@ This document tracks the planned development of the Zap programming language.
 - [ ] pattern matching + each
 - [ ] Error handling (Result<T, E> )
 
-## Phase 3 - Concurrency & Runtime
+## Phase 2 - Concurrency & Runtime
 
 - [ ] Lightweight threads (`zap`)
 - [ ] Typed channels (`chan<T>`)
