@@ -111,6 +111,12 @@ std::vector<Token> Lexer::tokenize(const std::string &input)
     }
     else if (_cur == '-')
     {
+      if (Peek2() == '>')
+      {
+        tokens.push_back(Token(_pos, TokenType::ARROW, "->"));
+        _pos += 2;
+        continue;
+      }
       tokens.push_back(Token(_pos, TokenType::MINUS, "-"));
       ++_pos;
       continue;

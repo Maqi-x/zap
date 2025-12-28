@@ -1,6 +1,8 @@
 #pragma once
 #include "../ast/nodes.hpp"
 #include "../token/token.hpp"
+#include "../sema/sema.hpp"
+#include <memory>
 #include <vector>
 
 class Parser
@@ -9,7 +11,7 @@ public:
   unsigned long long int pos_;
   std::vector<Token> toks_;
   std::shared_ptr<zap::sema::SymbolTable> symTable_;
-  Parser(std::shared_ptr<zap::sema::SymbolTable> symTable) : symTable_(symTable) {}
+  Parser(std::shared_ptr<zap::sema::SymbolTable> symTable) : pos_(0), toks_(), symTable_(symTable) {}
   std::unique_ptr<RootNode> parse(std::vector<Token> toks);
   Token consume(TokenType expected, std::string err_msg = "");
   void advance();

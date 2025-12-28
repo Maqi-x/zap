@@ -3,5 +3,7 @@ source_filename = "zap_module"
 
 define i32 @main() {
 entry:
-  ret i32 6
+  %a = alloca i32, align 4
+  store i32 25, ptr %a, align 4
+  ret i32 2
 }

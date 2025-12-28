@@ -30,7 +30,6 @@ void zap::Compiler::generateFunction(const FunDecl &funDecl)
     }
 
     llvm::Type *returnType = mapType(*funDecl.returnType_);
-
     llvm::FunctionType *funcType =
         llvm::FunctionType::get(returnType, paramTypes, false);
 
@@ -66,7 +65,26 @@ void zap::Compiler::generateBody(const BodyNode &body)
         {
             generateReturn(*retNode);
         }
+        else if (auto *varDecl = dynamic_cast<VarDecl *>(stmt.get()))
+        {
+            generateLet(*varDecl);
+        }
     }
+}
+
+void zap::Compiler::generateLet(const VarDecl &varDecl)
+{
+    llvm::AllocaInst *var = builder_.CreateAlloca(mapType(*varDecl.type_), nullptr, varDecl.name_);
+    llvm::Value *initValue;
+    if (varDecl.initializer_)
+    {
+        initValue = generateExpression(*varDecl.initializer_);
+    }
+    else
+    {
+        initValue = llvm::Constant::getNullValue(mapType(*varDecl.type_));
+    }
+    builder_.CreateStore(initValue, var);
 }
 
 void zap::Compiler::generateReturn(const ReturnNode &retNode)

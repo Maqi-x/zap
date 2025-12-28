@@ -58,19 +58,10 @@ std::unique_ptr<FunDecl> Parser::parseFun()
     func->params_ = parseParameters();
     consume(TokenType::RPAREN, "Expected ')' after params got: " + peek().value);
 
-    if (peek().type == TokenType::MINUS)
+    if (peek().type == TokenType::ARROW)
     {
-        advance();
-        if (peek().type == TokenType::GREATER)
-        {
-            consume(TokenType::GREATER, "Expected '>' after '-' in return type.");
-            func->returnType_ = parseType();
-        }
-        else
-        {
-            printf("Expected '>' after '-' in return type.\n");
-            exit(-1);
-        }
+        advance(); // consume '->'
+        func->returnType_ = parseType();
     }
     if (peek().type == TokenType::SEMICOLON)
     {
@@ -90,8 +81,7 @@ std::unique_ptr<FunDecl> Parser::parseFun()
         exit(-1);
     }
     symTable_->addFunction(zap::sema::FunctionSymbol{
-        func->name_, std::move(func->genericParams_), std::move(func->params_),
-        std::move(func->returnType_), func->isExtern_, func->isStatic_,
+        func->name_, func->isExtern_, func->isStatic_,
         func->isPublic_});
     if (func->name_ == "main")
     {

@@ -31,7 +31,6 @@ int main(int argc, char *argv[])
       fileContent += line + '\n';
     }
     file.close();
-    printf("%s \n", fileContent.c_str());
     Lexer lex;
     auto toks = lex.tokenize(fileContent);
     auto symTable = std::make_shared<sema::SymbolTable>();
