@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
-enum TokenType {
+enum TokenType
+{
   // keywords
 
   IMPORT = 1,
@@ -60,9 +61,11 @@ enum TokenType {
   BREAK = 55,
   CONTINUE = 56,
   ELLIPSIS = 57, // ...
+  CONCAT = 58,   // ~
 };
 
-class Token {
+class Token
+{
 public:
   unsigned int pos;
   TokenType type;

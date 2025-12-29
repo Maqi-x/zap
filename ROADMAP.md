@@ -12,7 +12,8 @@ This document tracks the planned development of the Zap programming language.
 - [x] compiling expressions
 - [x] variable declaration
 - [x] variable reassigment
-- [ ] strings in expressions
+- [x] strings in expressions
+- [x] function calls
 - [ ] if stmt/expression
 - [ ] loops (loop, while, for)
 - [ ] pointers & references

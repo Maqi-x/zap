@@ -30,5 +30,7 @@ namespace zap
         llvm::Type *mapType(const TypeNode &typeNode);
         void emitIRToFile(const std::string &filename);
         void compileIR(const std::string &irFilename, const std::string &outputFilename);
+
+        llvm::Function *getStringConcat(llvm::Module *module, llvm::LLVMContext &context);
     };
 } // namespace zap

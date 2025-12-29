@@ -167,6 +167,12 @@ std::vector<Token> Lexer::tokenize(const std::string &input)
         continue;
       }
     }
+    else if (_cur == '~')
+    {
+      tokens.push_back(Token(_pos, TokenType::CONCAT, "~"));
+      ++_pos;
+      continue;
+    }
     else if (_cur == '=')
     {
       if (Peek2() == '=')

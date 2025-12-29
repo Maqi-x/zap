@@ -144,7 +144,7 @@ std::unique_ptr<ExpressionNode> Parser::parseExpression()
 std::unique_ptr<ExpressionNode> Parser::parseTerm()
 {
     std::unique_ptr<ExpressionNode> left = parseFactor();
-    while (peek().type == TokenType::PLUS || peek().type == TokenType::MINUS)
+    while (peek().type == TokenType::PLUS || peek().type == TokenType::MINUS || peek().type == TokenType::CONCAT)
     {
         Token operatorToken = next();
         std::unique_ptr<ExpressionNode> right = parseFactor();

@@ -8,6 +8,9 @@
 #include "llvm/IR/Type.h"
 #include "llvm/Support/raw_ostream.h"
 #include "ast/const/const_id.hpp"
+#include "ast/const/const_float.hpp"
+#include "ast/unary_expr.hpp"
+#include "ast/fun_call.hpp"
 #include <fstream>
 #include <iostream>
 #include <cstdlib>
@@ -89,6 +92,11 @@ void zap::Compiler::generateLet(const VarDecl &varDecl)
     if (varDecl.initializer_)
     {
         initValue = generateExpression(*varDecl.initializer_);
+        if (!initValue)
+        {
+            std::cerr << "Failed to generate initializer expression for variable '" << varDecl.name_ << "'" << std::endl;
+            return;
+        }
     }
     else
     {
@@ -114,6 +122,11 @@ void zap::Compiler::generateAssign(const AssignNode &assignNode)
     if (it != currentScope_->variables.end() && it->second.allocator)
     {
         llvm::Value *exprValue = generateExpression(*assignNode.expr_);
+        if (!exprValue)
+        {
+            std::cerr << "Failed to generate expression for assignment to '" << assignNode.target_ << "'" << std::endl;
+            return;
+        }
         builder_.CreateStore(exprValue, it->second.allocator);
     }
 }
@@ -124,6 +137,11 @@ void zap::Compiler::generateReturn(const ReturnNode &retNode)
     {
         // TODO: check functon return type
         llvm::Value *retValue = generateExpression(*retNode.returnValue);
+        if (!retValue)
+        {
+            std::cerr << "Failed to generate return value expression" << std::endl;
+            return;
+        }
         builder_.CreateRet(retValue);
     }
     else
@@ -138,6 +156,17 @@ llvm::Value *zap::Compiler::generateExpression(const ExpressionNode &expr)
     {
         llvm::Value *value = llvm::ConstantInt::get(
             llvm::Type::getInt32Ty(context_), constInt->value_);
+        return value;
+    }
+    else if (auto *constFloat = dynamic_cast<const ConstFloat *>(&expr))
+    {
+        llvm::Value *value = llvm::ConstantFP::get(
+            llvm::Type::getFloatTy(context_), constFloat->value_);
+        return value;
+    }
+    else if (auto *constString = dynamic_cast<const ConstString *>(&expr))
+    {
+        llvm::Value *value = builder_.CreateGlobalStringPtr(constString->value_);
         return value;
     }
     else if (auto *constId = dynamic_cast<const ConstId *>(&expr))
@@ -179,14 +208,94 @@ llvm::Value *zap::Compiler::generateExpression(const ExpressionNode &expr)
         {
             result = builder_.CreateSDiv(leftValue, rightValue);
         }
+        else if (binExpr->op_ == "~")
+        {
+
+            result = builder_.CreateCall(getStringConcat(&this->module_, context_), {leftValue, rightValue});
+        }
 
         return result;
+    }
+    else if (auto *unaryExpr = dynamic_cast<const UnaryExpr *>(&expr))
+    {
+        llvm::Value *operandValue = generateExpression(*unaryExpr->expr_);
+        if (!operandValue)
+            return nullptr;
+
+        if (unaryExpr->op_ == "-")
+        {
+            return builder_.CreateNeg(operandValue);
+        }
+        else if (unaryExpr->op_ == "!")
+        {
+            return builder_.CreateNot(operandValue);
+        }
+        else if (unaryExpr->op_ == "*")
+        {
+            // TODO: track actual pointed-to type
+            llvm::Type *elementType = llvm::Type::getInt32Ty(context_);
+            if (operandValue->getType()->isPointerTy())
+            {
+
+                return builder_.CreateLoad(elementType, operandValue);
+            }
+            std::cerr << "Dereference operator applied to non-pointer type" << std::endl;
+            return nullptr;
+        }
+        else
+        {
+            std::cerr << "Unsupported unary operator: " << unaryExpr->op_ << std::endl;
+            return nullptr;
+        }
+    }
+    else if (auto *funCall = dynamic_cast<const FunCall *>(&expr))
+    {
+
+        auto funcSymbol = symTable_->getFunction(funCall->funcName_);
+        if (!funcSymbol)
+        {
+            std::cerr << "Function '" << funCall->funcName_ << "' not found" << std::endl;
+            return nullptr;
+        }
+
+        std::vector<llvm::Value *> args;
+        for (const auto &param : funCall->params_)
+        {
+            llvm::Value *argValue = generateExpression(*param);
+            if (!argValue)
+                return nullptr;
+            args.push_back(argValue);
+        }
+
+        // Get the LLVM function
+        llvm::Function *callee = module_.getFunction(funCall->funcName_);
+        if (!callee)
+        {
+            std::cerr << "LLVM function '" << funCall->funcName_ << "' not found" << std::endl;
+            return nullptr;
+        }
+
+        return builder_.CreateCall(callee, args);
     }
     else
     {
         std::cerr << "Unsupported expression type in code generation" << std::endl;
         return nullptr;
     }
+}
+
+llvm::Function *zap::Compiler::getStringConcat(llvm::Module *module, llvm::LLVMContext &context)
+{
+    if (!module)
+        return nullptr;
+    llvm::Function *fn = module->getFunction("str_concat");
+    if (fn)
+        return fn;
+
+    llvm::Type *i8ptr = llvm::Type::getInt8Ty(context)->getPointerTo();
+    llvm::FunctionType *ft = llvm::FunctionType::get(i8ptr, {i8ptr, i8ptr}, false);
+    fn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "str_concat", module);
+    return fn;
 }
 
 llvm::Type *zap::Compiler::mapType(const TypeNode &typeNode)
@@ -225,6 +334,10 @@ llvm::Type *zap::Compiler::mapType(const TypeNode &typeNode)
     else if (typeNode.typeName == "void")
     {
         baseType = llvm::Type::getVoidTy(context_);
+    }
+    else if (typeNode.typeName == "str")
+    {
+        baseType = llvm::Type::getInt8Ty(context_)->getPointerTo();
     }
     else
     {
@@ -270,7 +383,7 @@ void zap::Compiler::compileIR(const std::string &irFilename, const std::string &
 {
 
     std::string objFile = outputFilename + ".o";
-    std::string command = "llc -filetype=obj -o " + objFile + " " + irFilename;
+    std::string command = "llc -filetype=obj -relocation-model=pic -o " + objFile + " " + irFilename;
     std::cout << "Running: " << command << std::endl;
     int result = system(command.c_str());
 
@@ -280,8 +393,7 @@ void zap::Compiler::compileIR(const std::string &irFilename, const std::string &
         return;
     }
 
-    // Use gcc to link to final executable
-    std::string linkCommand = "gcc -o " + outputFilename + " " + objFile;
+    std::string linkCommand = "gcc -fPIE -pie -o " + outputFilename + " " + objFile;
     std::cout << "Running: " << linkCommand << std::endl;
     result = system(linkCommand.c_str());
 
