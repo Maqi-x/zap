@@ -95,6 +95,36 @@ std::unique_ptr<FunDecl> Parser::parseFun()
     return func;
 }
 
+std::unique_ptr<IfNode> Parser::parseIf(zap::sema::Scope &scope)
+{
+    consume(TokenType::IF);
+    auto condition = parseExpression();
+    // parseBody will consume LBRACE and RBRACE
+    auto thenBody = parseBody(scope);
+
+    std::unique_ptr<BodyNode> elseBody = nullptr;
+    if (peek().type == TokenType::ELSE)
+    {
+        advance(); // consume 'else'
+
+         if (peek().type == TokenType::IF)
+        {
+
+            auto elseIfNode = parseIf(scope);
+            // Wrap the else if in a BodyNode
+            elseBody = std::make_unique<BodyNode>();
+            elseBody->addStatement(std::move(elseIfNode));
+        }
+        else
+        {
+
+            elseBody = parseBody(scope);
+        }
+    }
+
+    return std::make_unique<IfNode>(std::move(condition), std::move(thenBody), std::move(elseBody));
+}
+
 std::unique_ptr<VarDecl> Parser::parseVarDecl(zap::sema::Scope &scope)
 {
     /*
@@ -138,7 +168,22 @@ std::unique_ptr<VarDecl> Parser::parseVarDecl(zap::sema::Scope &scope)
 
 std::unique_ptr<ExpressionNode> Parser::parseExpression()
 {
-    return parseTerm();
+    return parseComparison();
+}
+
+std::unique_ptr<ExpressionNode> Parser::parseComparison()
+{
+    std::unique_ptr<ExpressionNode> left = parseTerm();
+    while (peek().type == TokenType::EQUAL || peek().type == TokenType::NOTEQUAL ||
+           peek().type == TokenType::LESSEQUAL || peek().type == TokenType::LESS ||
+           peek().type == TokenType::GREATER || peek().type == TokenType::GREATEREQUAL)
+    {
+        Token operatorToken = next();
+        std::unique_ptr<ExpressionNode> right = parseTerm();
+        left = std::make_unique<BinExpr>(std::move(left), operatorToken.value,
+                                         std::move(right));
+    }
+    return left;
 }
 
 std::unique_ptr<ExpressionNode> Parser::parseTerm()
@@ -343,8 +388,13 @@ std::unique_ptr<StatementNode> Parser::parseStatement(zap::sema::Scope &scope)
         consume(TokenType::SEMICOLON, "Expected ';' after assignment statement.");
         return std::make_unique<AssignNode>(idToken.value, std::move(expr));
     }
+    else if (peek().type == TokenType::IF)
+    {
+        return parseIf(scope);
+    }
     else
     {
+        printf("token type is %d\n", peek().type);
         printf("Unexpected token in statement: %s at position %d\n",
                peek().value.c_str(), peek().pos);
         exit(-1); // Handle unexpected tokens

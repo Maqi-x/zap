@@ -61,7 +61,8 @@ enum TokenType
   BREAK = 55,
   CONTINUE = 56,
   ELLIPSIS = 57, // ...
-  CONCAT = 58,   // ~
+  NOTEQUAL = 58,
+  CONCAT = 59, // ~
 };
 
 class Token

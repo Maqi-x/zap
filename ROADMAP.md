@@ -14,7 +14,7 @@ This document tracks the planned development of the Zap programming language.
 - [x] variable reassigment
 - [x] strings in expressions
 - [x] function calls
-- [ ] if stmt/expression
+- [x] if/else stmt
 - [ ] loops (loop, while, for)
 - [ ] pointers & references
 - [ ] ext stmt (external functions)
@@ -25,8 +25,8 @@ This document tracks the planned development of the Zap programming language.
 ## Phase 1 - Core
 
 - [ ] MIR
+- [ ] If as Expression
 - [ ] Garbage collector
-
 - [ ] modules system + name mangling
 - [ ] generics
 - [ ] methods for struct

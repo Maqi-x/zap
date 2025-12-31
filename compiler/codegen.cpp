@@ -7,6 +7,8 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Type.h"
 #include "llvm/Support/raw_ostream.h"
+#include <llvm/IR/Function.h>
+#include <llvm/IR/BasicBlock.h>
 #include "ast/const/const_id.hpp"
 #include "ast/const/const_float.hpp"
 #include "ast/unary_expr.hpp"
@@ -123,7 +125,50 @@ void zap::Compiler::generateBody(const BodyNode &body, zap::sema::Scope *scope)
 
             generateExpression(*funCall);
         }
+        else if (auto *ifNode = dynamic_cast<IfNode *>(stmt.get()))
+        {
+            generateIf(*ifNode);
+        }
     }
+}
+
+void zap::Compiler::generateIf(const IfNode &ifNode)
+{
+    llvm::Value *condValue = generateExpression(*ifNode.condition_);
+    if (!condValue)
+    {
+        std::cerr << "Failed to generate condition expression for if statement" << std::endl;
+        return;
+    }
+
+    condValue = builder_.CreateICmpNE(
+        condValue, llvm::ConstantInt::get(condValue->getType(), 0), "ifcond");
+
+    llvm::Function *currentFunction = builder_.GetInsertBlock()->getParent();
+
+    llvm::BasicBlock *thenBB = llvm::BasicBlock::Create(context_, "then", currentFunction);
+    llvm::BasicBlock *elseBB = llvm::BasicBlock::Create(context_, "else");
+    llvm::BasicBlock *mergeBB = llvm::BasicBlock::Create(context_, "ifcont");
+
+    builder_.CreateCondBr(condValue, thenBB, elseBB);
+
+    // Then block
+    builder_.SetInsertPoint(thenBB);
+    generateBody(*ifNode.thenBody_, currentScope_);
+    builder_.CreateBr(mergeBB);
+
+    // Else block
+    currentFunction->insert(currentFunction->end(), elseBB);
+    builder_.SetInsertPoint(elseBB);
+    if (ifNode.elseBody_)
+    {
+        generateBody(*ifNode.elseBody_, currentScope_);
+    }
+    builder_.CreateBr(mergeBB);
+
+    // Merge block
+    currentFunction->insert(currentFunction->end(), mergeBB);
+    builder_.SetInsertPoint(mergeBB);
 }
 
 void zap::Compiler::generateLet(const VarDecl &varDecl)
@@ -251,8 +296,31 @@ llvm::Value *zap::Compiler::generateExpression(const ExpressionNode &expr)
         }
         else if (binExpr->op_ == "~")
         {
-
             result = builder_.CreateCall(getStringConcat(&this->module_, context_), {leftValue, rightValue});
+        }
+        else if (binExpr->op_ == "==")
+        {
+            result = builder_.CreateICmpEQ(leftValue, rightValue);
+        }
+        else if (binExpr->op_ == "!=")
+        {
+            result = builder_.CreateICmpNE(leftValue, rightValue);
+        }
+        else if (binExpr->op_ == "<")
+        {
+            result = builder_.CreateICmpSLT(leftValue, rightValue);
+        }
+        else if (binExpr->op_ == "<=")
+        {
+            result = builder_.CreateICmpSLE(leftValue, rightValue);
+        }
+        else if (binExpr->op_ == ">")
+        {
+            result = builder_.CreateICmpSGT(leftValue, rightValue);
+        }
+        else if (binExpr->op_ == ">=")
+        {
+            result = builder_.CreateICmpSGE(leftValue, rightValue);
         }
 
         return result;

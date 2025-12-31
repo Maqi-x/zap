@@ -190,7 +190,7 @@ std::vector<Token> Lexer::tokenize(const std::string &input)
       if (Peek2() == '=')
       {
         _pos++;
-        tokens.push_back(Token(_pos, TokenType::LESSEQUAL, "!="));
+        tokens.push_back(Token(_pos, TokenType::NOTEQUAL, "!="));
       }
       else
       {

@@ -22,6 +22,7 @@ public:
   std::unique_ptr<TypeNode> parseType();
   std::unique_ptr<BodyNode> parseBody(zap::sema::Scope &scope);
   std::unique_ptr<ExpressionNode> parseExpression();
+  std::unique_ptr<ExpressionNode> parseComparison();
   std::unique_ptr<ExpressionNode> parsePrimary();
   std::unique_ptr<ExpressionNode> parseTerm();
   std::unique_ptr<ExpressionNode> parseFactor();
@@ -32,6 +33,7 @@ public:
   std::unique_ptr<StatementNode> parseStatement(zap::sema::Scope &scope);
   std::unique_ptr<VarDecl> parseVarDecl(zap::sema::Scope &scope);
   std::unique_ptr<ReturnNode> parseReturn();
+  std::unique_ptr<IfNode> parseIf(zap::sema::Scope &scope);
   Token peek();
   Token peek(int offset);
   bool isAtEnd();
