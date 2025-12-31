@@ -107,7 +107,7 @@ std::unique_ptr<IfNode> Parser::parseIf(zap::sema::Scope &scope)
     {
         advance(); // consume 'else'
 
-         if (peek().type == TokenType::IF)
+        if (peek().type == TokenType::IF)
         {
 
             auto elseIfNode = parseIf(scope);
@@ -123,6 +123,15 @@ std::unique_ptr<IfNode> Parser::parseIf(zap::sema::Scope &scope)
     }
 
     return std::make_unique<IfNode>(std::move(condition), std::move(thenBody), std::move(elseBody));
+}
+
+std::unique_ptr<WhileNode> Parser::parseWhile(zap::sema::Scope &scope)
+{
+    consume(TokenType::WHILE);
+    auto condition = parseExpression();
+    auto body = parseBody(scope);
+
+    return std::make_unique<WhileNode>(std::move(condition), std::move(body));
 }
 
 std::unique_ptr<VarDecl> Parser::parseVarDecl(zap::sema::Scope &scope)
@@ -391,6 +400,10 @@ std::unique_ptr<StatementNode> Parser::parseStatement(zap::sema::Scope &scope)
     else if (peek().type == TokenType::IF)
     {
         return parseIf(scope);
+    }
+    else if (peek().type == TokenType::WHILE)
+    {
+        return parseWhile(scope);
     }
     else
     {

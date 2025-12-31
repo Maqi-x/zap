@@ -34,6 +34,7 @@ public:
   std::unique_ptr<VarDecl> parseVarDecl(zap::sema::Scope &scope);
   std::unique_ptr<ReturnNode> parseReturn();
   std::unique_ptr<IfNode> parseIf(zap::sema::Scope &scope);
+  std::unique_ptr<WhileNode> parseWhile(zap::sema::Scope &scope);
   Token peek();
   Token peek(int offset);
   bool isAtEnd();

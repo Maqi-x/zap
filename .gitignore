@@ -46,3 +46,7 @@ Makefile
 # Other
 *.log
 /example/main
+
+
+#llvm
+*.ll

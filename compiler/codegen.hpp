@@ -27,6 +27,7 @@ namespace zap
         void generateLet(const VarDecl &varDecl);
         void generateAssign(const AssignNode &assignNode);
         void generateIf(const IfNode &ifNode);
+        void generateWhile(const WhileNode &whileNode);
         llvm::Value *generateExpression(const ExpressionNode &expr);
         llvm::Type *mapType(const TypeNode &typeNode);
         void emitIRToFile(const std::string &filename);

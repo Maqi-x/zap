@@ -129,6 +129,10 @@ void zap::Compiler::generateBody(const BodyNode &body, zap::sema::Scope *scope)
         {
             generateIf(*ifNode);
         }
+        else if (auto *whileNode = dynamic_cast<WhileNode *>(stmt.get()))
+        {
+            generateWhile(*whileNode);
+        }
     }
 }
 
@@ -169,6 +173,42 @@ void zap::Compiler::generateIf(const IfNode &ifNode)
     // Merge block
     currentFunction->insert(currentFunction->end(), mergeBB);
     builder_.SetInsertPoint(mergeBB);
+}
+
+void zap::Compiler::generateWhile(const WhileNode &whileNode)
+{
+    llvm::Function *currentFunction = builder_.GetInsertBlock()->getParent();
+
+    llvm::BasicBlock *condBB = llvm::BasicBlock::Create(context_, "while.cond", currentFunction);
+    llvm::BasicBlock *bodyBB = llvm::BasicBlock::Create(context_, "while.body");
+    llvm::BasicBlock *endBB = llvm::BasicBlock::Create(context_, "while.end");
+
+    // Jump to condition block
+    builder_.CreateBr(condBB);
+
+    // Condition block
+    builder_.SetInsertPoint(condBB);
+    llvm::Value *condValue = generateExpression(*whileNode.condition_);
+    if (!condValue)
+    {
+        std::cerr << "Failed to generate condition expression for while statement" << std::endl;
+        return;
+    }
+
+    condValue = builder_.CreateICmpNE(
+        condValue, llvm::ConstantInt::get(condValue->getType(), 0), "whilecond");
+
+    builder_.CreateCondBr(condValue, bodyBB, endBB);
+
+    // Body block
+    currentFunction->insert(currentFunction->end(), bodyBB);
+    builder_.SetInsertPoint(bodyBB);
+    generateBody(*whileNode.body_, currentScope_);
+    builder_.CreateBr(condBB);
+
+    // End block
+    currentFunction->insert(currentFunction->end(), endBB);
+    builder_.SetInsertPoint(endBB);
 }
 
 void zap::Compiler::generateLet(const VarDecl &varDecl)
