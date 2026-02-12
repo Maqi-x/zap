@@ -18,11 +18,11 @@
 
 ## What is Zap?
 
-**Zap** is a modern, high-level systems programming language compiled to native code (**LLVM backend**), with **garbage collection** and a **lightweight concurrency model**.
+**Zap** is a modern, high-level systems programming language compiled to native code (**LLVM backend**), and a **lightweight concurrency model**.
 
 Zap is built for developers who want to write **high-performance applications** -servers, CLI tools, tooling, and embedded software **quickly, safely, and without frustration**.
 
-Zap behaves very similarly to Go — **by design**. It does not try to reinvent systems programming. Its goal is to **solve the real, long-standing problems of Go**.
+Zap behaves very similarly to Go **by design**. It does not try to reinvent systems programming. Its goal is to **solve the real, long-standing problems of Go**.
 
 ---
 
@@ -31,7 +31,6 @@ Zap behaves very similarly to Go — **by design**. It does not try to reinvent 
 ### Error handling
 
 - `try / catch / throw`
-- `Result<T, E>` and optional types
 
 No more `if err != nil` everywhere.
 
