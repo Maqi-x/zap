@@ -120,9 +120,22 @@ std::vector<Token> Lexer::tokenize(const std::string &input)
     }
     else if (_cur == '/')
     {
-      tokens.emplace_back(startPos, TokenType::DIVIDE, "/");
-      ++_pos;
-      continue;
+      if (Peek2() == '/') // Check for single-line comment
+      {
+        // It's a comment, ignore until the end of the line
+        while (!isAtEnd() && _input[_pos] != '\n')
+        {
+          ++_pos;
+        }
+        continue; // Skip emitting a token
+      }
+      else
+      {
+        // It's a division operator
+        tokens.emplace_back(startPos, TokenType::DIVIDE, "/");
+        ++_pos;
+        continue;
+      }
     }
     else if (_cur == '%')
     {

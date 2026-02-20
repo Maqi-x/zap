@@ -39,6 +39,20 @@ std::unique_ptr<RootNode> Parser::parse() {
 
         eat(TokenType::RPAREN);
 
+        // Check for an explicit return type.
+        if (peek().type != TokenType::LBRACE) {
+            // Assume the next token is an ID representing the return type.
+            Token returnTypeToken = eat(TokenType::ID);
+            funDecl->returnType_ = _builder.makeType(returnTypeToken.value);
+            _builder.setSpan(funDecl->returnType_.get(), returnTypeToken.pos, returnTypeToken.pos + returnTypeToken.value.length());
+        } else {
+            // No explicit return type, default to "void".
+            // We can create a "void" TypeNode. The span can be set to the position of the LBRACE.
+            funDecl->returnType_ = _builder.makeType("void");
+            const auto& nextToken = peek();
+            _builder.setSpan(funDecl->returnType_.get(), nextToken.pos, nextToken.pos);
+        }
+
         eat(TokenType::LBRACE);
 
         funDecl->body_ = parseBody();
