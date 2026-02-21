@@ -18,7 +18,7 @@
 
 ## What is Zap?
 
-**Zap** is a modern, high-level systems programming language compiled to native code (**LLVM backend**), with **reference counting**
+**Zap** is a modern, high-level systems programming language compiled to native code (**LLVM backend**), using **Automatic Reference Counting (ARC)** instead of a Garbage Collector (GC).
 
 Zap is built for developers who want to write **high-performance applications** -servers, CLI tools, tooling, and embedded software **quickly, safely, and without frustration**.
 
