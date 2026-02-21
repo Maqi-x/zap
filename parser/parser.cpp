@@ -1,28 +1,31 @@
-// parser/parser.cpp
 #include "parser.hpp"
 #include <cstdlib>
 #include <iostream>
 
 namespace zap {
 
-Parser::Parser(const std::vector<Token> &tokens) : _tokens(tokens), _pos(0) {}
+Parser::Parser(const std::vector<Token> &tokens, DiagnosticEngine &diag)
+    : _diag(diag), _tokens(tokens), _pos(0) {}
 
 Parser::~Parser() {}
 
 std::unique_ptr<RootNode> Parser::parse() {
   auto root = _builder.makeRoot();
   while (!isAtEnd()) {
-    if (peek().type == TokenType::FUN) {
-      root->addChild(parseFunDecl());
-    } else if (peek().type == TokenType::ENUM) {
-      root->addChild(parseEnumDecl());
-    } else if (peek().type == TokenType::RECORD) {
-      root->addChild(parseRecordDecl());
-    } else {
-      std::cerr << "Parser Error: Unexpected token " << peek().value
-                << " at line " << peek().line << " (pos " << peek().pos << ")"
-                << std::endl;
-      exit(EXIT_FAILURE);
+    try {
+      if (peek().type == TokenType::FUN) {
+        root->addChild(parseFunDecl());
+      } else if (peek().type == TokenType::ENUM) {
+        root->addChild(parseEnumDecl());
+      } else if (peek().type == TokenType::RECORD) {
+        root->addChild(parseRecordDecl());
+      } else {
+        _diag.report(peek().span, DiagnosticLevel::Error,
+                     "Unexpected token " + peek().value);
+        synchronize();
+      }
+    } catch (const ParseError &e) {
+      synchronize();
     }
   }
   return root;
@@ -48,12 +51,13 @@ std::unique_ptr<FunDecl> Parser::parseFunDecl() {
   if (peek().type != TokenType::LBRACE) {
     Token returnTypeToken = eat(TokenType::ID);
     funDecl->returnType_ = _builder.makeType(returnTypeToken.value);
-    _builder.setSpan(funDecl->returnType_.get(), returnTypeToken.pos,
-                     returnTypeToken.pos + returnTypeToken.value.length());
+    _builder.setSpan(funDecl->returnType_.get(), returnTypeToken.span);
   } else {
     funDecl->returnType_ = _builder.makeType("void");
     const auto &nextToken = peek();
-    _builder.setSpan(funDecl->returnType_.get(), nextToken.pos, nextToken.pos);
+    _builder.setSpan(funDecl->returnType_.get(),
+                     SourceSpan(nextToken.span.line, nextToken.span.column,
+                                nextToken.span.offset, 0));
   }
 
   eat(TokenType::LBRACE);
@@ -62,8 +66,8 @@ std::unique_ptr<FunDecl> Parser::parseFunDecl() {
 
   Token rbraceToken = eat(TokenType::RBRACE);
 
-  _builder.setSpan(funDecl.get(), funKeyword.pos,
-                   rbraceToken.pos + rbraceToken.value.length());
+  _builder.setSpan(funDecl.get(),
+                   SourceSpan::merge(funKeyword.span, rbraceToken.span));
 
   return funDecl;
 }
@@ -71,44 +75,43 @@ std::unique_ptr<FunDecl> Parser::parseFunDecl() {
 std::unique_ptr<BodyNode> Parser::parseBody() {
   auto body = _builder.makeBody();
   while (!isAtEnd() && peek().type != TokenType::RBRACE) {
-    if (peek().type == TokenType::VAR) {
-      body->addStatement(parseVarDecl());
-    } else if (peek().type == TokenType::RETURN) {
-      body->addStatement(parseReturnStmt());
-    } else if (peek().type == TokenType::IF) {
-      auto ifNode = parseIf();
-      // Blocky expressions like IF don't necessarily need a semicolon to be a
-      // statement
-      if (peek().type == TokenType::SEMICOLON) {
-        eat(TokenType::SEMICOLON);
-        body->addStatement(std::move(ifNode));
-      } else if (peek().type == TokenType::RBRACE) {
-        body->setResult(std::move(ifNode));
+    try {
+      if (peek().type == TokenType::VAR) {
+        body->addStatement(parseVarDecl());
+      } else if (peek().type == TokenType::RETURN) {
+        body->addStatement(parseReturnStmt());
+      } else if (peek().type == TokenType::IF) {
+        auto ifNode = parseIf();
+        if (peek().type == TokenType::SEMICOLON) {
+          eat(TokenType::SEMICOLON);
+          body->addStatement(std::move(ifNode));
+        } else if (peek().type == TokenType::RBRACE) {
+          body->setResult(std::move(ifNode));
+        } else {
+          body->addStatement(std::move(ifNode));
+        }
+      } else if (peek().type == TokenType::WHILE) {
+        auto whileNode = parseWhile();
+        if (peek().type == TokenType::SEMICOLON) {
+          eat(TokenType::SEMICOLON);
+        }
+        body->addStatement(std::move(whileNode));
+      } else if (peek().type == TokenType::ID &&
+                 peek(1).type == TokenType::ASSIGN) {
+        body->addStatement(parseAssign());
       } else {
-        // Used as a statement without semicolon
-        body->addStatement(std::move(ifNode));
+        auto expr = parseExpression();
+        if (peek().type == TokenType::SEMICOLON) {
+          eat(TokenType::SEMICOLON);
+          body->addStatement(std::move(expr));
+        } else if (peek().type == TokenType::RBRACE) {
+          body->setResult(std::move(expr));
+        } else {
+          body->addStatement(std::move(expr));
+        }
       }
-    } else if (peek().type == TokenType::WHILE) {
-      auto whileNode = parseWhile();
-      if (peek().type == TokenType::SEMICOLON) {
-        eat(TokenType::SEMICOLON);
-      }
-      body->addStatement(std::move(whileNode));
-    } else if (peek().type == TokenType::ID &&
-               peek(1).type == TokenType::ASSIGN) {
-      body->addStatement(parseAssign());
-    } else {
-      auto expr = parseExpression();
-      if (peek().type == TokenType::SEMICOLON) {
-        eat(TokenType::SEMICOLON);
-        body->addStatement(std::move(expr));
-      } else if (peek().type == TokenType::RBRACE) {
-        body->setResult(std::move(expr));
-      } else {
-        // Fallback: add as statement if next is something else (might be an
-        // error later)
-        body->addStatement(std::move(expr));
-      }
+    } catch (const ParseError &e) {
+      synchronize();
     }
   }
   return body;
@@ -120,8 +123,8 @@ std::unique_ptr<ParameterNode> Parser::parseParameter() {
   auto typeNode = parseType();
   auto paramNode =
       _builder.makeParam(paramNameToken.value, std::move(typeNode));
-  _builder.setSpan(paramNode.get(), paramNameToken.pos,
-                   _tokens[_pos - 1].pos + _tokens[_pos - 1].value.length());
+  _builder.setSpan(paramNode.get(), SourceSpan::merge(paramNameToken.span,
+                                                      paramNode->type->span));
   return paramNode;
 }
 
@@ -140,15 +143,15 @@ std::unique_ptr<VarDecl> Parser::parseVarDecl() {
 
     auto varDecl = _builder.makeVarDecl(varNameToken.value, std::move(typeNode),
                                         std::move(expr));
-    _builder.setSpan(varDecl.get(), varKeyword.pos,
-                     semicolonToken.pos + semicolonToken.value.length());
+    _builder.setSpan(varDecl.get(),
+                     SourceSpan::merge(varKeyword.span, semicolonToken.span));
     return varDecl;
   } else {
     Token semicolonToken = eat(TokenType::SEMICOLON);
-    auto varDecl = _builder.makeVarDecl(varNameToken.value, std::move(typeNode),
-                                        nullptr);
-    _builder.setSpan(varDecl.get(), varKeyword.pos,
-                     semicolonToken.pos + semicolonToken.value.length());
+    auto varDecl =
+        _builder.makeVarDecl(varNameToken.value, std::move(typeNode), nullptr);
+    _builder.setSpan(varDecl.get(),
+                     SourceSpan::merge(varKeyword.span, semicolonToken.span));
     return varDecl;
   }
 }
@@ -160,8 +163,8 @@ std::unique_ptr<AssignNode> Parser::parseAssign() {
   Token semicolonToken = eat(TokenType::SEMICOLON);
 
   auto node = _builder.makeAssign(target.value, std::move(expr));
-  _builder.setSpan(node.get(), target.pos,
-                   semicolonToken.pos + semicolonToken.value.length());
+  _builder.setSpan(node.get(),
+                   SourceSpan::merge(target.span, semicolonToken.span));
   return node;
 }
 
@@ -169,17 +172,17 @@ std::unique_ptr<TypeNode> Parser::parseType() {
   if (peek().type == TokenType::SQUARE_LBRACE) {
     Token lbracket = eat(TokenType::SQUARE_LBRACE);
     auto size = parseExpression();
-    eat(TokenType::SQUARE_RBRACE);
+    Token rbracket = eat(TokenType::SQUARE_RBRACE);
     auto baseType = parseType();
     baseType->isArray = true;
     baseType->arraySize = std::move(size);
-    _builder.setSpan(baseType.get(), lbracket.pos,
-                     _tokens[_pos - 1].pos + _tokens[_pos - 1].value.length());
+    _builder.setSpan(baseType.get(),
+                     SourceSpan::merge(lbracket.span, baseType->span));
     return baseType;
   }
   Token t = eat(TokenType::ID);
   auto typeNode = _builder.makeType(t.value);
-  _builder.setSpan(typeNode.get(), t.pos, t.pos + t.value.length());
+  _builder.setSpan(typeNode.get(), t.span);
   return typeNode;
 }
 
@@ -194,15 +197,13 @@ std::unique_ptr<ArrayLiteralNode> Parser::parseArrayLiteral() {
   }
   Token rbrace = eat(TokenType::RBRACE);
   auto node = _builder.makeArrayLiteral(std::move(elements));
-  _builder.setSpan(node.get(), lbrace.pos,
-                   rbrace.pos + rbrace.value.length());
+  _builder.setSpan(node.get(), SourceSpan::merge(lbrace.span, rbrace.span));
   return node;
 }
 
 std::unique_ptr<IfNode> Parser::parseIf() {
   Token ifKeyword = eat(TokenType::IF);
 
-  // We can allow optional parentheses for condition
   bool hasParen = false;
   if (peek().type == TokenType::LPAREN) {
     eat(TokenType::LPAREN);
@@ -220,28 +221,29 @@ std::unique_ptr<IfNode> Parser::parseIf() {
   eat(TokenType::RBRACE);
 
   std::unique_ptr<BodyNode> elseBody = nullptr;
+  SourceSpan endSpan = _tokens[_pos - 1].span;
+
   if (peek().type == TokenType::ELSE) {
     eat(TokenType::ELSE);
     if (peek().type == TokenType::IF) {
-      // else if
       auto nestedIf = parseIf();
       elseBody = _builder.makeBody();
-      size_t start = nestedIf->span.start;
-      size_t end = nestedIf->span.end;
+      SourceSpan nestedSpan = nestedIf->span;
       elseBody->addStatement(std::move(nestedIf));
-      _builder.setSpan(elseBody.get(), start, end);
+      _builder.setSpan(elseBody.get(), nestedSpan);
+      endSpan = nestedSpan;
     } else {
       eat(TokenType::LBRACE);
       elseBody = parseBody();
-      eat(TokenType::RBRACE);
+      Token rbrace = eat(TokenType::RBRACE);
+      endSpan = rbrace.span;
     }
   }
 
   auto ifNode = _builder.makeIf(std::move(condition), std::move(thenBody),
                                 std::move(elseBody));
-  size_t endPos = ifNode->elseBody_ ? ifNode->elseBody_->span.end
-                                    : ifNode->thenBody_->span.end;
-  _builder.setSpan(ifNode.get(), ifKeyword.pos, endPos);
+
+  _builder.setSpan(ifNode.get(), SourceSpan::merge(ifKeyword.span, endSpan));
   return ifNode;
 }
 
@@ -265,8 +267,8 @@ std::unique_ptr<WhileNode> Parser::parseWhile() {
   Token rbraceToken = eat(TokenType::RBRACE);
 
   auto whileNode = _builder.makeWhile(std::move(condition), std::move(body));
-  _builder.setSpan(whileNode.get(), whileKeyword.pos,
-                   rbraceToken.pos + rbraceToken.value.length());
+  _builder.setSpan(whileNode.get(),
+                   SourceSpan::merge(whileKeyword.span, rbraceToken.span));
   return whileNode;
 }
 
@@ -278,8 +280,8 @@ std::unique_ptr<ReturnNode> Parser::parseReturnStmt() {
   Token semicolonToken = eat(TokenType::SEMICOLON);
 
   auto returnNode = _builder.makeReturn(std::move(expr));
-  _builder.setSpan(returnNode.get(), returnKeyword.pos,
-                   semicolonToken.pos + semicolonToken.value.length());
+  _builder.setSpan(returnNode.get(),
+                   SourceSpan::merge(returnKeyword.span, semicolonToken.span));
   return returnNode;
 }
 
@@ -301,17 +303,18 @@ Parser::parseBinaryExpression(int minPrecedence) {
       break;
     }
 
-    eat(opToken.type); // Consume the operator
+    eat(opToken.type);
 
     int nextMinPrecedence =
         (opToken.type == TokenType::POW) ? precedence : precedence + 1;
     auto right = parseBinaryExpression(nextMinPrecedence);
 
+    SourceSpan leftSpan = left->span;
+    SourceSpan rightSpan = right->span;
     left =
         _builder.makeBinExpr(std::move(left), opToken.value, std::move(right));
-    // Update span for the new binary expression node
-    _builder.setSpan(static_cast<BinExpr *>(left.get()), left->span.start,
-                     _tokens[_pos - 1].pos + _tokens[_pos - 1].value.length());
+    _builder.setSpan(static_cast<BinExpr *>(left.get()),
+                     SourceSpan::merge(leftSpan, rightSpan));
   }
   return left;
 }
@@ -321,14 +324,12 @@ std::unique_ptr<ExpressionNode> Parser::parsePrimaryExpression() {
   if (current.type == TokenType::INTEGER) {
     eat(TokenType::INTEGER);
     auto constInt = _builder.makeConstInt(std::stoi(current.value));
-    _builder.setSpan(constInt.get(), current.pos,
-                     current.pos + current.value.length());
+    _builder.setSpan(constInt.get(), current.span);
     return constInt;
   } else if (current.type == TokenType::STRING) {
     eat(TokenType::STRING);
     auto constStr = _builder.makeConstString(current.value);
-    _builder.setSpan(constStr.get(), current.pos,
-                     current.pos + current.value.length() + 2); // +2 for quotes
+    _builder.setSpan(constStr.get(), current.span);
     return constStr;
   } else if (current.type == TokenType::ID) {
     Token idToken = eat(TokenType::ID);
@@ -339,7 +340,8 @@ std::unique_ptr<ExpressionNode> Parser::parsePrimaryExpression() {
       if (peek().type != TokenType::RPAREN) {
         do {
           std::string argName = "";
-          if (peek().type == TokenType::ID && peek(1).type == TokenType::ASSIGN) {
+          if (peek().type == TokenType::ID &&
+              peek(1).type == TokenType::ASSIGN) {
             argName = eat(TokenType::ID).value;
             eat(TokenType::ASSIGN);
           }
@@ -351,30 +353,28 @@ std::unique_ptr<ExpressionNode> Parser::parsePrimaryExpression() {
       }
 
       Token rparenToken = eat(TokenType::RPAREN);
-      _builder.setSpan(funCall.get(), idToken.pos,
-                       rparenToken.pos + rparenToken.value.length());
+      _builder.setSpan(funCall.get(),
+                       SourceSpan::merge(idToken.span, rparenToken.span));
       return funCall;
     } else {
       auto constId = _builder.makeConstId(idToken.value);
-      _builder.setSpan(constId.get(), idToken.pos,
-                       idToken.pos + idToken.value.length());
+      _builder.setSpan(constId.get(), idToken.span);
       return constId;
     }
   } else if (current.type == TokenType::LPAREN) {
     eat(TokenType::LPAREN);
     auto expr = parseExpression();
     Token rparenToken = eat(TokenType::RPAREN);
-    _builder.setSpan(static_cast<ExpressionNode *>(expr.get()), current.pos,
-                     rparenToken.pos + rparenToken.value.length());
+    _builder.setSpan(static_cast<ExpressionNode *>(expr.get()),
+                     SourceSpan::merge(current.span, rparenToken.span));
     return expr;
   } else if (current.type == TokenType::LBRACE) {
     return parseArrayLiteral();
   } else if (current.type == TokenType::IF) {
     return parseIf();
   }
-  std::cerr << "Parser Error: Expected primary expression, got "
-            << current.value << " at line " << current.line << " (pos "
-            << current.pos << ")" << std::endl;
+  _diag.report(current.span, DiagnosticLevel::Error,
+               "Expected primary expression, got " + current.value);
   exit(EXIT_FAILURE);
 }
 int Parser::getPrecedence(TokenType type) {
@@ -396,13 +396,13 @@ int Parser::getPrecedence(TokenType type) {
   case TokenType::POW:
     return 30;
   default:
-    return -1; // Not an operator
+    return -1;
   }
 }
 
 const Token &Parser::peek(size_t offset) const {
   if (_pos + offset >= _tokens.size()) {
-    static const Token dummy(0, 0, TokenType::SEMICOLON, "");
+    static const Token dummy(TokenType::SEMICOLON, "", SourceSpan(0, 0, 0, 0));
     return dummy;
   }
   return _tokens[_pos + offset];
@@ -410,21 +410,38 @@ const Token &Parser::peek(size_t offset) const {
 
 Token Parser::eat(TokenType expectedType) {
   if (isAtEnd()) {
-    std::cerr << "Parser Error: Expected token type " << expectedType
-              << " but reached end of file at line " << peek().line << "."
-              << std::endl;
-    exit(EXIT_FAILURE);
+    _diag.report(peek().span, DiagnosticLevel::Error, "Expected " + tokenTypeToString(expectedType) + " but reached end of file.");
+    throw ParseError();
   }
   Token current = _tokens[_pos];
   if (current.type == expectedType) {
     _pos++;
     return current;
   } else {
-    std::cerr << "Parser Error: Expected token type " << expectedType << " ("
-              << static_cast<int>(expectedType) << "), but got " << current.type
-              << " ('" << current.value << "') at line " << current.line
-              << " (pos " << current.pos << ")" << std::endl;
-    exit(EXIT_FAILURE);
+    _diag.report(current.span, DiagnosticLevel::Error, "Expected " + tokenTypeToString(expectedType) + ", but got '" + current.value + "'");
+    throw ParseError();
+  }
+}
+
+void Parser::synchronize() {
+  while (!isAtEnd()) {
+    switch (peek().type) {
+    case TokenType::SEMICOLON:
+      _pos++;
+      return;
+    case TokenType::FUN:
+    case TokenType::ENUM:
+    case TokenType::RECORD:
+    case TokenType::VAR:
+    case TokenType::IF:
+    case TokenType::WHILE:
+    case TokenType::RETURN:
+    case TokenType::RBRACE:
+      return;
+    default:
+      _pos++;
+      break;
+    }
   }
 }
 
@@ -449,8 +466,8 @@ std::unique_ptr<EnumDecl> Parser::parseEnumDecl() {
 
   auto enumDecl =
       _builder.makeEnumDecl(enumNameToken.value, std::move(entries));
-  _builder.setSpan(enumDecl.get(), enumKeyword.pos,
-                   rbraceToken.pos + rbraceToken.value.length());
+  _builder.setSpan(enumDecl.get(),
+                   SourceSpan::merge(enumKeyword.span, rbraceToken.span));
   return enumDecl;
 }
 
@@ -473,8 +490,8 @@ std::unique_ptr<RecordDecl> Parser::parseRecordDecl() {
 
   auto recordDecl =
       _builder.makeRecordDecl(recordNameToken.value, std::move(fields));
-  _builder.setSpan(recordDecl.get(), recordKeyword.pos,
-                   rbraceToken.pos + rbraceToken.value.length());
+  _builder.setSpan(recordDecl.get(),
+                   SourceSpan::merge(recordKeyword.span, rbraceToken.span));
   return recordDecl;
 }
 

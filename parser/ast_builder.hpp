@@ -58,8 +58,9 @@ public:
                                     std::move(elseBody));
   }
 
-  std::unique_ptr<WhileNode> makeWhile(std::unique_ptr<ExpressionNode> condition,
-                                       std::unique_ptr<BodyNode> body) {
+  std::unique_ptr<WhileNode>
+  makeWhile(std::unique_ptr<ExpressionNode> condition,
+            std::unique_ptr<BodyNode> body) {
     return std::make_unique<WhileNode>(std::move(condition), std::move(body));
   }
 
@@ -113,11 +114,9 @@ public:
   }
 
   // Utility: set span on a node
-  template <typename T>
-  T *setSpan(T *node, unsigned int start, unsigned int end) {
+  template <typename T> T *setSpan(T *node, const SourceSpan &span) {
     if (node) {
-      node->span.start = start;
-      node->span.end = end;
+      node->span = span;
     }
     return node;
   }

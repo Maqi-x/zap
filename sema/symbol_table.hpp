@@ -1,17 +1,18 @@
 #pragma once
-#include <map>
-#include <string>
-#include <memory>
-#include <vector>
 #include "symbol.hpp"
+#include <map>
+#include <memory>
+#include <string>
+#include <vector>
 
 namespace sema {
 
 class SymbolTable {
 public:
-  SymbolTable(std::shared_ptr<SymbolTable> parent = nullptr) : parent_(std::move(parent)) {}
+  SymbolTable(std::shared_ptr<SymbolTable> parent = nullptr)
+      : parent_(std::move(parent)) {}
 
-  bool declare(const std::string& name, std::shared_ptr<Symbol> symbol) {
+  bool declare(const std::string &name, std::shared_ptr<Symbol> symbol) {
     if (symbols_.find(name) != symbols_.end()) {
       return false; // Already declared in this scope
     }
@@ -19,7 +20,7 @@ public:
     return true;
   }
 
-  std::shared_ptr<Symbol> lookup(const std::string& name) const {
+  std::shared_ptr<Symbol> lookup(const std::string &name) const {
     auto it = symbols_.find(name);
     if (it != symbols_.end()) {
       return it->second;

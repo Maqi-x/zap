@@ -1,11 +1,8 @@
 #pragma once
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 
-struct SourceSpan {
-  size_t start = 0;
-  size_t end = 0;
-};
+#include "../token/token.hpp"
 
 class Visitor;
 

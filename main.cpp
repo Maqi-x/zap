@@ -1,7 +1,8 @@
+#include "ir/ir_generator.hpp"
 #include "lexer/lexer.hpp"
 #include "parser/parser.hpp"
-#include "ir/ir_generator.hpp"
 #include "sema/binder.hpp"
+#include "utils/diagnostics.hpp"
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -17,7 +18,8 @@ void printHelp(const char *programName) {
   std::cout << "  -v, --version           Show version information\n";
   std::cout << "  -o, --output <file>     Specify output file name\n";
   std::cout << "  --debug                 Enable debug output\n";
-  std::cout << "  --zir                   Display Zap Intermediate Representation\n";
+  std::cout
+      << "  --zir                   Display Zap Intermediate Representation\n";
   std::cout << "\nExample:\n";
   std::cout << "  " << programName << " main.zap\n";
   std::cout << "  " << programName << " -o myprogram main.zap\n";
@@ -107,8 +109,10 @@ int main(int argc, char *argv[]) {
     std::cout << "Output file: " << outputFile << "\n";
   }
 
+  zap::DiagnosticEngine diagnostics(fileContent, inputFile);
+
   // Tokenization
-  Lexer lex;
+  Lexer lex(diagnostics);
   auto toks = lex.tokenize(fileContent);
 
   if (debugMode) {
@@ -120,8 +124,12 @@ int main(int argc, char *argv[]) {
   }
 
   // Parsing
-  zap::Parser parser(toks);
+  zap::Parser parser(toks, diagnostics);
   auto ast = parser.parse();
+
+  if (diagnostics.hadErrors()) {
+    return 1;
+  }
 
   if (!ast) {
     std::cerr << "Error: Parsing failed\n";
@@ -130,11 +138,10 @@ int main(int argc, char *argv[]) {
 
   if (debugMode) {
     std::cout << "\nAST built successfully.\n";
-    // TODO: Add a visitor to print the AST in a structured way
   }
 
   // Semantic Analysis (Binding)
-  sema::Binder binder;
+  sema::Binder binder(diagnostics);
   auto boundAst = binder.bind(*ast);
 
   if (!boundAst) {

@@ -64,14 +64,74 @@ enum TokenType {
   VAL,
 };
 
+struct SourceSpan {
+  size_t line;
+  size_t column;
+  size_t offset;
+  size_t length;
+
+  SourceSpan(size_t l = 0, size_t c = 0, size_t o = 0, size_t len = 0)
+      : line(l), column(c), offset(o), length(len) {}
+
+  static SourceSpan merge(const SourceSpan &start, const SourceSpan &end) {
+    size_t newLen = (end.offset + end.length) - start.offset;
+    return SourceSpan(start.line, start.column, start.offset, newLen);
+  }
+};
+
 class Token {
 public:
-  size_t pos;
-  size_t line;
+  SourceSpan span;
   TokenType type;
   std::string value;
-  Token(size_t position, size_t lineNumber, TokenType tokenType,
-        const std::string &tokenValue)
-      : pos(position), line(lineNumber), type(tokenType), value(tokenValue) {}
+
+  Token(TokenType type, const std::string &value, SourceSpan span)
+      : span(span), type(type), value(value) {}
+
+  // Helper constructor for when we build span component-wise
+  Token(TokenType type, const std::string &value, size_t line, size_t column,
+        size_t offset, size_t length)
+      : span(line, column, offset, length), type(type), value(value) {}
+
   ~Token() {}
 };
+
+inline std::string tokenTypeToString(TokenType type) {
+  switch (type) {
+    case TokenType::IMPORT: return "import";
+    case TokenType::FUN: return "fun";
+    case TokenType::RETURN: return "return";
+    case TokenType::IF: return "if";
+    case TokenType::ELSE: return "else";
+    case TokenType::WHILE: return "while";
+    case TokenType::FOR: return "for";
+    case TokenType::VAR: return "var";
+    case TokenType::RECORD: return "record";
+    case TokenType::ENUM: return "enum";
+    case TokenType::SEMICOLON: return ";";
+    case TokenType::COLON: return ":";
+    case TokenType::DOUBLECOLON: return "::";
+    case TokenType::DOT: return ".";
+    case TokenType::COMMA: return ",";
+    case TokenType::LPAREN: return "(";
+    case TokenType::RPAREN: return ")";
+    case TokenType::LBRACE: return "{";
+    case TokenType::RBRACE: return "}";
+    case TokenType::SQUARE_LBRACE: return "[";
+    case TokenType::SQUARE_RBRACE: return "]";
+    case TokenType::ASSIGN: return "=";
+    case TokenType::EQUAL: return "==";
+    case TokenType::NOTEQUAL: return "!=";
+    case TokenType::PLUS: return "+";
+    case TokenType::MINUS: return "-";
+    case TokenType::MULTIPLY: return "*";
+    case TokenType::DIVIDE: return "/";
+    case TokenType::ID: return "identifier";
+    case TokenType::INTEGER: return "integer literal";
+    case TokenType::FLOAT: return "float literal";
+    case TokenType::STRING: return "string literal";
+    case TokenType::BOOL: return "boolean literal";
+    case TokenType::VAL: return "val";
+    default: return "unknown token";
+  }
+}

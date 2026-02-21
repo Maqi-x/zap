@@ -1,87 +1,126 @@
 #include "lexer.hpp"
+#include <cctype>
 #include <cstdlib>
+
 std::vector<Token> Lexer::tokenize(const std::string &input) {
   std::vector<Token> tokens;
   _pos = 0;
   _line = 1;
+  _column = 1;
   _input = input;
+
   while (!isAtEnd()) {
     char _cur = _input[_pos];
     size_t startPos = _pos;
     size_t startLine = _line;
+    size_t startColumn = _column;
 
     if (_cur == '(') {
-      tokens.emplace_back(startPos, startLine, TokenType::LPAREN, "(");
+      tokens.emplace_back(TokenType::LPAREN, "(", startLine, startColumn,
+                          startPos, 1);
       ++_pos;
+      ++_column;
       continue;
     } else if (_cur == ')') {
-      tokens.emplace_back(startPos, startLine, TokenType::RPAREN, ")");
+      tokens.emplace_back(TokenType::RPAREN, ")", startLine, startColumn,
+                          startPos, 1);
       ++_pos;
+      ++_column;
       continue;
     } else if (_cur == '{') {
-      tokens.emplace_back(startPos, startLine, TokenType::LBRACE, "{");
+      tokens.emplace_back(TokenType::LBRACE, "{", startLine, startColumn,
+                          startPos, 1);
       ++_pos;
+      ++_column;
       continue;
     } else if (_cur == '}') {
-      tokens.emplace_back(startPos, startLine, TokenType::RBRACE, "}");
+      tokens.emplace_back(TokenType::RBRACE, "}", startLine, startColumn,
+                          startPos, 1);
       ++_pos;
+      ++_column;
       continue;
     } else if (_cur == '[') {
-      tokens.emplace_back(startPos, startLine, TokenType::SQUARE_LBRACE, "[");
+      tokens.emplace_back(TokenType::SQUARE_LBRACE, "[", startLine, startColumn,
+                          startPos, 1);
       ++_pos;
+      ++_column;
       continue;
     } else if (_cur == ']') {
-      tokens.emplace_back(startPos, startLine, TokenType::SQUARE_RBRACE, "]");
+      tokens.emplace_back(TokenType::SQUARE_RBRACE, "]", startLine, startColumn,
+                          startPos, 1);
       ++_pos;
+      ++_column;
       continue;
     } else if (_cur == ';') {
-      tokens.emplace_back(startPos, startLine, TokenType::SEMICOLON, ";");
+      tokens.emplace_back(TokenType::SEMICOLON, ";", startLine, startColumn,
+                          startPos, 1);
       ++_pos;
+      ++_column;
       continue;
     } else if (_cur == ',') {
-      tokens.emplace_back(startPos, startLine, TokenType::COMMA, ",");
+      tokens.emplace_back(TokenType::COMMA, ",", startLine, startColumn,
+                          startPos, 1);
       ++_pos;
+      ++_column;
       continue;
     } else if (_cur == ':') {
       if (Peek2() == ':') {
-        tokens.emplace_back(startPos, startLine, TokenType::DOUBLECOLON, "::");
+        tokens.emplace_back(TokenType::DOUBLECOLON, "::", startLine,
+                            startColumn, startPos, 2);
         _pos += 2;
+        _column += 2;
         continue;
       } else {
-        tokens.emplace_back(startPos, startLine, TokenType::COLON, ":");
+        tokens.emplace_back(TokenType::COLON, ":", startLine, startColumn,
+                            startPos, 1);
         ++_pos;
+        ++_column;
         continue;
       }
     } else if (_cur == '.') {
       if (Peek2() == '.' && Peek3() == '.') {
-        tokens.emplace_back(startPos, startLine, TokenType::ELLIPSIS, "...");
+        tokens.emplace_back(TokenType::ELLIPSIS, "...", startLine, startColumn,
+                            startPos, 3);
         _pos += 3;
+        _column += 3;
         continue;
       } else {
-        tokens.emplace_back(startPos, startLine, TokenType::DOT, ".");
+        tokens.emplace_back(TokenType::DOT, ".", startLine, startColumn,
+                            startPos, 1);
         ++_pos;
+        ++_column;
         continue;
       }
     } else if (_cur == '?') {
-      tokens.emplace_back(startPos, startLine, TokenType::QUESTION, "?");
+      tokens.emplace_back(TokenType::QUESTION, "?", startLine, startColumn,
+                          startPos, 1);
       ++_pos;
+      ++_column;
       continue;
     } else if (_cur == '+') {
-      tokens.emplace_back(startPos, startLine, TokenType::PLUS, "+");
+      tokens.emplace_back(TokenType::PLUS, "+", startLine, startColumn,
+                          startPos, 1);
       ++_pos;
+      ++_column;
       continue;
     } else if (_cur == '*') {
-      tokens.emplace_back(startPos, startLine, TokenType::MULTIPLY, "*");
+      tokens.emplace_back(TokenType::MULTIPLY, "*", startLine, startColumn,
+                          startPos, 1);
       ++_pos;
+      ++_column;
       continue;
     } else if (_cur == '-') {
       if (Peek2() == '>') {
-        tokens.emplace_back(startPos, startLine, TokenType::ARROW, "->");
+        tokens.emplace_back(TokenType::ARROW, "->", startLine, startColumn,
+                            startPos, 2);
         _pos += 2;
+        _column += 2;
         continue;
       }
-      tokens.emplace_back(startPos, startLine, TokenType::MINUS, "-");
+      tokens.emplace_back(TokenType::MINUS, "-", startLine, startColumn,
+                          startPos, 1);
       ++_pos;
+      ++_column;
       continue;
     } else if (_cur == '/') {
       if (Peek2() == '/') {
@@ -90,170 +129,223 @@ std::vector<Token> Lexer::tokenize(const std::string &input) {
         }
         continue;
       } else {
-        tokens.emplace_back(startPos, startLine, TokenType::DIVIDE, "/");
+        tokens.emplace_back(TokenType::DIVIDE, "/", startLine, startColumn,
+                            startPos, 1);
         ++_pos;
+        ++_column;
         continue;
       }
     } else if (_cur == '%') {
-      tokens.emplace_back(startPos, startLine, TokenType::MODULO, "%");
+      tokens.emplace_back(TokenType::MODULO, "%", startLine, startColumn,
+                          startPos, 1);
       ++_pos;
+      ++_column;
       continue;
     } else if (_cur == '^') {
-      tokens.emplace_back(startPos, startLine, TokenType::POW, "^");
+      tokens.emplace_back(TokenType::POW, "^", startLine, startColumn, startPos,
+                          1);
       ++_pos;
+      ++_column;
       continue;
     } else if (_cur == '&') {
       if (Peek2() == '&') {
-        tokens.emplace_back(startPos, startLine, TokenType::AND, "&&");
+        tokens.emplace_back(TokenType::AND, "&&", startLine, startColumn,
+                            startPos, 2);
         _pos += 2;
+        _column += 2;
         continue;
       } else {
-        tokens.emplace_back(startPos, startLine, TokenType::REFERENCE, "&");
+        tokens.emplace_back(TokenType::REFERENCE, "&", startLine, startColumn,
+                            startPos, 1);
         ++_pos;
+        ++_column;
         continue;
       }
     } else if (_cur == '|') {
       if (Peek2() == '|') {
-        tokens.emplace_back(startPos, startLine, TokenType::OR, "||");
+        tokens.emplace_back(TokenType::OR, "||", startLine, startColumn,
+                            startPos, 2);
         _pos += 2;
+        _column += 2;
         continue;
       } else {
-        tokens.emplace_back(startPos, startLine, TokenType::OR, "|");
+        tokens.emplace_back(TokenType::OR, "|", startLine, startColumn,
+                            startPos, 1);
         ++_pos;
+        ++_column;
         continue;
       }
     } else if (_cur == '~') {
-      tokens.emplace_back(startPos, startLine, TokenType::CONCAT, "~");
+      tokens.emplace_back(TokenType::CONCAT, "~", startLine, startColumn,
+                          startPos, 1);
       ++_pos;
+      ++_column;
       continue;
     } else if (_cur == '=') {
       if (Peek2() == '=') {
-        tokens.emplace_back(startPos, startLine, TokenType::EQUAL, "==");
+        tokens.emplace_back(TokenType::EQUAL, "==", startLine, startColumn,
+                            startPos, 2);
         _pos += 2;
+        _column += 2;
         continue;
       } else {
-        tokens.emplace_back(startPos, startLine, TokenType::ASSIGN, "=");
+        tokens.emplace_back(TokenType::ASSIGN, "=", startLine, startColumn,
+                            startPos, 1);
         ++_pos;
+        ++_column;
         continue;
       }
     } else if (_cur == '!') {
       if (Peek2() == '=') {
-        tokens.emplace_back(startPos, startLine, TokenType::NOTEQUAL, "!=");
+        tokens.emplace_back(TokenType::NOTEQUAL, "!=", startLine, startColumn,
+                            startPos, 2);
         _pos += 2;
+        _column += 2;
         continue;
       } else {
-        tokens.emplace_back(startPos, startLine, TokenType::NOT, "!");
+        tokens.emplace_back(TokenType::NOT, "!", startLine, startColumn,
+                            startPos, 1);
         ++_pos;
+        ++_column;
         continue;
       }
     } else if (_cur == '<') {
       if (Peek2() == '=') {
-        tokens.emplace_back(startPos, startLine, TokenType::LESSEQUAL, "<=");
+        tokens.emplace_back(TokenType::LESSEQUAL, "<=", startLine, startColumn,
+                            startPos, 2);
         _pos += 2;
+        _column += 2;
         continue;
       } else {
-        tokens.emplace_back(startPos, startLine, TokenType::LESS, "<");
+        tokens.emplace_back(TokenType::LESS, "<", startLine, startColumn,
+                            startPos, 1);
         ++_pos;
+        ++_column;
         continue;
       }
     } else if (_cur == '>') {
       if (Peek2() == '=') {
-        tokens.emplace_back(startPos, startLine, TokenType::GREATEREQUAL, ">=");
+        tokens.emplace_back(TokenType::GREATEREQUAL, ">=", startLine,
+                            startColumn, startPos, 2);
         _pos += 2;
+        _column += 2;
         continue;
       } else {
-        tokens.emplace_back(startPos, startLine, TokenType::GREATER, ">");
+        tokens.emplace_back(TokenType::GREATER, ">", startLine, startColumn,
+                            startPos, 1);
         ++_pos;
+        ++_column;
         continue;
       }
     } else if (std::isdigit(_cur)) {
       std::string numStr;
       bool isFloat = false;
-      size_t numStart = _pos;
       while (!isAtEnd() && std::isdigit(_input[_pos])) {
         numStr += _input[_pos++];
+        _column++;
       }
       if (!isAtEnd() && _input[_pos] == '.') {
         isFloat = true;
         numStr += _input[_pos++];
+        _column++;
         while (!isAtEnd() && std::isdigit(_input[_pos])) {
           numStr += _input[_pos++];
+          _column++;
         }
       }
+      size_t len = numStr.length();
       if (isFloat) {
-        tokens.emplace_back(numStart, startLine, TokenType::FLOAT, numStr);
+        tokens.emplace_back(TokenType::FLOAT, numStr, startLine, startColumn,
+                            startPos, len);
       } else {
-        tokens.emplace_back(numStart, startLine, TokenType::INTEGER, numStr);
+        tokens.emplace_back(TokenType::INTEGER, numStr, startLine, startColumn,
+                            startPos, len);
       }
       continue;
     } else if (std::isalpha(_cur) || _cur == '_') {
       std::string identStr;
-      size_t idStart = _pos;
       while (!isAtEnd() &&
              (std::isalnum(_input[_pos]) || _input[_pos] == '_')) {
         identStr += _input[_pos++];
+        _column++;
       }
+      size_t len = identStr.length();
+
+      TokenType type = TokenType::ID;
       if (identStr == "if")
-        tokens.emplace_back(idStart, startLine, TokenType::IF, identStr);
+        type = TokenType::IF;
       else if (identStr == "else")
-        tokens.emplace_back(idStart, startLine, TokenType::ELSE, identStr);
+        type = TokenType::ELSE;
       else if (identStr == "while")
-        tokens.emplace_back(idStart, startLine, TokenType::WHILE, identStr);
+        type = TokenType::WHILE;
       else if (identStr == "for")
-        tokens.emplace_back(idStart, startLine, TokenType::FOR, identStr);
+        type = TokenType::FOR;
       else if (identStr == "return" || identStr == "ret")
-        tokens.emplace_back(idStart, startLine, TokenType::RETURN, identStr);
+        type = TokenType::RETURN;
       else if (identStr == "true" || identStr == "false")
-        tokens.emplace_back(idStart, startLine, TokenType::BOOL, identStr);
+        type = TokenType::BOOL;
       else if (identStr == "fun")
-        tokens.emplace_back(idStart, startLine, TokenType::FUN, identStr);
+        type = TokenType::FUN;
       else if (identStr == "import")
-        tokens.emplace_back(idStart, startLine, TokenType::IMPORT, identStr);
+        type = TokenType::IMPORT;
       else if (identStr == "match")
-        tokens.emplace_back(idStart, startLine, TokenType::MATCH, identStr);
+        type = TokenType::MATCH;
       else if (identStr == "var")
-        tokens.emplace_back(idStart, startLine, TokenType::VAR, identStr);
+        type = TokenType::VAR;
       else if (identStr == "ext")
-        tokens.emplace_back(idStart, startLine, TokenType::EXTERN, identStr);
+        type = TokenType::EXTERN;
       else if (identStr == "module")
-        tokens.emplace_back(idStart, startLine, TokenType::MODULE, identStr);
+        type = TokenType::MODULE;
       else if (identStr == "pub")
-        tokens.emplace_back(idStart, startLine, TokenType::PUB, identStr);
+        type = TokenType::PUB;
       else if (identStr == "priv")
-        tokens.emplace_back(idStart, startLine, TokenType::PRIV, identStr);
+        type = TokenType::PRIV;
       else if (identStr == "record")
-        tokens.emplace_back(idStart, startLine, TokenType::RECORD, identStr);
+        type = TokenType::RECORD;
       else if (identStr == "impl")
-        tokens.emplace_back(idStart, startLine, TokenType::IMPL, identStr);
+        type = TokenType::IMPL;
       else if (identStr == "static")
-        tokens.emplace_back(idStart, startLine, TokenType::STATIC, identStr);
+        type = TokenType::STATIC;
       else if (identStr == "enum")
-        tokens.emplace_back(idStart, startLine, TokenType::ENUM, identStr);
+        type = TokenType::ENUM;
       else if (identStr == "break")
-        tokens.emplace_back(idStart, startLine, TokenType::BREAK, identStr);
+        type = TokenType::BREAK;
       else if (identStr == "continue")
-        tokens.emplace_back(idStart, startLine, TokenType::CONTINUE, identStr);
-      else
-        tokens.emplace_back(idStart, startLine, TokenType::ID, identStr);
+        type = TokenType::CONTINUE;
+      else if (identStr == "val")
+        type = TokenType::VAL;
+
+      tokens.emplace_back(type, identStr, startLine, startColumn, startPos,
+                          len);
       continue;
     } else if (std::isspace(_cur)) {
       if (_cur == '\n') {
         ++_line;
+        _column = 1;
+      } else {
+        ++_column;
       }
       ++_pos;
       continue;
     } else if (_cur == '"') {
       std::string strVal;
       size_t strStart = _pos;
-      ++_pos; // skip opening quote
+      ++_pos;
+      _column++;
+
       while (!isAtEnd() && _input[_pos] != '"') {
         if (_input[_pos] == '\n') {
           ++_line;
+          _column = 1;
+        } else {
+          _column++;
         }
+
         if (_input[_pos] == '\\') {
           ++_pos;
           if (isAtEnd())
             break;
+
           switch (_input[_pos]) {
           case 'n':
             strVal += '\n';
@@ -285,18 +377,26 @@ std::vector<Token> Lexer::tokenize(const std::string &input) {
         }
         ++_pos;
       }
+
       if (!isAtEnd() && _input[_pos] == '"') {
-        ++_pos; // skip closing quote
-        tokens.emplace_back(strStart, startLine, TokenType::STRING, strVal);
+        ++_pos;
+        _column++;
+        size_t len = _pos - strStart;
+        tokens.emplace_back(TokenType::STRING, strVal, startLine, startColumn,
+                            startPos, len);
         continue;
       } else {
-        printf("Lexer Error: Unterminated string at position %zu\n", strStart);
+        _diag.report(
+            SourceSpan(startLine, startColumn, strStart, _pos - strStart),
+            zap::DiagnosticLevel::Error, "Unterminated string literal");
         exit(EXIT_FAILURE);
       }
     } else {
-      printf("Lexer Error: Unexpected character '%c' at position %zu\n", _cur,
-             _pos);
-      exit(EXIT_FAILURE);
+      _diag.report(SourceSpan(startLine, startColumn, _pos, 1),
+                   zap::DiagnosticLevel::Error,
+                   "Unexpected character '" + std::string(1, _cur) + "'");
+      _pos++;
+      _column++;
     }
   }
   return tokens;

@@ -1,29 +1,29 @@
 #pragma once
 #include "function.hpp"
-#include <vector>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace zir {
 
 class Module {
 public:
-    std::string name;
-    std::vector<std::unique_ptr<Function>> functions;
+  std::string name;
+  std::vector<std::unique_ptr<Function>> functions;
 
-    Module(std::string name) : name(std::move(name)) {}
+  Module(std::string name) : name(std::move(name)) {}
 
-    void addFunction(std::unique_ptr<Function> func) {
-        functions.push_back(std::move(func));
+  void addFunction(std::unique_ptr<Function> func) {
+    functions.push_back(std::move(func));
+  }
+
+  std::string toString() const {
+    std::string res = "; Module: " + name + "\n";
+    for (const auto &func : functions) {
+      res += func->toString() + "\n";
     }
-
-    std::string toString() const {
-        std::string res = "; Module: " + name + "\n";
-        for (const auto& func : functions) {
-            res += func->toString() + "\n";
-        }
-        return res;
-    }
+    return res;
+  }
 };
 
 } // namespace zir

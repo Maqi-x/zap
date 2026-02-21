@@ -1,10 +1,10 @@
 #pragma once
+#include "../ast/array_literal.hpp"
+#include "../ast/assign_node.hpp"
 #include "../ast/bin_expr.hpp"
 #include "../ast/body_node.hpp"
 #include "../ast/const/const_int.hpp"
 #include "../ast/enum_decl.hpp"
-#include "../ast/array_literal.hpp"
-#include "../ast/assign_node.hpp"
 #include "../ast/expr_node.hpp"
 #include "../ast/fun_decl.hpp"
 #include "../ast/if_node.hpp"
@@ -14,6 +14,7 @@
 #include "../ast/var_decl.hpp"
 #include "../ast/while_node.hpp"
 #include "../token/token.hpp"
+#include "../utils/diagnostics.hpp"
 #include "ast_builder.hpp"
 #include <memory>
 #include <vector>
@@ -22,11 +23,17 @@ namespace zap {
 
 class Parser {
 public:
-  Parser(const std::vector<Token> &toks);
+  class ParseError : public std::runtime_error {
+  public:
+    ParseError() : std::runtime_error("Parse error") {}
+  };
+
+  Parser(const std::vector<Token> &toks, DiagnosticEngine &diag);
   ~Parser();
   std::unique_ptr<RootNode> parse(); // Returns the root of the AST
 
 private:
+  DiagnosticEngine &_diag;
   std::vector<Token> _tokens;
   size_t _pos;
   AstBuilder _builder;
@@ -35,6 +42,7 @@ private:
   const Token &peek(size_t offset = 0) const;
   Token eat(TokenType expectedType);
   bool isAtEnd() const;
+  void synchronize();
 
   // Parsing rules
   std::unique_ptr<FunDecl> parseFunDecl();
