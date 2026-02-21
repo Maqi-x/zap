@@ -13,6 +13,7 @@ class IfNode;
 class ExpressionNode;
 class BinExpr;
 class ConstInt;
+class FunCall;
 
 // Simple visitor interface with empty implementations to allow selective
 // overrides.
@@ -29,4 +30,5 @@ struct Visitor {
   virtual void visit(ExpressionNode &) {}
   virtual void visit(BinExpr &) {}
   virtual void visit(ConstInt &) {}
+  virtual void visit(FunCall &) {}
 };

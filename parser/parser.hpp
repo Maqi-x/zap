@@ -28,7 +28,7 @@ private:
   AstBuilder _builder;
 
   // Helper methods
-  const Token &peek() const;
+  const Token &peek(size_t offset = 0) const;
   Token eat(TokenType expectedType);
   bool isAtEnd() const;
 

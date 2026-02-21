@@ -246,11 +246,35 @@ std::unique_ptr<ExpressionNode> Parser::parsePrimaryExpression() {
                      current.pos + current.value.length() + 2); // +2 for quotes
     return constStr;
   } else if (current.type == TokenType::ID) {
-    eat(TokenType::ID);
-    auto constId = _builder.makeConstId(current.value);
-    _builder.setSpan(constId.get(), current.pos,
-                     current.pos + current.value.length());
-    return constId;
+    Token idToken = eat(TokenType::ID);
+    if (peek().type == TokenType::LPAREN) {
+      auto funCall = _builder.makeFunCall(idToken.value);
+      eat(TokenType::LPAREN);
+
+      if (peek().type != TokenType::RPAREN) {
+        do {
+          std::string argName = "";
+          if (peek().type == TokenType::ID && peek(1).type == TokenType::ASSIGN) {
+            argName = eat(TokenType::ID).value;
+            eat(TokenType::ASSIGN);
+          }
+          auto argValue = parseExpression();
+          funCall->params_.push_back(
+              std::make_unique<Argument>(argName, std::move(argValue)));
+        } while (peek().type == TokenType::COMMA &&
+                 eat(TokenType::COMMA).type == TokenType::COMMA);
+      }
+
+      Token rparenToken = eat(TokenType::RPAREN);
+      _builder.setSpan(funCall.get(), idToken.pos,
+                       rparenToken.pos + rparenToken.value.length());
+      return funCall;
+    } else {
+      auto constId = _builder.makeConstId(idToken.value);
+      _builder.setSpan(constId.get(), idToken.pos,
+                       idToken.pos + idToken.value.length());
+      return constId;
+    }
   } else if (current.type == TokenType::LPAREN) {
     eat(TokenType::LPAREN);
     auto expr = parseExpression();
@@ -289,12 +313,12 @@ int Parser::getPrecedence(TokenType type) {
   }
 }
 
-const Token &Parser::peek() const {
-  if (isAtEnd()) {
+const Token &Parser::peek(size_t offset) const {
+  if (_pos + offset >= _tokens.size()) {
     static const Token dummy(0, 0, TokenType::SEMICOLON, "");
     return dummy;
   }
-  return _tokens[_pos];
+  return _tokens[_pos + offset];
 }
 
 Token Parser::eat(TokenType expectedType) {

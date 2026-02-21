@@ -10,6 +10,7 @@
 #include "../ast/const/const_int.hpp"
 #include "../ast/const/const_string.hpp"
 #include "../ast/enum_decl.hpp"
+#include "../ast/fun_call.hpp"
 #include "../ast/fun_decl.hpp"
 #include "../ast/if_node.hpp"
 #include "../ast/parameter_node.hpp"
@@ -26,6 +27,12 @@ public:
   std::unique_ptr<FunDecl> makeFunDecl(const std::string &name) {
     auto f = std::make_unique<FunDecl>();
     f->name_ = name;
+    return f;
+  }
+
+  std::unique_ptr<FunCall> makeFunCall(const std::string &name) {
+    auto f = std::make_unique<FunCall>();
+    f->funcName_ = name;
     return f;
   }
 
