@@ -11,50 +11,50 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
 find_package(LLVM REQUIRED CONFIG)
 
 # Include directories
-include_directories(${CMAKE_SOURCE_DIR})
+include_directories(${CMAKE_SOURCE_DIR}/src)
 include_directories(${LLVM_INCLUDE_DIRS})
 
 # Source files
 set(SOURCES
-    main.cpp
-    lexer/lexer.cpp
-    parser/parser.cpp
-    ir/ir_generator.cpp
-    sema/binder.cpp
-    codegen/llvm_codegen.cpp
+    src/main.cpp
+    src/lexer/lexer.cpp
+    src/parser/parser.cpp
+    src/ir/ir_generator.cpp
+    src/sema/binder.cpp
+    src/codegen/llvm_codegen.cpp
 )
 
 
 set(HEADERS
-    lexer/lexer.hpp
-    parser/parser.hpp
-    parser/ast_builder.hpp
-    token/token.hpp
-    ast/node.hpp
-    ast/nodes.hpp
-    ast/top_level.hpp
-    ast/root_node.hpp
-    ast/statement_node.hpp
-    ast/expr_node.hpp
-    ast/body_node.hpp
-    ast/assign_node.hpp
-    ast/bin_expr.hpp
-    ast/unary_expr.hpp
-    ast/fun_call.hpp
-    ast/fun_decl.hpp
-    ast/parameter_node.hpp
-    ast/type_node.hpp
-    ast/if_node.hpp
-    ast/while_node.hpp
-    ast/break_node.hpp
-    ast/continue_node.hpp
-    ast/return_node.hpp
-    ast/var_decl.hpp
-    ast/import_node.hpp
-    ast/const/const_float.hpp
-    ast/const/const_id.hpp
-    ast/const/const_int.hpp
-    ast/const/const_string.hpp
+    src/lexer/lexer.hpp
+    src/parser/parser.hpp
+    src/parser/ast_builder.hpp
+    src/token/token.hpp
+    src/ast/node.hpp
+    src/ast/nodes.hpp
+    src/ast/top_level.hpp
+    src/ast/root_node.hpp
+    src/ast/statement_node.hpp
+    src/ast/expr_node.hpp
+    src/ast/body_node.hpp
+    src/ast/assign_node.hpp
+    src/ast/bin_expr.hpp
+    src/ast/unary_expr.hpp
+    src/ast/fun_call.hpp
+    src/ast/fun_decl.hpp
+    src/ast/parameter_node.hpp
+    src/ast/type_node.hpp
+    src/ast/if_node.hpp
+    src/ast/while_node.hpp
+    src/ast/break_node.hpp
+    src/ast/continue_node.hpp
+    src/ast/return_node.hpp
+    src/ast/var_decl.hpp
+    src/ast/import_node.hpp
+    src/ast/const/const_float.hpp
+    src/ast/const/const_id.hpp
+    src/ast/const/const_int.hpp
+    src/ast/const/const_string.hpp
 )
 
 # Create executable

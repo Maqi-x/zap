@@ -101,8 +101,10 @@ llvm::Type *LLVMCodeGen::toLLVMType(const zir::Type &ty) {
     const auto &at = static_cast<const zir::ArrayType &>(ty);
     return llvm::ArrayType::get(toLLVMType(*at.getBaseType()), at.getSize());
   }
+  default:
+    break;
   }
-  throw std::runtime_error("Unknown ZIR type");
+  throw std::runtime_error("Unknown ZIR type: " + ty.toString());
 }
 
 llvm::FunctionType *
@@ -288,13 +290,46 @@ void LLVMCodeGen::visit(sema::BoundFunctionCall &node) {
   lastValue_ = builder_.CreateCall(callee, args);
 }
 
-void LLVMCodeGen::visit(sema::BoundArrayLiteral &) { lastValue_ = nullptr; }
+void LLVMCodeGen::visit(sema::BoundArrayLiteral &node) {
+  auto *arrayTy = static_cast<llvm::ArrayType *>(toLLVMType(*node.type));
+  auto *elemTy = arrayTy->getElementType();
+
+  std::vector<llvm::Constant *> constants;
+  bool allConstants = true;
+
+  for (const auto &expr : node.elements) {
+    expr->accept(*this);
+    if (auto *c = llvm::dyn_cast<llvm::Constant>(lastValue_)) {
+      constants.push_back(c);
+    } else {
+      allConstants = false;
+      break;
+    }
+  }
+
+  if (allConstants) {
+    lastValue_ = llvm::ConstantArray::get(arrayTy, constants);
+  } else {
+    // If not all elements are constants, allocate on stack and store
+    auto *alloca = createEntryAlloca(currentFn_, "array_lit", arrayTy);
+    for (size_t i = 0; i < node.elements.size(); ++i) {
+      node.elements[i]->accept(*this);
+      auto *ptr = builder_.CreateStructGEP(arrayTy, alloca, i);
+      builder_.CreateStore(lastValue_, ptr);
+    }
+    lastValue_ = builder_.CreateLoad(arrayTy, alloca);
+  }
+}
 
 void LLVMCodeGen::visit(sema::BoundRecordDeclaration &node) {
   toLLVMType(*node.type);
 }
 
-void LLVMCodeGen::visit(sema::BoundEnumDeclaration &) {}
+void LLVMCodeGen::visit(sema::BoundEnumDeclaration &node) {
+  // Enums are typically handled at the type level in ZIR/sema.
+  // We don't need to generate code for the declaration itself
+  // unless we want to generate debug info or constant values.
+}
 
 void LLVMCodeGen::visit(sema::BoundIfExpression &node) {
   if (!currentFn_)
@@ -350,22 +385,18 @@ void LLVMCodeGen::visit(sema::BoundIfExpression &node) {
     auto *phiType = toLLVMType(*node.type);
     auto *phi = builder_.CreatePHI(phiType, 2, "if.res");
 
-    llvm::Value *finalThenVal = thenVal;
-    if (thenVal && thenVal->getType() != phiType) {
-      finalThenVal = builder_.CreateZExtOrTrunc(thenVal, phiType);
+    if (thenBB->getTerminator()) {
+      phi->addIncoming(thenVal ? thenVal : llvm::UndefValue::get(phiType),
+                       thenBB);
     }
-    phi->addIncoming(
-        finalThenVal ? finalThenVal : llvm::UndefValue::get(phiType), thenBB);
 
     if (elseBB) {
-      llvm::Value *finalElseVal = elseVal;
-      if (elseVal && elseVal->getType() != phiType) {
-        finalElseVal = builder_.CreateZExtOrTrunc(elseVal, phiType);
+      if (elseBB->getTerminator()) {
+        phi->addIncoming(elseVal ? elseVal : llvm::UndefValue::get(phiType),
+                         elseBB);
       }
-      phi->addIncoming(
-          finalElseVal ? finalElseVal : llvm::UndefValue::get(phiType), elseBB);
     } else {
-      phi->addIncoming(llvm::UndefValue::get(phiType), mergeBB);
+      phi->addIncoming(llvm::UndefValue::get(phiType), thenBB);
     }
     lastValue_ = phi;
   }
