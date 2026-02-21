@@ -41,6 +41,7 @@ private:
   int nextRegisterId_ = 0;
   int nextBlockId_ = 0;
 
+  std::shared_ptr<Value> lastResultValue_ = nullptr;
   std::shared_ptr<Value> createRegister(std::shared_ptr<Type> type);
   std::string createBlockLabel(const std::string &prefix);
 };

@@ -63,6 +63,7 @@ class BoundStatement : public BoundNode {};
 class BoundBlock : public BoundStatement {
 public:
   std::vector<std::unique_ptr<BoundStatement>> statements;
+  std::unique_ptr<BoundExpression> result;
   void accept(BoundVisitor &v) override { v.visit(*this); }
 };
 

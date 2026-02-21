@@ -71,15 +71,20 @@ void BoundIRGenerator::visit(sema::BoundBlock &node) {
   for (const auto &stmt : node.statements) {
     stmt->accept(*this);
   }
+  if (node.result) {
+    node.result->accept(*this);
+  }
 }
 
 void BoundIRGenerator::visit(sema::BoundVariableDeclaration &node) {
+  std::cout << "Visiting VariableDeclaration: " << node.symbol->name << "\n";
   auto type = node.symbol->type;
   auto reg = createRegister(std::make_shared<PointerType>(type));
   currentBlock_->addInstruction(std::make_unique<AllocaInst>(reg, type));
   symbolMap_[node.symbol] = reg;
 
   if (node.initializer) {
+    std::cout << "  Visiting initializer for " << node.symbol->name << "\n";
     node.initializer->accept(*this);
     auto val = valueStack_.top();
     valueStack_.pop();
@@ -89,6 +94,7 @@ void BoundIRGenerator::visit(sema::BoundVariableDeclaration &node) {
 }
 
 void BoundIRGenerator::visit(sema::BoundReturnStatement &node) {
+  std::cout << "Visiting ReturnStatement\n";
   std::shared_ptr<Value> val = nullptr;
   if (node.expression) {
     node.expression->accept(*this);
@@ -99,6 +105,7 @@ void BoundIRGenerator::visit(sema::BoundReturnStatement &node) {
 }
 
 void BoundIRGenerator::visit(sema::BoundAssignment &node) {
+  std::cout << "Visiting Assignment: " << node.symbol->name << "\n";
   auto reg = symbolMap_[node.symbol];
   node.expression->accept(*this);
   auto val = valueStack_.top();
@@ -107,10 +114,12 @@ void BoundIRGenerator::visit(sema::BoundAssignment &node) {
 }
 
 void BoundIRGenerator::visit(sema::BoundLiteral &node) {
+  std::cout << "Visiting Literal: " << node.value << "\n";
   valueStack_.push(std::make_shared<Constant>(node.value, node.type));
 }
 
 void BoundIRGenerator::visit(sema::BoundVariableExpression &node) {
+  std::cout << "Visiting VariableExpression: " << node.symbol->name << "\n";
   auto it = symbolMap_.find(node.symbol);
   if (it == symbolMap_.end()) {
     std::cerr << "Error: Symbol " << node.symbol->name
@@ -124,6 +133,7 @@ void BoundIRGenerator::visit(sema::BoundVariableExpression &node) {
 }
 
 void BoundIRGenerator::visit(sema::BoundBinaryExpression &node) {
+  std::cout << "Visiting BinaryExpression: " << node.op << "\n";
   node.left->accept(*this);
   auto left = valueStack_.top();
   valueStack_.pop();
@@ -142,6 +152,9 @@ void BoundIRGenerator::visit(sema::BoundBinaryExpression &node) {
     op = OpCode::Mul;
   else if (node.op == "/")
     op = OpCode::Div;
+  else if (node.op == "==" || node.op == "!=" || node.op == "<" ||
+           node.op == ">" || node.op == "<=" || node.op == ">=")
+    op = OpCode::Cmp; // Simplified
   else
     op = OpCode::Add;
 
@@ -151,6 +164,7 @@ void BoundIRGenerator::visit(sema::BoundBinaryExpression &node) {
 }
 
 void BoundIRGenerator::visit(sema::BoundFunctionCall &node) {
+  std::cout << "Visiting FunctionCall: " << node.symbol->name << "\n";
   std::vector<std::shared_ptr<Value>> args;
   for (const auto &arg : node.arguments) {
     arg->accept(*this);
@@ -174,10 +188,12 @@ std::string BoundIRGenerator::createBlockLabel(const std::string &prefix) {
 }
 
 void BoundIRGenerator::visit(sema::BoundUnaryExpression &node) {
+  std::cout << "Visiting UnaryExpression: " << node.op << "\n";
   node.expr->accept(*this);
 }
 
 void BoundIRGenerator::visit(sema::BoundArrayLiteral &node) {
+  std::cout << "Visiting ArrayLiteral\n";
   valueStack_.push(std::make_shared<Constant>("0", node.type));
 }
 
@@ -210,18 +226,37 @@ void BoundIRGenerator::visit(sema::BoundIfExpression &node) {
   auto *thenBlockPtr = thenBlock.get();
   currentFunction_->addBlock(std::move(thenBlock));
   currentBlock_ = thenBlockPtr;
-  node.thenBody->accept(*this);
+
+  if (node.thenBody)
+    node.thenBody->accept(*this);
+
+  std::shared_ptr<Value> thenVal = nullptr;
+  if (!valueStack_.empty()) {
+    thenVal = valueStack_.top();
+    valueStack_.pop();
+  }
+  std::string actualThenLabel = currentBlock_->label;
+
   if (currentBlock_->instructions.empty() ||
       currentBlock_->instructions.back()->getOpCode() != OpCode::Ret) {
     currentBlock_->addInstruction(std::make_unique<BranchInst>(mergeLabel));
   }
 
+  std::shared_ptr<Value> elseVal = nullptr;
+  std::string actualElseLabel = "";
   if (node.elseBody) {
     auto elseBlock = std::make_unique<BasicBlock>(falseLabel);
     auto *elseBlockPtr = elseBlock.get();
     currentFunction_->addBlock(std::move(elseBlock));
     currentBlock_ = elseBlockPtr;
     node.elseBody->accept(*this);
+
+    if (!valueStack_.empty()) {
+      elseVal = valueStack_.top();
+      valueStack_.pop();
+    }
+    actualElseLabel = currentBlock_->label;
+
     if (currentBlock_->instructions.empty() ||
         currentBlock_->instructions.back()->getOpCode() != OpCode::Ret) {
       currentBlock_->addInstruction(std::make_unique<BranchInst>(mergeLabel));
@@ -232,6 +267,23 @@ void BoundIRGenerator::visit(sema::BoundIfExpression &node) {
   auto *mergeBlockPtr = mergeBlock.get();
   currentFunction_->addBlock(std::move(mergeBlock));
   currentBlock_ = mergeBlockPtr;
+
+  if (node.type->getKind() != TypeKind::Void) {
+    auto res = createRegister(node.type);
+    std::vector<std::pair<std::string, std::shared_ptr<Value>>> incoming;
+
+    auto finalThenVal =
+        thenVal ? thenVal : std::make_shared<Constant>("undef", node.type);
+    incoming.push_back({actualThenLabel, finalThenVal});
+
+    if (node.elseBody) {
+      auto finalElseVal =
+          elseVal ? elseVal : std::make_shared<Constant>("undef", node.type);
+      incoming.push_back({actualElseLabel, finalElseVal});
+    }
+    currentBlock_->addInstruction(std::make_unique<PhiInst>(res, incoming));
+    valueStack_.push(res);
+  }
 }
 
 void BoundIRGenerator::visit(sema::BoundWhileStatement &node) {

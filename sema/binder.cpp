@@ -130,6 +130,10 @@ void Binder::visit(BodyNode &node) {
 
   if (node.result) {
     node.result->accept(*this);
+    if (!expressionStack_.empty()) {
+      currentBlock_->result = std::move(expressionStack_.top());
+      expressionStack_.pop();
+    }
   }
 }
 
@@ -367,18 +371,30 @@ void Binder::visit(IfNode &node) {
   std::shared_ptr<zir::Type> resultType =
       std::make_shared<zir::PrimitiveType>(zir::TypeKind::Void);
 
-  if (node.thenBody_->result) {
-    if (!node.elseBody_ || !node.elseBody_->result) {
+  if (thenBound && thenBound->result) {
+    if (!elseBound || !elseBound->result) {
       error(node.span, "If expression with a result must have an 'else' block "
                        "with a result.");
+    } else {
+      auto thenType = thenBound->result->type;
+      auto elseType = elseBound->result->type;
+      if (!canConvert(thenType, elseType) && !canConvert(elseType, thenType)) {
+        error(node.span, "Incompatible types in if branches: '" +
+                             thenType->toString() + "' and '" +
+                             elseType->toString() + "'");
+      }
+      resultType = getPromotedType(thenType, elseType);
     }
   }
 
-  std::unique_ptr<BoundIfExpression> boundIf =
-      std::make_unique<BoundIfExpression>(std::move(cond), std::move(thenBound),
-                                          std::move(elseBound), resultType);
+  auto boundIf = std::make_unique<BoundIfExpression>(
+      std::move(cond), std::move(thenBound), std::move(elseBound), resultType);
 
-  statementStack_.push(std::move(boundIf));
+  if (resultType->getKind() != zir::TypeKind::Void) {
+    expressionStack_.push(std::move(boundIf));
+  } else {
+    statementStack_.push(std::move(boundIf));
+  }
 }
 
 void Binder::visit(WhileNode &node) {

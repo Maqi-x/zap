@@ -172,11 +172,13 @@ void LLVMCodeGen::visit(sema::BoundFunctionDeclaration &node) {
   currentFn_ = nullptr;
 }
 
-// Stubs for nodes that will be implemented in subsequent steps.
-
 void LLVMCodeGen::visit(sema::BoundBlock &node) {
-  for (const auto &stmt : node.statements)
+  for (const auto &stmt : node.statements) {
     stmt->accept(*this);
+  }
+  if (node.result) {
+    node.result->accept(*this);
+  }
 }
 
 void LLVMCodeGen::visit(sema::BoundVariableDeclaration &node) {
@@ -319,22 +321,54 @@ void LLVMCodeGen::visit(sema::BoundIfExpression &node) {
   }
 
   builder_.SetInsertPoint(thenBB);
-  if (node.thenBody)
+  if (node.thenBody) {
+    lastValue_ = nullptr;
     node.thenBody->accept(*this);
+  }
+  auto *thenVal = lastValue_;
   if (!builder_.GetInsertBlock()->getTerminator()) {
     builder_.CreateBr(mergeBB);
   }
+  thenBB = builder_.GetInsertBlock();
 
+  auto *elseVal = (llvm::Value *)nullptr;
   if (elseBB) {
     builder_.SetInsertPoint(elseBB);
-    if (node.elseBody)
+    if (node.elseBody) {
+      lastValue_ = nullptr;
       node.elseBody->accept(*this);
+    }
+    elseVal = lastValue_;
     if (!builder_.GetInsertBlock()->getTerminator()) {
       builder_.CreateBr(mergeBB);
     }
+    elseBB = builder_.GetInsertBlock();
   }
 
   builder_.SetInsertPoint(mergeBB);
+  if (node.type->getKind() != zir::TypeKind::Void) {
+    auto *phiType = toLLVMType(*node.type);
+    auto *phi = builder_.CreatePHI(phiType, 2, "if.res");
+
+    llvm::Value *finalThenVal = thenVal;
+    if (thenVal && thenVal->getType() != phiType) {
+      finalThenVal = builder_.CreateZExtOrTrunc(thenVal, phiType);
+    }
+    phi->addIncoming(
+        finalThenVal ? finalThenVal : llvm::UndefValue::get(phiType), thenBB);
+
+    if (elseBB) {
+      llvm::Value *finalElseVal = elseVal;
+      if (elseVal && elseVal->getType() != phiType) {
+        finalElseVal = builder_.CreateZExtOrTrunc(elseVal, phiType);
+      }
+      phi->addIncoming(
+          finalElseVal ? finalElseVal : llvm::UndefValue::get(phiType), elseBB);
+    } else {
+      phi->addIncoming(llvm::UndefValue::get(phiType), mergeBB);
+    }
+    lastValue_ = phi;
+  }
 }
 
 void LLVMCodeGen::visit(sema::BoundWhileStatement &node) {

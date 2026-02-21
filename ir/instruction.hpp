@@ -22,7 +22,8 @@ enum class OpCode {
   Retain,
   Release,
   Alloc,
-  GetElementPtr
+  GetElementPtr,
+  Phi
 };
 
 class Instruction {
@@ -225,6 +226,27 @@ public:
   std::string toString() const override {
     return result->getName() + " = getelementptr " + ptr->getTypeName() + " " +
            ptr->getName() + ", i32 " + std::to_string(index);
+  }
+};
+
+class PhiInst : public Instruction {
+  std::shared_ptr<Value> result;
+  std::vector<std::pair<std::string, std::shared_ptr<Value>>> incoming;
+
+public:
+  PhiInst(std::shared_ptr<Value> res,
+          std::vector<std::pair<std::string, std::shared_ptr<Value>>> inc)
+      : result(std::move(res)), incoming(std::move(inc)) {}
+  OpCode getOpCode() const override { return OpCode::Phi; }
+  std::string toString() const override {
+    std::string s = result->getName() + " = phi " + result->getTypeName() + " ";
+    for (size_t i = 0; i < incoming.size(); ++i) {
+      std::string valName =
+          incoming[i].second ? incoming[i].second->getName() : "undef";
+      s += "[ " + valName + ", %" + incoming[i].first + " ]" +
+           (i < incoming.size() - 1 ? ", " : "");
+    }
+    return s;
   }
 };
 

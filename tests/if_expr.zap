@@ -1,4 +1,4 @@
 fun main() Int{
-    var a: Int = if 1 > 2 { 1 } else { 2 };
+    var a: Int = if 2 > 3 { 1 } else { 2 };
     return a;
 }
