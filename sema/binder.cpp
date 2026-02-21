@@ -29,7 +29,6 @@ std::unique_ptr<BoundRootNode> Binder::bind(RootNode &root) {
       "String", std::make_shared<TypeSymbol>(
                     "String", std::make_shared<zir::RecordType>("String")));
 
-  // Pass 1: Declare all types
   for (const auto &child : root.children) {
     if (auto recordDecl = dynamic_cast<RecordDecl *>(child.get())) {
       auto type = std::make_shared<zir::RecordType>(recordDecl->name_);
@@ -51,7 +50,6 @@ std::unique_ptr<BoundRootNode> Binder::bind(RootNode &root) {
     }
   }
 
-  // Pass 2: Declare all functions
   for (const auto &child : root.children) {
     if (auto funDecl = dynamic_cast<FunDecl *>(child.get())) {
       std::vector<std::shared_ptr<VariableSymbol>> params;
@@ -222,7 +220,6 @@ void Binder::visit(BinExpr &node) {
     }
     type = std::make_shared<zir::PrimitiveType>(zir::TypeKind::Bool);
   }
-  // TODO: Handle other operators (comparison, logical)
 
   expressionStack_.push(std::make_unique<BoundBinaryExpression>(
       std::move(left), node.op_, std::move(right), type));

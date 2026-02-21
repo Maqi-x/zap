@@ -335,9 +335,6 @@ void LLVMCodeGen::visit(sema::BoundIfExpression &node) {
   }
 
   builder_.SetInsertPoint(mergeBB);
-
-  // Placeholder for IF as expression (PHI nodes)
-  // If resultType is not Void, we'd need to collect values from both branches.
 }
 
 void LLVMCodeGen::visit(sema::BoundWhileStatement &node) {

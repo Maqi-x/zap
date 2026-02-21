@@ -21,6 +21,7 @@
 #include "../ast/return_node.hpp"
 #include "../ast/root_node.hpp"
 #include "../ast/type_node.hpp"
+#include "../ast/unary_expr.hpp"
 #include "../ast/var_decl.hpp"
 #include "../ast/while_node.hpp"
 
@@ -74,6 +75,11 @@ public:
   std::unique_ptr<ReturnNode>
   makeReturn(std::unique_ptr<ExpressionNode> value) {
     return std::make_unique<ReturnNode>(std::move(value));
+  }
+
+  std::unique_ptr<UnaryExpr>
+  makeUnaryExpr(const std::string &op, std::unique_ptr<ExpressionNode> expr) {
+    return std::make_unique<UnaryExpr>(op, std::move(expr));
   }
 
   std::unique_ptr<BinExpr> makeBinExpr(std::unique_ptr<ExpressionNode> left,

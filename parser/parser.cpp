@@ -22,7 +22,7 @@ std::unique_ptr<RootNode> Parser::parse() {
       } else {
         _diag.report(peek().span, DiagnosticLevel::Error,
                      "Unexpected token " + peek().value);
-        _pos++; // Consume the unexpected token to avoid loops
+        _pos++;
         synchronize();
       }
     } catch (const ParseError &e) {
@@ -290,7 +290,7 @@ std::unique_ptr<ExpressionNode> Parser::parseExpression() {
 
 std::unique_ptr<ExpressionNode>
 Parser::parseBinaryExpression(int minPrecedence) {
-  auto left = parsePrimaryExpression();
+  auto left = parseUnaryExpression();
 
   while (true) {
     if (isAtEnd())
@@ -316,6 +316,18 @@ Parser::parseBinaryExpression(int minPrecedence) {
                      SourceSpan::merge(leftSpan, rightSpan));
   }
   return left;
+}
+
+std::unique_ptr<ExpressionNode> Parser::parseUnaryExpression() {
+  if (peek().type == TokenType::NOT || peek().type == TokenType::MINUS) {
+    Token opToken = eat(peek().type);
+    auto expr = parseUnaryExpression();
+    SourceSpan endSpan = expr->span;
+    auto node = _builder.makeUnaryExpr(opToken.value, std::move(expr));
+    _builder.setSpan(node.get(), SourceSpan::merge(opToken.span, endSpan));
+    return node;
+  }
+  return parsePrimaryExpression();
 }
 
 std::unique_ptr<ExpressionNode> Parser::parsePrimaryExpression() {

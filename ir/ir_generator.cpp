@@ -175,16 +175,9 @@ std::string BoundIRGenerator::createBlockLabel(const std::string &prefix) {
 
 void BoundIRGenerator::visit(sema::BoundUnaryExpression &node) {
   node.expr->accept(*this);
-  auto expr = valueStack_.top();
-  valueStack_.pop();
-
-  auto reg = createRegister(node.type);
-  // Placeholder: just propagate for now
-  valueStack_.push(expr);
 }
 
 void BoundIRGenerator::visit(sema::BoundArrayLiteral &node) {
-  // Placeholder: array literal generation is complex
   valueStack_.push(std::make_shared<Constant>("0", node.type));
 }
 
@@ -239,9 +232,6 @@ void BoundIRGenerator::visit(sema::BoundIfExpression &node) {
   auto *mergeBlockPtr = mergeBlock.get();
   currentFunction_->addBlock(std::move(mergeBlock));
   currentBlock_ = mergeBlockPtr;
-
-  // Placeholder for IF as expression (PHI nodes)
-  // valueStack_.push(...) if resultType is not Void
 }
 
 void BoundIRGenerator::visit(sema::BoundWhileStatement &node) {
