@@ -15,11 +15,12 @@ jobs:
         run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
       - name: Discord notification
-        uses: appleboy/discord-action@master
+        uses: sarisia/actions-status-discord@v1
         with:
-          webhook_url: ${{ secrets.DISCORD_WEBHOOK }}
-          color: "#5865F2"
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+          title: "[${{ github.event.repository.name }}:${{ github.ref_name }}] 1 new commit"
+          url: "${{ github.event.repository.html_url }}/commit/${{ github.sha }}"
+          description: "`${{ steps.vars.outputs.sha_short }}` ${{ github.event.head_commit.message }} - ${{ github.actor }}"
+          color: 0x5865F2
           username: "GitHub Actions"
-          message: |
-            [${{ github.event.repository.name }}:${{ github.ref_name }} 1 new commit](${{ github.event.repository.html_url }}/commit/${{ github.sha }})
-            `${{ steps.vars.outputs.sha_short }}` ${{ github.event.head_commit.message }} - ${{ github.actor }}
+          avatar_url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
