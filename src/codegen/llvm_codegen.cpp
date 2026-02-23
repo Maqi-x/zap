@@ -69,7 +69,7 @@ namespace codegen
       return false;
     }
 
-    pm.run(*module_);
+    pm.run(*module_); // <- Segfault here if a function has no return
     dest.flush();
     delete tm;
     return true;

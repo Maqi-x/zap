@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+
 enum TokenType {
 
   IMPORT = 1,
@@ -64,6 +65,9 @@ enum TokenType {
   VAL,
 };
 
+///
+/// @brief Contains in-file related information like line, column, offset, and length.
+///
 struct SourceSpan {
   size_t line;
   size_t column;
@@ -96,6 +100,11 @@ public:
   ~Token() {}
 };
 
+///
+/// @brief Turns the provided 'TokenType' to a string.
+/// @param type The provided type.
+/// @return String version of the token type.
+///
 inline std::string tokenTypeToString(TokenType type) {
   switch (type) {
     case TokenType::IMPORT: return "import";
