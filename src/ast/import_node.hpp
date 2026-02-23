@@ -9,9 +9,11 @@
 class ImportNode : public TopLevel {
 public:
   std::vector<std::string> path;
-  ImportNode() = default;
+
+  ImportNode() noexcept = default;
   ImportNode(const std::vector<std::string> &importPath) : path(importPath) {}
-  ~ImportNode() override = default;
+
+  ~ImportNode() noexcept override = default;
 
   void accept(Visitor &v) override { v.visit(*this); }
 };

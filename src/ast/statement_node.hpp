@@ -4,7 +4,7 @@
 
 class StatementNode : public virtual Node {
 public:
-  virtual ~StatementNode() = default;
+  virtual ~StatementNode() noexcept = default;
 
   void accept(Visitor &v) override { v.visit(*this); }
 };

@@ -12,8 +12,8 @@ class Symbol {
 public:
   std::string name;
   std::shared_ptr<zir::Type> type;
-  virtual ~Symbol() = default;
-  virtual SymbolKind getKind() const = 0;
+  virtual ~Symbol() noexcept = default;
+  virtual SymbolKind getKind() const noexcept = 0;
 
 protected:
   Symbol(std::string n, std::shared_ptr<zir::Type> t)
@@ -24,7 +24,7 @@ class VariableSymbol : public Symbol {
 public:
   VariableSymbol(std::string n, std::shared_ptr<zir::Type> t)
       : Symbol(std::move(n), std::move(t)) {}
-  SymbolKind getKind() const override { return SymbolKind::Variable; }
+  SymbolKind getKind() const noexcept override { return SymbolKind::Variable; }
 };
 
 class FunctionSymbol : public Symbol {
@@ -38,14 +38,14 @@ public:
       : Symbol(std::move(n), nullptr), parameters(std::move(params)),
         returnType(std::move(retType)) {}
 
-  SymbolKind getKind() const override { return SymbolKind::Function; }
+  SymbolKind getKind() const noexcept override { return SymbolKind::Function; }
 };
 
 class TypeSymbol : public Symbol {
 public:
   TypeSymbol(std::string n, std::shared_ptr<zir::Type> t)
       : Symbol(std::move(n), std::move(t)) {}
-  SymbolKind getKind() const override { return SymbolKind::Type; }
+  SymbolKind getKind() const noexcept override { return SymbolKind::Type; }
 };
 
 } // namespace sema

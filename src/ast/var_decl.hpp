@@ -11,7 +11,7 @@ public:
   std::unique_ptr<TypeNode> type_;
   std::unique_ptr<ExpressionNode> initializer_;
 
-  VarDecl() = default;
+  VarDecl() noexcept(std::is_nothrow_default_constructible<std::string>::value) = default;
   VarDecl(std::string name, std::unique_ptr<TypeNode> type,
           std::unique_ptr<ExpressionNode> initializer)
       : name_(name), type_(std::move(type)),

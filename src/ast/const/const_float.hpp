@@ -4,8 +4,8 @@
 class ConstFloat : public ExpressionNode {
 public:
   float value_;
-  ConstFloat() = default;
-  ConstFloat(float value) : value_(value) {}
+  ConstFloat() noexcept = default;
+  ConstFloat(float value) noexcept : value_(value) {}
 
   void accept(Visitor &v) override { v.visit(*this); }
 };

@@ -10,8 +10,8 @@ public:
   std::vector<std::unique_ptr<Node>> statements;
   std::unique_ptr<ExpressionNode> result;
 
-  BodyNode() = default;
-  ~BodyNode() override = default;
+  BodyNode() noexcept = default;
+  ~BodyNode() noexcept override = default;
 
   void addStatement(std::unique_ptr<Node> statement) {
     if (statement) {

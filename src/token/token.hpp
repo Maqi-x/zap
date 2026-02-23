@@ -84,7 +84,7 @@ struct SourceSpan {
   /// @param o Offset.
   /// @param len Length.
   ///
-  SourceSpan(size_t l = 0, size_t c = 0, size_t o = 0, size_t len = 0)
+  SourceSpan(size_t l = 0, size_t c = 0, size_t o = 0, size_t len = 0) noexcept
       : line(l), column(c), offset(o), length(len) {}
 
   ///
@@ -93,7 +93,8 @@ struct SourceSpan {
   /// @param end To.
   /// @return Merged 'SourceSpan'.
   ///
-  static SourceSpan merge(const SourceSpan &start, const SourceSpan &end) {
+  static SourceSpan merge(const SourceSpan &start, const SourceSpan &end) noexcept 
+  {
     size_t newLen = (end.offset + end.length) - start.offset;
     return SourceSpan(start.line, start.column, start.offset, newLen);
   }
@@ -118,7 +119,7 @@ public:
         size_t offset, size_t length)
       : span(line, column, offset, length), type(type), value(value) {}
 
-  ~Token() {}
+  ~Token() noexcept = default;
 };
 
 ///
@@ -126,7 +127,8 @@ public:
 /// @param type The provided type.
 /// @return String version of the token type.
 ///
-inline std::string tokenTypeToString(TokenType type) {
+inline std::string tokenTypeToString(TokenType type) 
+{
   switch (type) {
     case TokenType::IMPORT: return "import";
     case TokenType::FUN: return "fun";

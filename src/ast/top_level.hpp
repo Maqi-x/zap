@@ -4,7 +4,7 @@
 
 class TopLevel : public Node {
 public:
-  virtual ~TopLevel() = default;
+  virtual ~TopLevel() noexcept = default;
 
   void accept(Visitor &v) override { v.visit(*this); }
 };

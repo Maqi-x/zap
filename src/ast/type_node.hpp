@@ -14,7 +14,7 @@ public:
   bool isVarArgs = false;
   std::unique_ptr<ExpressionNode> arraySize; // nullptr for non-array types
 
-  TypeNode() = default;
+  TypeNode() noexcept(std::is_nothrow_default_constructible<std::string>::value) = default;
   explicit TypeNode(const std::string &typeName_) : typeName(typeName_) {}
 
   void accept(Visitor &v) override { v.visit(*this); }

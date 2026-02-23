@@ -21,7 +21,7 @@ public:
   bool isStatic_ = false;
   bool isPublic_ = false;
 
-  FunDecl() = default;
+  FunDecl() noexcept(std::is_nothrow_default_constructible<std::string>::value) = default;
 
   FunDecl(const std::string &name,
           std::vector<std::unique_ptr<TypeNode>> genericParams,

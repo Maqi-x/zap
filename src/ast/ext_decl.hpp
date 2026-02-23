@@ -14,7 +14,7 @@ public:
     std::unique_ptr<TypeNode> returnType_;
     bool isPublic_ = false;
 
-    ExtDecl() = default;
+    ExtDecl() noexcept(std::is_nothrow_default_constructible<std::string>::value) = default;
 
     ExtDecl(const std::string &name,
             std::vector<std::unique_ptr<ParameterNode>> params,

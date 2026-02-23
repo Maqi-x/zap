@@ -8,7 +8,7 @@ class ArrayLiteralNode : public ExpressionNode {
 public:
   std::vector<std::unique_ptr<ExpressionNode>> elements_;
 
-  ArrayLiteralNode() = default;
+  ArrayLiteralNode() noexcept = default;
   explicit ArrayLiteralNode(
       std::vector<std::unique_ptr<ExpressionNode>> elements)
       : elements_(std::move(elements)) {}
