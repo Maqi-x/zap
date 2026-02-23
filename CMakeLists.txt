@@ -29,7 +29,10 @@ target_include_directories(zapc PRIVATE "${CMAKE_SOURCE_DIR}/src")
 target_compile_options(zapc PRIVATE -Wall -Wextra)
 
 # Compile stdlib.c
-add_library(zap_stdlib OBJECT src/stdlib.c)
+add_custom_command(TARGET zapc POST_BUILD
+    COMMAND ${CMAKE_C_COMPILER} -c ${CMAKE_SOURCE_DIR}/src/stdlib.c -o ${CMAKE_BINARY_DIR}/stdlib.o
+    COMMENT "Compiling stdlib.c"
+)
 
 # Needed LLVM components if its split
 set(LLVM_COMPONENTS
