@@ -4,7 +4,7 @@
 class ConstId : public ExpressionNode {
 public:
   std::string value_;
-  ConstId() = default;
+  ConstId() noexcept(std::is_nothrow_default_constructible<std::string>::value) = default;
   ConstId(std::string value) : value_(value) {}
 
   void accept(Visitor &v) override { v.visit(*this); }

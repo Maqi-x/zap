@@ -5,8 +5,8 @@
 class ConstBool : public ExpressionNode {
 public:
   bool value_;
-  ConstBool() = default;
-  ConstBool(bool value) : value_(value) {}
+  ConstBool() noexcept = default;
+  ConstBool(bool value) noexcept : value_(value) {}
 
   void accept(Visitor &v) override { v.visit(*this); }
 };

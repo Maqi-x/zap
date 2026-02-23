@@ -38,7 +38,7 @@ namespace codegen
   bool LLVMCodeGen::emitObjectFile(const std::string &path)
   {
     auto targetTriple = llvm::sys::getDefaultTargetTriple();
-    module_->setTargetTriple(targetTriple);
+    module_->setTargetTriple(llvm::Triple(targetTriple));
 
     std::string error;
     const auto *target = llvm::TargetRegistry::lookupTarget(targetTriple, error);
@@ -69,10 +69,13 @@ namespace codegen
       return false;
     }
 
-    pm.run(*module_);
+    // TODO: Improve handling of verifying the module.
+    bool is_broken = llvm::verifyModule(*module_, &llvm::errs());
+
+    if(!is_broken) pm.run(*module_);
     dest.flush();
     delete tm;
-    return true;
+    return !is_broken;
   }
 
   llvm::Type *LLVMCodeGen::toLLVMType(const zir::Type &ty)
@@ -211,6 +214,7 @@ namespace codegen
   {
     // External functions have already been declared in visit(BoundRootNode)
     // Nothing else to do here
+    (void)node;
   }
 
   void LLVMCodeGen::visit(sema::BoundBlock &node)
@@ -364,6 +368,7 @@ namespace codegen
   {
     auto *arrayTy = static_cast<llvm::ArrayType *>(toLLVMType(*node.type));
     auto *elemTy = arrayTy->getElementType();
+    (void)elemTy;
 
     std::vector<llvm::Constant *> constants;
     bool allConstants = true;
@@ -410,6 +415,7 @@ namespace codegen
     // Enums are typically handled at the type level in ZIR/sema.
     // We don't need to generate code for the declaration itself
     // unless we want to generate debug info or constant values.
+    (void)node;
   }
 
   void LLVMCodeGen::visit(sema::BoundIfExpression &node)

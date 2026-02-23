@@ -9,7 +9,7 @@ class WhileNode : public StatementNode {
 public:
   std::unique_ptr<ExpressionNode> condition_;
   std::unique_ptr<BodyNode> body_;
-  WhileNode() = default;
+  WhileNode() noexcept = default;
   WhileNode(std::unique_ptr<ExpressionNode> condition,
             std::unique_ptr<BodyNode> body)
       : condition_(std::move(condition)), body_(std::move(body)) {}

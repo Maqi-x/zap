@@ -4,11 +4,11 @@
 
 #include "../token/token.hpp"
 
-class Visitor;
+struct Visitor;
 
 class Node {
 public:
   SourceSpan span;
-  virtual ~Node() = default;
+  virtual ~Node() noexcept = default;
   virtual void accept(Visitor &v) = 0;
 };

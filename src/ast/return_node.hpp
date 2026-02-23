@@ -9,10 +9,12 @@
 class ReturnNode : public StatementNode {
 public:
   std::unique_ptr<ExpressionNode> returnValue;
-  ReturnNode() = default;
+
+  ReturnNode() noexcept = default;
   ReturnNode(std::unique_ptr<ExpressionNode> value)
       : returnValue(std::move(value)) {}
-  ~ReturnNode() override = default;
+      
+  ~ReturnNode() noexcept override = default;
 
   void accept(Visitor &v) override { v.visit(*this); }
 };

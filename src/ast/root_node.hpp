@@ -7,8 +7,11 @@
 class RootNode : public Node {
 public:
   std::vector<std::unique_ptr<Node>> children;
-  RootNode() = default;
-  ~RootNode() override = default;
+
+  RootNode() noexcept = default;
+
+  ~RootNode() noexcept override = default;
+
   void addChild(std::unique_ptr<Node> child) {
     if (child) {
       children.push_back(std::move(child));

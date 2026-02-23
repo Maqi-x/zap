@@ -11,7 +11,7 @@ public:
   std::unique_ptr<BodyNode> thenBody_;
   std::unique_ptr<BodyNode> elseBody_;
 
-  IfNode() = default;
+  IfNode() noexcept = default;
 
   IfNode(std::unique_ptr<ExpressionNode> condition,
          std::unique_ptr<BodyNode> thenBody,

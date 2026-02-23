@@ -12,10 +12,11 @@ public:
   size_t _column;
   std::string _input;
 
-  Lexer(zap::DiagnosticEngine &diag) : _diag(diag) {}
-  ~Lexer() {}
+  Lexer(zap::DiagnosticEngine &diag) noexcept(std::is_nothrow_default_constructible<std::string>::value) 
+      : _diag(diag) {}
+  ~Lexer() noexcept {}
   std::vector<Token> tokenize(const std::string &input);
   char Peek2();
   char Peek3();
-  bool isAtEnd() const;
+  bool isAtEnd() const noexcept;
 };
