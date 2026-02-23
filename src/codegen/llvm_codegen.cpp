@@ -69,10 +69,13 @@ namespace codegen
       return false;
     }
 
-    pm.run(*module_); // <- Segfault here if a function has no return
+    // TODO: Improve handling of verifying the module.
+    bool is_broken = llvm::verifyModule(*module_, &llvm::errs());
+
+    if(!is_broken) pm.run(*module_);
     dest.flush();
     delete tm;
-    return true;
+    return !is_broken;
   }
 
   llvm::Type *LLVMCodeGen::toLLVMType(const zir::Type &ty)
