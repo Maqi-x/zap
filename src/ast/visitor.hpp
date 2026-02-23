@@ -33,7 +33,9 @@ class ConstString;
 class ConstBool;
 class ConstId;
 
-// Visitor interface with empty implementations to allow selective overrides.
+///
+/// @brief Visitor interface with empty implementations to allow selective overrides.
+///
 struct Visitor
 {
   virtual ~Visitor() noexcept = default;

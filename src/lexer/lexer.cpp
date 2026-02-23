@@ -169,7 +169,7 @@ std::vector<Token> Lexer::tokenize(const std::string &input) {
         _column += 2;
         continue;
       } else {
-        tokens.emplace_back(TokenType::OR, "|", startLine, startColumn,
+        tokens.emplace_back(TokenType::BIT_OR, "|", startLine, startColumn,
                             startPos, 1);
         ++_pos;
         ++_column;
@@ -416,4 +416,4 @@ char Lexer::Peek3() {
   return '\0';
 }
 
-bool Lexer::isAtEnd() const { return _pos >= _input.size(); }
+bool Lexer::isAtEnd() const noexcept { return _pos >= _input.size(); }

@@ -65,6 +65,7 @@ enum TokenType {
   ELLIPSIS = 57, ///< '...' symbol.
   NOTEQUAL = 58, ///< '!=' symbol.
   CONCAT = 59, ///< '~' symbol.
+  BIT_OR = 60, ///< '|' symbol.
   VAL,
 };
 
