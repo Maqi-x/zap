@@ -31,6 +31,19 @@ namespace sema
         "String", std::make_shared<TypeSymbol>(
                       "String", std::make_shared<zir::RecordType>("String")));
 
+    // Provide `println` as a built-in external function: println(s: String) -> Void
+    {
+      std::vector<std::shared_ptr<VariableSymbol>> params;
+      params.push_back(
+        std::make_shared<VariableSymbol>("s",
+                         std::make_shared<zir::RecordType>("String")));
+      auto retType = std::make_shared<zir::PrimitiveType>(zir::TypeKind::Void);
+      auto symbol = std::make_shared<FunctionSymbol>("println", std::move(params), std::move(retType));
+      currentScope_->declare("println", symbol);
+      boundRoot_->externalFunctions.push_back(
+        std::make_unique<BoundExternalFunctionDeclaration>(symbol));
+    }
+
     for (const auto &child : root.children)
     {
       if (auto recordDecl = dynamic_cast<RecordDecl *>(child.get()))

@@ -5,7 +5,7 @@
 
 namespace zir {
 
-enum class TypeKind { Void, Int, Float, Bool, Pointer, Record, Array, Enum };
+enum class TypeKind { Void, Int, Float, Bool, Char, Pointer, Record, Array, Enum };
 
 class Type {
 public:
@@ -29,6 +29,8 @@ public:
       return "f64";
     case TypeKind::Bool:
       return "i1";
+    case TypeKind::Char:
+      return "i8";
     case TypeKind::Void:
       return "void";
     default:

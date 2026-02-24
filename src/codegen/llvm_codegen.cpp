@@ -17,10 +17,32 @@
 namespace codegen
 {
 
-  LLVMCodeGen::LLVMCodeGen() : builder_(ctx_)
+  LLVMCodeGen::LLVMCodeGen() : builder_(ctx_), nextStringId_(0)
   {
     llvm::InitializeNativeTarget();
     llvm::InitializeNativeTargetAsmPrinter();
+  }
+
+  llvm::Constant *LLVMCodeGen::getOrCreateGlobalString(const std::string &str,
+                                                       std::string &globalName)
+  {
+    globalName = ".str." + std::to_string(nextStringId_++);
+
+    auto *arrayTy = llvm::ArrayType::get(llvm::Type::getInt8Ty(ctx_),
+                                         static_cast<unsigned>(str.size() + 1));
+    auto *constArray = llvm::ConstantDataArray::getString(ctx_, str, true);
+
+    auto *gv = new llvm::GlobalVariable(*module_, arrayTy, /*isConstant=*/true,
+                                        llvm::GlobalValue::PrivateLinkage,
+                                        constArray, globalName);
+
+    auto *zero32 = llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx_), 0);
+    llvm::Constant *indices[] = {zero32, zero32};
+    auto *gep = llvm::ConstantExpr::getInBoundsGetElementPtr(arrayTy, gv,
+                                                            indices);
+    auto *ptrTy = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_));
+    auto *ptr = llvm::ConstantExpr::getBitCast(gep, ptrTy);
+    return ptr;
   }
 
   void LLVMCodeGen::generate(sema::BoundRootNode &root)
@@ -86,6 +108,8 @@ namespace codegen
       return llvm::Type::getVoidTy(ctx_);
     case zir::TypeKind::Bool:
       return llvm::Type::getInt1Ty(ctx_);
+    case zir::TypeKind::Char:
+      return llvm::Type::getInt8Ty(ctx_);
     case zir::TypeKind::Int:
       return llvm::Type::getInt64Ty(ctx_);
     case zir::TypeKind::Float:
@@ -103,6 +127,18 @@ namespace codegen
       auto it = structCache_.find(rt.getName());
       if (it != structCache_.end())
         return it->second;
+
+      if (rt.getName() == "String")
+      {
+        auto *structTy = llvm::StructType::create(ctx_, rt.getName());
+        structCache_[rt.getName()] = structTy;
+        std::vector<llvm::Type *> fieldTypes;
+        fieldTypes.push_back(llvm::PointerType::getUnqual(
+            llvm::Type::getInt8Ty(ctx_)));
+        fieldTypes.push_back(llvm::Type::getInt64Ty(ctx_));
+        structTy->setBody(fieldTypes);
+        return structTy;
+      }
 
       auto *structTy = llvm::StructType::create(ctx_, rt.getName());
       structCache_[rt.getName()] = structTy;
@@ -203,8 +239,7 @@ namespace codegen
     {
       if (fn->getReturnType()->isVoidTy())
         builder_.CreateRetVoid();
-      // Non-void paths without an explicit return are a semantic error;
-      // the Binder should have caught them already.
+      
     }
 
     currentFn_ = nullptr;
@@ -212,8 +247,6 @@ namespace codegen
 
   void LLVMCodeGen::visit(sema::BoundExternalFunctionDeclaration &node)
   {
-    // External functions have already been declared in visit(BoundRootNode)
-    // Nothing else to do here
     (void)node;
   }
 
@@ -269,10 +302,69 @@ namespace codegen
 
   void LLVMCodeGen::visit(sema::BoundLiteral &node)
   {
+    if (node.type->getKind() == zir::TypeKind::Record)
+    {
+      const auto &rt = static_cast<const zir::RecordType &>(*node.type);
+      if (rt.getName() == "String")
+      {
+        std::string gname;
+        auto *ptrConst = getOrCreateGlobalString(node.value, gname);
+        auto *lenConst =
+            llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx_),
+                                   static_cast<uint64_t>(node.value.size()));
+
+        auto *structTy = static_cast<llvm::StructType *>(toLLVMType(*node.type));
+        std::vector<llvm::Constant *> elems;
+        elems.push_back(ptrConst);
+        elems.push_back(lenConst);
+        lastValue_ = llvm::ConstantStruct::get(structTy, elems);
+        return;
+      }
+    }
+
     auto *ty = toLLVMType(*node.type);
     if (ty->isIntegerTy(1))
     {
       lastValue_ = llvm::ConstantInt::get(ty, node.value == "true" ? 1 : 0);
+    }
+    else if (ty->isIntegerTy(8))
+    {
+      int64_t code = 0;
+      if (!node.value.empty())
+      {
+        if (node.value.size() >= 2 && node.value[0] == '\\')
+        {
+          switch (node.value[1])
+          {
+          case 'n':
+            code = '\n';
+            break;
+          case 't':
+            code = '\t';
+            break;
+          case 'r':
+            code = '\r';
+            break;
+          case '\\':
+            code = '\\';
+            break;
+          case '\'':
+            code = '\'';
+            break;
+          case '0':
+            code = '\0';
+            break;
+          default:
+            code = static_cast<unsigned char>(node.value[1]);
+            break;
+          }
+        }
+        else
+        {
+          code = static_cast<unsigned char>(node.value[0]);
+        }
+      }
+      lastValue_ = llvm::ConstantInt::get(ty, code, /*isSigned=*/false);
     }
     else if (ty->isIntegerTy())
     {

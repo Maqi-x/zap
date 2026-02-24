@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 void printInt(long v)
 {
@@ -13,4 +15,49 @@ void printFloat(double v)
 void printBool(long v)
 {
     printf("%s\n", v ? "true" : "false");
+}
+
+void printStringPtrLen(const char *ptr, long len)
+{
+    if (!ptr || len <= 0)
+    {
+        printf("\n");
+        return;
+    }
+    fwrite(ptr, 1, (size_t)len, stdout);
+    printf("\n");
+}
+
+char *string_concat_ptrlen(const char *a, long a_len, const char *b, long b_len)
+{
+    long total = a_len + b_len;
+    char *out = (char *)malloc((size_t)total + 1);
+    if (!out)
+        return NULL;
+    if (a_len > 0)
+        memcpy(out, a, (size_t)a_len);
+    if (b_len > 0)
+        memcpy(out + a_len, b, (size_t)b_len);
+    out[total] = '\0';
+    return out;
+}
+
+typedef struct {
+    const char *ptr;
+    long len;
+} zap_string_t;
+
+void println(zap_string_t s)
+{
+    printStringPtrLen(s.ptr, s.len);
+}
+
+void println_cstr(const char *s)
+{
+    if (!s)
+    {
+        printf("\n");
+        return;
+    }
+    puts(s);
 }

@@ -54,15 +54,19 @@ namespace codegen
     std::map<std::string, llvm::AllocaInst *> allocaMap_;
     std::map<std::string, llvm::Function *> functionMap_;
     std::map<std::string, llvm::StructType *> structCache_;
+    
+    int nextStringId_ = 0;
+
+    llvm::Constant *getOrCreateGlobalString(const std::string &str,
+                        std::string &globalName);
 
     std::vector<std::pair<llvm::BasicBlock *, llvm::BasicBlock *>> loopBBStack_;
 
     llvm::Type *toLLVMType(const zir::Type &ty);
     llvm::FunctionType *buildFunctionType(const sema::FunctionSymbol &sym);
 
-    // Creates an alloca in the entry block of `fn` (better for mem2reg).
     llvm::AllocaInst *createEntryAlloca(llvm::Function *fn,
-                                        const std::string &name, llvm::Type *ty);
+                      const std::string &name, llvm::Type *ty);
   };
 
 } // namespace codegen
