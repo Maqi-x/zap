@@ -68,10 +68,21 @@ namespace sema
           params.push_back(
               std::make_shared<VariableSymbol>(p->name, mapType(*p->type)));
         }
-        auto retType =
-            funDecl->returnType_
-                ? mapType(*funDecl->returnType_)
-                : std::make_shared<zir::PrimitiveType>(zir::TypeKind::Void);
+        std::shared_ptr<zir::Type> retType = nullptr;
+        if (funDecl->returnType_)
+        {
+          retType = mapType(*funDecl->returnType_);
+        }
+        else if (funDecl->name_ == "main")
+        {
+          // Default `main` to return Int when no explicit return type given.
+          retType = std::make_shared<zir::PrimitiveType>(zir::TypeKind::Int);
+        }
+        else
+        {
+          // No explicit return type -> default to Void for other functions.
+          retType = std::make_shared<zir::PrimitiveType>(zir::TypeKind::Void);
+        }
         auto symbol = std::make_shared<FunctionSymbol>(
             funDecl->name_, std::move(params), std::move(retType));
 
@@ -90,9 +101,9 @@ namespace sema
               std::make_shared<VariableSymbol>(p->name, mapType(*p->type)));
         }
         auto retType =
-            extDecl->returnType_
-                ? mapType(*extDecl->returnType_)
-                : std::make_shared<zir::PrimitiveType>(zir::TypeKind::Void);
+          extDecl->returnType_
+            ? mapType(*extDecl->returnType_)
+            : std::make_shared<zir::PrimitiveType>(zir::TypeKind::Void);
         auto symbol = std::make_shared<FunctionSymbol>(
             extDecl->name_, std::move(params), std::move(retType));
 
@@ -152,6 +163,56 @@ namespace sema
 
     popScope();
     currentFunction_ = oldFunction;
+
+    bool hasReturn = false;
+    if (boundBody)
+    {
+      if (boundBody->result)
+        hasReturn = true;
+      for (const auto &stmt : boundBody->statements)
+      {
+        if (dynamic_cast<BoundReturnStatement *>(stmt.get()))
+        {
+          hasReturn = true;
+          break;
+        }
+      }
+    }
+
+    if (!hasReturn && symbol->name == "main" &&
+        symbol->returnType->getKind() == zir::TypeKind::Int)
+    if (!hasReturn && symbol->name == "main" &&
+        symbol->returnType->getKind() == zir::TypeKind::Int)
+    {
+      auto intType = std::make_shared<zir::PrimitiveType>(zir::TypeKind::Int);
+      auto lit = std::make_unique<BoundLiteral>("0", intType);
+      boundBody->statements.push_back(
+          std::make_unique<BoundReturnStatement>(std::move(lit)));
+      hasReturn = true;
+    }
+
+    if (!hasReturn && symbol->returnType->getKind() != zir::TypeKind::Void)
+    {
+      // Try to append a default return value for primitive types so code
+      // generation succeeds, but still emit a warning.
+      auto kind = symbol->returnType->getKind();
+      if (kind == zir::TypeKind::Int || kind == zir::TypeKind::Float ||
+          kind == zir::TypeKind::Bool)
+      {
+        std::string litVal = "0";
+        if (kind == zir::TypeKind::Float)
+          litVal = "0.0";
+        else if (kind == zir::TypeKind::Bool)
+          litVal = "false";
+        auto lit = std::make_unique<BoundLiteral>(litVal, symbol->returnType);
+        boundBody->statements.push_back(
+            std::make_unique<BoundReturnStatement>(std::move(lit)));
+        hasReturn = true;
+      }
+
+      _diag.report(node.span, zap::DiagnosticLevel::Warning,
+                   "Function '" + node.name_ + "' has non-void return type but no return on some paths.");
+    }
 
     boundRoot_->functions.push_back(
         std::make_unique<BoundFunctionDeclaration>(symbol, std::move(boundBody)));

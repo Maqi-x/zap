@@ -75,11 +75,7 @@ namespace zap
     }
     else
     {
-      funDecl->returnType_ = _builder.makeType("void");
-      const auto &nextToken = peek();
-      _builder.setSpan(funDecl->returnType_.get(),
-                       SourceSpan(nextToken.span.line, nextToken.span.column,
-                                  nextToken.span.offset, 0));
+      funDecl->returnType_.reset();
     }
 
     eat(TokenType::LBRACE);
@@ -89,7 +85,7 @@ namespace zap
     Token rbraceToken = eat(TokenType::RBRACE);
 
     _builder.setSpan(funDecl.get(),
-                     SourceSpan::merge(funKeyword.span, rbraceToken.span));
+             SourceSpan::merge(funNameToken.span, rbraceToken.span));
 
     return funDecl;
   }
@@ -132,7 +128,7 @@ namespace zap
     Token semiToken = eat(TokenType::SEMICOLON);
 
     _builder.setSpan(extDecl.get(),
-                     SourceSpan::merge(externKeyword.span, semiToken.span));
+             SourceSpan::merge(funNameToken.span, semiToken.span));
 
     return extDecl;
   }

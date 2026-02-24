@@ -69,15 +69,32 @@ private:
     
     size_t prefixLen = lineNumStr.length() + 4; 
     for (size_t j = 0; j < prefixLen; ++j) std::cerr << " ";
-    
-    for (size_t j = 1; j < span.column; ++j) {
+
+    size_t startIdx = span.column > 0 ? span.column - 1 : 0;
+    for (size_t j = 0; j < startIdx; ++j) {
       std::cerr << " ";
     }
-    
+
     std::cerr << "\033[1;31m";
     size_t len = span.length > 0 ? span.length : 1;
-    for (size_t j = 0; j < len; ++j) {
-      std::cerr << "^";
+
+    if (startIdx >= lineContent.size()) {
+      len = 1;
+    } else {
+      size_t maxAvailable = lineContent.size() - startIdx;
+      if (len > maxAvailable) len = maxAvailable;
+    }
+
+    const size_t MAX_UNDERLINE = 40;
+    if (len > MAX_UNDERLINE) {
+      size_t half = MAX_UNDERLINE / 2;
+      for (size_t i = 0; i < half; ++i) std::cerr << "^";
+      std::cerr << "...";
+      for (size_t i = 0; i < half; ++i) std::cerr << "^";
+    } else {
+      for (size_t j = 0; j < len; ++j) {
+        std::cerr << "^";
+      }
     }
     std::cerr << "\033[0m" << std::endl;
   }
