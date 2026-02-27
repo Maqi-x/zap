@@ -276,6 +276,7 @@ namespace sema
   public:
     std::vector<std::unique_ptr<BoundRecordDeclaration>> records;
     std::vector<std::unique_ptr<BoundEnumDeclaration>> enums;
+    std::vector<std::unique_ptr<BoundVariableDeclaration>> globals;
     std::vector<std::unique_ptr<BoundFunctionDeclaration>> functions;
     std::vector<std::unique_ptr<BoundExternalFunctionDeclaration>>
         externalFunctions;

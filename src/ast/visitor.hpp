@@ -9,6 +9,7 @@ class ExtDecl;
 class BodyNode;
 class StatementNode;
 class VarDecl;
+class ConstDecl;
 class ReturnNode;
 class IfNode;
 class WhileNode;
@@ -49,6 +50,7 @@ struct Visitor
   virtual void visit(BodyNode &) {}
   virtual void visit(StatementNode &) {}
   virtual void visit(VarDecl &) {}
+  virtual void visit(ConstDecl &) {}
   virtual void visit(ReturnNode &) {}
   virtual void visit(IfNode &) {}
   virtual void visit(WhileNode &) {}

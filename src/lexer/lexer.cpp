@@ -314,6 +314,8 @@ std::vector<Token> Lexer::tokenize(const std::string &input) {
         type = TokenType::CONTINUE;
       else if (identStr == "val")
         type = TokenType::VAL;
+      else if (identStr == "const")
+        type = TokenType::CONST;
 
       tokens.emplace_back(type, identStr, startLine, startColumn, startPos,
                           len);

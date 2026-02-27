@@ -2,13 +2,27 @@
 
 In Zap, all types start with a capital letter (e.g., `Int`, `Float`, `Bool`, `String`).
 
-## Declaring Variables
-Variables are declared using the `var` keyword. You can optionally specify a type and provide an initial value.
+## Declaring Variables and Constants
+
+### Variables
+Variables are declared using the `var` keyword. You can optionally specify a type and provide an initial value. Variables can be reassigned.
 
 ```zap
 var x: Int = 10;
-var name: String = "Zap";
-var is_active: Bool = true;
+x = 20; // OK
+```
+
+### Constants
+Constants are declared using the `const` keyword. They **must** be initialized when declared and cannot be reassigned. Constants can be declared both globally (at the top level) and locally (within functions).
+
+```zap
+const PI: Float = 3.14159;
+const APP_NAME: String = "Zap Demo";
+
+fun main() {
+    const LOCAL_X: Int = 42;
+    // LOCAL_X = 43; // Error: Cannot assign to constant
+}
 ```
 
 ### Note on Punctuation

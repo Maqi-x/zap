@@ -206,6 +206,8 @@ namespace codegen
       functionMap_[fn->symbol->name] = f;
     }
 
+    for (const auto &global : node.globals)
+      global->accept(*this);
     for (const auto &fn : node.functions)
       fn->accept(*this);
     for (const auto &rec : node.records)
@@ -218,7 +220,7 @@ namespace codegen
   {
     auto *fn = functionMap_.at(node.symbol->name);
     currentFn_ = fn;
-    allocaMap_.clear();
+    localValues_.clear();
 
     auto *entry = llvm::BasicBlock::Create(ctx_, "entry", fn);
     builder_.SetInsertPoint(entry);
@@ -230,7 +232,7 @@ namespace codegen
       const auto &param = node.symbol->parameters[idx++];
       auto *alloca = createEntryAlloca(fn, param->name, arg.getType());
       builder_.CreateStore(&arg, alloca);
-      allocaMap_[param->name] = alloca;
+      localValues_[param->name] = alloca;
     }
 
     node.body->accept(*this);
@@ -265,13 +267,37 @@ namespace codegen
   void LLVMCodeGen::visit(sema::BoundVariableDeclaration &node)
   {
     auto *ty = toLLVMType(*node.symbol->type);
-    auto *alloca = createEntryAlloca(currentFn_, node.symbol->name, ty);
-    allocaMap_[node.symbol->name] = alloca;
 
-    if (node.initializer)
+    if (currentFn_)
     {
-      node.initializer->accept(*this);
-      builder_.CreateStore(lastValue_, alloca);
+      auto *alloca = createEntryAlloca(currentFn_, node.symbol->name, ty);
+      localValues_[node.symbol->name] = alloca;
+
+      if (node.initializer)
+      {
+        node.initializer->accept(*this);
+        builder_.CreateStore(lastValue_, alloca);
+      }
+    }
+    else
+    {
+      llvm::Constant *initializer = nullptr;
+      if (node.initializer)
+      {
+        node.initializer->accept(*this);
+        initializer = llvm::dyn_cast<llvm::Constant>(lastValue_);
+      }
+
+      if (!initializer)
+      {
+        // If no initializer or initializer is not a constant, use null initializer
+        initializer = llvm::Constant::getNullValue(ty);
+      }
+
+      auto *gv = new llvm::GlobalVariable(*module_, ty, node.symbol->is_const,
+                                          llvm::GlobalVariable::ExternalLinkage,
+                                          initializer, node.symbol->name);
+      globalValues_[node.symbol->name] = gv;
     }
   }
 
@@ -291,7 +317,15 @@ namespace codegen
   void LLVMCodeGen::visit(sema::BoundAssignment &node)
   {
     node.expression->accept(*this);
-    auto *alloca = allocaMap_.at(node.symbol->name);
+    llvm::Value *alloca = nullptr;
+    if (localValues_.count(node.symbol->name))
+    {
+      alloca = localValues_.at(node.symbol->name);
+    }
+    else
+    {
+      alloca = globalValues_.at(node.symbol->name);
+    }
     builder_.CreateStore(lastValue_, alloca);
   }
 
@@ -383,8 +417,17 @@ namespace codegen
 
   void LLVMCodeGen::visit(sema::BoundVariableExpression &node)
   {
-    auto *alloca = allocaMap_.at(node.symbol->name);
-    lastValue_ = builder_.CreateLoad(alloca->getAllocatedType(), alloca,
+    llvm::Value *alloca = nullptr;
+    if (localValues_.count(node.symbol->name))
+    {
+      alloca = localValues_.at(node.symbol->name);
+    }
+    else
+    {
+      alloca = globalValues_.at(node.symbol->name);
+    }
+    auto *ty = toLLVMType(*node.symbol->type);
+    lastValue_ = builder_.CreateLoad(ty, alloca,
                                      node.symbol->name);
   }
 

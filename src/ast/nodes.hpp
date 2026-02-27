@@ -25,4 +25,5 @@
 #include "type_node.hpp"
 #include "unary_expr.hpp"
 #include "var_decl.hpp"
+#include "const_decl.hpp"
 #include "while_node.hpp"

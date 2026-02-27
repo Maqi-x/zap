@@ -55,6 +55,7 @@ namespace zap
     std::unique_ptr<ExtDecl> parseExtDecl();
     std::unique_ptr<BodyNode> parseBody();
     std::unique_ptr<VarDecl> parseVarDecl();
+    std::unique_ptr<ConstDecl> parseConstDecl();
     std::unique_ptr<AssignNode> parseAssign();
     std::unique_ptr<TypeNode> parseType();
     std::unique_ptr<ArrayLiteralNode> parseArrayLiteral();

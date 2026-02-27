@@ -22,8 +22,9 @@ protected:
 
 class VariableSymbol : public Symbol {
 public:
-  VariableSymbol(std::string n, std::shared_ptr<zir::Type> t)
-      : Symbol(std::move(n), std::move(t)) {}
+  bool is_const = false;
+  VariableSymbol(std::string n, std::shared_ptr<zir::Type> t, bool isConst = false)
+      : Symbol(std::move(n), std::move(t)), is_const(isConst) {}
   SymbolKind getKind() const noexcept override { return SymbolKind::Variable; }
 };
 

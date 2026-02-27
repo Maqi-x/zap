@@ -51,7 +51,8 @@ namespace codegen
     llvm::Function *currentFn_ = nullptr;
     llvm::Value *lastValue_ = nullptr;
 
-    std::map<std::string, llvm::AllocaInst *> allocaMap_;
+    std::map<std::string, llvm::Value *> localValues_;
+    std::map<std::string, llvm::GlobalVariable *> globalValues_;
     std::map<std::string, llvm::Function *> functionMap_;
     std::map<std::string, llvm::StructType *> structCache_;
     

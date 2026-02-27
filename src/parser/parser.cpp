@@ -33,6 +33,10 @@ namespace zap
         {
           root->addChild(parseRecordDecl());
         }
+        else if (peek().type == TokenType::CONST)
+        {
+          root->addChild(parseConstDecl());
+        }
         else
         {
           _diag.report(peek().span, DiagnosticLevel::Error,
@@ -143,6 +147,10 @@ namespace zap
         if (peek().type == TokenType::VAR)
         {
           body->addStatement(parseVarDecl());
+        }
+        else if (peek().type == TokenType::CONST)
+        {
+          body->addStatement(parseConstDecl());
         }
         else if (peek().type == TokenType::RETURN)
         {
@@ -255,6 +263,26 @@ namespace zap
                        SourceSpan::merge(varKeyword.span, semicolonToken.span));
       return varDecl;
     }
+  }
+
+  std::unique_ptr<ConstDecl> Parser::parseConstDecl()
+  {
+    Token constKeyword = eat(TokenType::CONST);
+    Token constNameToken = eat(TokenType::ID);
+
+    eat(TokenType::COLON);
+
+    auto typeNode = parseType();
+
+    eat(TokenType::ASSIGN);
+    auto expr = parseExpression();
+    Token semicolonToken = eat(TokenType::SEMICOLON);
+
+    auto constDecl = _builder.makeConstDecl(constNameToken.value, std::move(typeNode),
+                                            std::move(expr));
+    _builder.setSpan(constDecl.get(),
+                     SourceSpan::merge(constKeyword.span, semicolonToken.span));
+    return constDecl;
   }
 
   std::unique_ptr<AssignNode> Parser::parseAssign()

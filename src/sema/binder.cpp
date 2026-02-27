@@ -49,6 +49,19 @@ namespace sema
         std::make_unique<BoundExternalFunctionDeclaration>(symbol));
     }
 
+    // Provide `printFloat` as a built-in external function: printFloat(f: Float) -> Void
+    {
+      std::vector<std::shared_ptr<VariableSymbol>> params;
+      params.push_back(
+        std::make_shared<VariableSymbol>("f",
+                         std::make_shared<zir::PrimitiveType>(zir::TypeKind::Float)));
+      auto retType = std::make_shared<zir::PrimitiveType>(zir::TypeKind::Void);
+      auto symbol = std::make_shared<FunctionSymbol>("printFloat", std::move(params), std::move(retType));
+      currentScope_->declare("printFloat", symbol);
+      boundRoot_->externalFunctions.push_back(
+        std::make_unique<BoundExternalFunctionDeclaration>(symbol));
+    }
+
     for (const auto &child : root.children)
     {
       if (auto recordDecl = dynamic_cast<RecordDecl *>(child.get()))
@@ -319,6 +332,52 @@ namespace sema
         symbol, std::move(initializer)));
   }
 
+  void Binder::visit(ConstDecl &node)
+  {
+    auto type = mapType(*node.type_);
+    std::unique_ptr<BoundExpression> initializer = nullptr;
+
+    if (node.initializer_)
+    {
+      node.initializer_->accept(*this);
+      if (!expressionStack_.empty())
+      {
+        initializer = std::move(expressionStack_.top());
+        expressionStack_.pop();
+
+        if (!canConvert(initializer->type, type))
+        {
+          error(node.span, "Cannot assign expression of type '" +
+                               initializer->type->toString() +
+                               "' to constant of type '" + type->toString() +
+                               "'");
+        }
+      }
+    }
+    else
+    {
+      error(node.span, "Constant '" + node.name_ + "' must be initialized.");
+    }
+
+    auto symbol = std::make_shared<VariableSymbol>(node.name_, type, true);
+    if (!currentScope_->declare(node.name_, symbol))
+    {
+      error(node.span, "Identifier '" + node.name_ + "' already declared.");
+    }
+
+    auto boundDecl = std::make_unique<BoundVariableDeclaration>(
+        symbol, std::move(initializer));
+
+    if (currentBlock_)
+    {
+      statementStack_.push(std::move(boundDecl));
+    }
+    else
+    {
+      boundRoot_->globals.push_back(std::move(boundDecl));
+    }
+  }
+
   void Binder::visit(ReturnNode &node)
   {
     std::unique_ptr<BoundExpression> expr = nullptr;
@@ -470,6 +529,12 @@ namespace sema
     {
       error(node.span,
             "Cannot assign to '" + node.target_ + "' (not a variable).");
+      return;
+    }
+
+    if (varSymbol->is_const)
+    {
+      error(node.span, "Cannot assign to constant '" + node.target_ + "'.");
       return;
     }
 

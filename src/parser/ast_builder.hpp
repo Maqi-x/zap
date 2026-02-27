@@ -24,6 +24,7 @@
 #include "../ast/type_node.hpp"
 #include "../ast/unary_expr.hpp"
 #include "../ast/var_decl.hpp"
+#include "../ast/const_decl.hpp"
 #include "../ast/while_node.hpp"
 #include "../ast/break_node.hpp"
 #include "../ast/continue_node.hpp"
@@ -73,6 +74,12 @@ public:
                                        std::unique_ptr<TypeNode> type,
                                        std::unique_ptr<ExpressionNode> init) {
     return std::make_unique<VarDecl>(name, std::move(type), std::move(init));
+  }
+
+  std::unique_ptr<ConstDecl> makeConstDecl(const std::string &name,
+                                         std::unique_ptr<TypeNode> type,
+                                         std::unique_ptr<ExpressionNode> init) {
+    return std::make_unique<ConstDecl>(name, std::move(type), std::move(init));
   }
 
   std::unique_ptr<ReturnNode>

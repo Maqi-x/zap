@@ -67,6 +67,7 @@ enum TokenType {
   CONCAT = 59, ///< '~' symbol.
   BIT_OR = 60, ///< '|' symbol.
   VAL,
+  CONST,
 };
 
 ///
@@ -166,6 +167,7 @@ inline std::string tokenTypeToString(TokenType type)
     case TokenType::CHAR: return "char literal";
     case TokenType::BOOL: return "boolean literal";
     case TokenType::VAL: return "val";
+    case TokenType::CONST: return "const";
     case TokenType::CONCAT: return "~";
     default: return "unknown token";
   }
