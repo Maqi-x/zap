@@ -1,12 +1,13 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.20) # 3.2 should be compatible with this CMakeLists.txt
+#cmake_minimum_required(VERSION 3.28.3) # The only version that WSL seems to be able to get at the moment
 project(zapc)
 
+# C++ Standard
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Ścieżki do LLVM w Termux
-set(LLVM_INCLUDE_DIR "/data/data/com.termux/files/usr/include")
-set(LLVM_LIBRARY "/data/data/com.termux/files/usr/lib/libLLVM.so")
+# Find LLVM
+find_package(LLVM REQUIRED CONFIG)
 
 # Source files
 set(SOURCES
@@ -18,20 +19,47 @@ set(SOURCES
     src/codegen/llvm_codegen.cpp
 )
 
+# Create executable
 add_executable(zapc ${SOURCES})
 
-target_include_directories(zapc PRIVATE
-    ${LLVM_INCLUDE_DIR}
-    "${CMAKE_SOURCE_DIR}/src"
-)
+# Include directories
+target_include_directories(zapc PRIVATE "${CMAKE_SOURCE_DIR}/src")
 
+# Compiler options
 target_compile_options(zapc PRIVATE -Wall -Wextra)
 
-target_link_libraries(zapc PRIVATE ${LLVM_LIBRARY})
-
+# Compile stdlib.c
 add_custom_command(TARGET zapc POST_BUILD
     COMMAND ${CMAKE_C_COMPILER} -c ${CMAKE_SOURCE_DIR}/src/stdlib.c -o ${CMAKE_BINARY_DIR}/stdlib.o
     COMMENT "Compiling stdlib.c"
 )
 
-include(cmake/doxygen.cmake OPTIONAL)
+# Needed LLVM components if its split
+set(LLVM_COMPONENTS
+    core
+    support
+    nativecodegen
+    mc
+    target
+    passes
+)
+
+# Find LLVM, this should work assuming LLVM is installed system-wide
+find_package(LLVM REQUIRED CONFIG)
+
+# Check if LLVM is one big library or split ones
+if(LLVM_LINK_LLVM_DYLIB)
+    # Single
+    set(llvm_libs LLVM)
+else()
+    # Multiple
+    llvm_map_components_to_libnames(llvm_libs ${LLVM_COMPONENTS})
+endif()
+
+# Link LLVM to zapc
+target_link_libraries(zapc PRIVATE ${llvm_libs})
+
+# LLVM often requires specific compiler definitions 
+target_compile_definitions(zapc PRIVATE ${LLVM_DEFINITIONS})
+
+include(cmake/doxygen.cmake))
