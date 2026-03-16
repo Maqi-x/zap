@@ -59,6 +59,9 @@ Makefile
 
 .env
 
+# LSP
+src/lsp/vscode/zap/node_modules
+src/lsp/vscode/zap/out
 
 # clangd
 .cache/
