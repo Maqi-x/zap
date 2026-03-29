@@ -16,6 +16,9 @@
 
 [Discord](https://discord.gg/cVGqffBA6m)
 
+## v0.1.0 ROADMAP
+[Roadmap](ROADMAP.md)
+
 ## What is Zap?
 
 **Zap** is a modern, high-level systems programming language compiled to native code (**LLVM backend**), using **Automatic Reference Counting (ARC)** instead of a Garbage Collector (GC).
