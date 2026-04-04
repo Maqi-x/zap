@@ -71,7 +71,6 @@ namespace sema
       std::make_shared<TypeSymbol>(
         "Char", std::make_shared<zir::PrimitiveType>(zir::TypeKind::Char)));
 
-    // Provide `println` as a built-in external function: println(s: String) -> Void
     {
       std::vector<std::shared_ptr<VariableSymbol>> params;
       params.push_back(
@@ -84,7 +83,6 @@ namespace sema
         std::make_unique<BoundExternalFunctionDeclaration>(symbol));
     }
 
-    // Provide `printInt` as a built-in external function: printInt(i: Int) -> Void
     {
       std::vector<std::shared_ptr<VariableSymbol>> params;
       params.push_back(
@@ -97,7 +95,6 @@ namespace sema
         std::make_unique<BoundExternalFunctionDeclaration>(symbol));
     }
 
-    // Provide `printBool` as a built-in external function: printBool(b: Bool) -> Void
     {
       std::vector<std::shared_ptr<VariableSymbol>> params;
       params.push_back(
@@ -110,7 +107,6 @@ namespace sema
         std::make_unique<BoundExternalFunctionDeclaration>(symbol));
     }
 
-    // Provide `printFloat` as a built-in external function: printFloat(f: Float) -> Void
     {
       std::vector<std::shared_ptr<VariableSymbol>> params;
       params.push_back(
@@ -123,7 +119,6 @@ namespace sema
         std::make_unique<BoundExternalFunctionDeclaration>(symbol));
     }
 
-    // Provide `printFloat64` as a built-in external function: printFloat64(f: Float64) -> Void
     {
       std::vector<std::shared_ptr<VariableSymbol>> params;
       params.push_back(
@@ -191,12 +186,10 @@ namespace sema
         }
         else if (funDecl->name_ == "main")
         {
-          // Default `main` to return Int when no explicit return type given.
           retType = std::make_shared<zir::PrimitiveType>(zir::TypeKind::Int);
         }
         else
         {
-          // No explicit return type -> default to Void for other functions.
           retType = std::make_shared<zir::PrimitiveType>(zir::TypeKind::Void);
         }
         auto symbol = std::make_shared<FunctionSymbol>(
@@ -309,8 +302,6 @@ namespace sema
 
     if (!hasReturn && symbol->returnType->getKind() != zir::TypeKind::Void)
     {
-      // Try to append a default return value for primitive types so code
-      // generation succeeds, but still emit a warning.
       auto kind = symbol->returnType->getKind();
       if (symbol->returnType->isInteger() || kind == zir::TypeKind::Float ||
           kind == zir::TypeKind::Bool)
@@ -365,7 +356,6 @@ namespace sema
       }
       else if (!expressionStack_.empty())
       {
-        // Expression statement - wrap in BoundExpressionStatement
         auto expr = std::move(expressionStack_.top());
         expressionStack_.pop();
         currentBlock_->statements.push_back(
@@ -463,6 +453,9 @@ namespace sema
     }
 
     auto symbol = std::make_shared<VariableSymbol>(node.name_, type, true);
+    if (initializer) {
+      symbol->constant_value = std::shared_ptr<BoundExpression>(initializer->clone());
+    }
     if (!currentScope_->declare(node.name_, symbol))
     {
       error(node.span, "Identifier '" + node.name_ + "' already declared.");
@@ -532,7 +525,7 @@ namespace sema
 
     auto type = left->type;
     if (node.op_ == "+" || node.op_ == "-" || node.op_ == "*" ||
-        node.op_ == "/")
+        node.op_ == "/" || node.op_ == "%")
     {
       if (!isNumeric(left->type) || !isNumeric(right->type))
       {
@@ -623,9 +616,6 @@ namespace sema
     }
     else if (auto typeSymbol = std::dynamic_pointer_cast<TypeSymbol>(symbol))
     {
-      // This is a type name, which is valid in some contexts (e.g., enum member access)
-      // We push a "dummy" expression that holds the type.
-      // The member access visitor will then handle it.
       expressionStack_.push(std::make_unique<BoundLiteral>("", typeSymbol->type));
     }
     else
@@ -642,7 +632,6 @@ namespace sema
     auto target = std::move(expressionStack_.top());
     expressionStack_.pop();
 
-    // Check if target is an l-value (Variable, IndexAccess or MemberAccess)
     bool isLValue = false;
     if (dynamic_cast<BoundVariableExpression *>(target.get()))
       isLValue = true;
@@ -657,7 +646,6 @@ namespace sema
       return;
     }
 
-    // Check if target is constant
     if (auto varExpr = dynamic_cast<BoundVariableExpression *>(target.get()))
     {
       if (varExpr->symbol->is_const)
@@ -966,6 +954,68 @@ namespace sema
     }
   }
 
+  std::optional<int64_t> Binder::evaluateConstantInt(const BoundExpression *expr)
+  {
+    if (!expr)
+      return std::nullopt;
+
+    if (auto literal = dynamic_cast<const BoundLiteral *>(expr))
+    {
+      try
+      {
+        return std::stoll(literal->value);
+      }
+      catch (...)
+      {
+        return std::nullopt;
+      }
+    }
+
+    if (auto varExpr = dynamic_cast<const BoundVariableExpression *>(expr))
+    {
+      if (varExpr->symbol->is_const && varExpr->symbol->constant_value)
+      {
+        return evaluateConstantInt(varExpr->symbol->constant_value.get());
+      }
+    }
+
+    if (auto cast = dynamic_cast<const BoundCast *>(expr))
+    {
+      return evaluateConstantInt(cast->expression.get());
+    }
+
+    if (auto binary = dynamic_cast<const BoundBinaryExpression *>(expr))
+    {
+      auto left = evaluateConstantInt(binary->left.get());
+      auto right = evaluateConstantInt(binary->right.get());
+      if (left && right)
+      {
+        if (binary->op == "+")
+          return *left + *right;
+        if (binary->op == "-")
+          return *left - *right;
+        if (binary->op == "*")
+          return *left * *right;
+        if (binary->op == "/")
+          return *right != 0 ? std::make_optional(*left / *right) : std::nullopt;
+      }
+    }
+
+    if (auto unary = dynamic_cast<const BoundUnaryExpression *>(expr))
+    {
+      auto val = evaluateConstantInt(unary->expr.get());
+      if (val)
+      {
+        if (unary->op == "-")
+          return -*val;
+        if (unary->op == "+")
+          return *val;
+      }
+    }
+
+    return std::nullopt;
+  }
+
   std::shared_ptr<zir::Type> Binder::mapType(const TypeNode &typeNode)
   {
     if (typeNode.isArray)
@@ -974,10 +1024,26 @@ namespace sema
         return nullptr;
       auto base = mapType(*typeNode.baseType);
       size_t size = 0;
-      if (auto constInt = dynamic_cast<ConstInt *>(typeNode.arraySize.get()))
+
+      if (typeNode.arraySize)
       {
-        size = constInt->value_;
+        typeNode.arraySize->accept(*this);
+        if (!expressionStack_.empty())
+        {
+          auto boundSize = std::move(expressionStack_.top());
+          expressionStack_.pop();
+          auto evaluated = evaluateConstantInt(boundSize.get());
+          if (evaluated)
+          {
+            size = static_cast<size_t>(*evaluated);
+          }
+          else
+          {
+            error(typeNode.span, "Array size must be a constant integer expression.");
+          }
+        }
       }
+
       return std::make_shared<zir::ArrayType>(std::move(base), size);
     }
 
@@ -1267,8 +1333,6 @@ namespace sema
 
     if (from->isInteger() && to->isInteger())
     {
-      // Basic rule: all integer types are convertible for now.
-      // In a real compiler we would check bit-width and signedness.
       return true;
     }
 
@@ -1282,7 +1346,7 @@ namespace sema
     {
       if (from->getKind() == zir::TypeKind::Float64)
         return to->getKind() == zir::TypeKind::Float64;
-      return true; // Float/Float32 can be converted to any Float (including Float64)
+      return true;
     }
 
     return false;
@@ -1303,7 +1367,6 @@ namespace sema
     }
 
     if (t1->isInteger() && t2->isInteger()) {
-      // Find the "largest" type.
       auto getWidth = [](zir::TypeKind k) {
         switch (k) {
           case zir::TypeKind::Int8:

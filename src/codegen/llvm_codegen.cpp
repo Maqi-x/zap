@@ -196,7 +196,6 @@ namespace codegen
 
   void LLVMCodeGen::visit(sema::BoundRootNode &node)
   {
-    // Declare all external functions first
     for (const auto &extFn : node.externalFunctions)
     {
       auto *ft = buildFunctionType(*extFn->symbol);
@@ -209,7 +208,6 @@ namespace codegen
       functionMap_[extFn->symbol->name] = f;
     }
 
-    // Declare all functions second so forward calls resolve
     for (const auto &fn : node.functions)
     {
       auto *ft = buildFunctionType(*fn->symbol);
@@ -255,8 +253,14 @@ namespace codegen
 
     if (!builder_.GetInsertBlock()->getTerminator())
     {
-      if (fn->getReturnType()->isVoidTy())
+      if (node.body->result)
+      {
+        builder_.CreateRet(lastValue_);
+      }
+      else if (fn->getReturnType()->isVoidTy())
+      {
         builder_.CreateRetVoid();
+      }
     }
 
     currentFn_ = nullptr;
@@ -619,6 +623,11 @@ namespace codegen
           isFP ? builder_.CreateFDiv(lhs, rhs)
                   : (isUnsigned ? builder_.CreateUDiv(lhs, rhs)
                                 : builder_.CreateSDiv(lhs, rhs));
+    else if (node.op == "%")
+      lastValue_ =
+          isFP ? builder_.CreateFRem(lhs, rhs)
+                  : (isUnsigned ? builder_.CreateURem(lhs, rhs)
+                                : builder_.CreateSRem(lhs, rhs));
     else if (node.op == "==")
       lastValue_ = isFP ? builder_.CreateFCmpOEQ(lhs, rhs)
                            : builder_.CreateICmpEQ(lhs, rhs);
@@ -920,6 +929,8 @@ namespace codegen
       throw std::runtime_error(
           "lastValue_ is null after condition in BoundIfExpression");
 
+    auto *entryBB = builder_.GetInsertBlock();
+
     if (elseBB)
     {
       builder_.CreateCondBr(cond, thenBB, elseBB);
@@ -981,7 +992,7 @@ namespace codegen
       }
       else
       {
-        phi->addIncoming(llvm::UndefValue::get(phiType), thenBB);
+        phi->addIncoming(llvm::UndefValue::get(phiType), entryBB);
       }
       lastValue_ = phi;
     }

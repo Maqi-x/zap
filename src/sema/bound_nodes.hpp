@@ -76,10 +76,13 @@ namespace sema
   public:
     std::shared_ptr<zir::Type> type;
     explicit BoundExpression(std::shared_ptr<zir::Type> t) : type(std::move(t)) {}
+    virtual std::unique_ptr<BoundExpression> clone() const = 0;
   };
 
   class BoundStatement : public BoundNode
   {
+  public:
+    virtual std::unique_ptr<BoundStatement> cloneStatement() const = 0;
   };
 
   class BoundExpressionStatement : public BoundStatement
@@ -90,6 +93,9 @@ namespace sema
     explicit BoundExpressionStatement(std::unique_ptr<BoundExpression> expr)
         : expression(std::move(expr)) {}
     void accept(BoundVisitor &v) override { v.visit(*this); }
+    std::unique_ptr<BoundStatement> cloneStatement() const override {
+      return std::make_unique<BoundExpressionStatement>(expression->clone());
+    }
   };
 
   class BoundBlock : public BoundStatement
@@ -98,6 +104,16 @@ namespace sema
     std::vector<std::unique_ptr<BoundStatement>> statements;
     std::unique_ptr<BoundExpression> result;
     void accept(BoundVisitor &v) override { v.visit(*this); }
+    std::unique_ptr<BoundStatement> cloneStatement() const override {
+      auto cloned = std::make_unique<BoundBlock>();
+      for (const auto &stmt : statements) cloned->statements.push_back(stmt->cloneStatement());
+      if (result) cloned->result = result->clone();
+      return cloned;
+    }
+    std::unique_ptr<BoundBlock> cloneBlock() const {
+      auto res = cloneStatement();
+      return std::unique_ptr<BoundBlock>(static_cast<BoundBlock *>(res.release()));
+    }
   };
 
   class BoundLiteral : public BoundExpression
@@ -107,6 +123,9 @@ namespace sema
     BoundLiteral(std::string v, std::shared_ptr<zir::Type> t)
         : BoundExpression(std::move(t)), value(std::move(v)) {}
     void accept(BoundVisitor &v) override { v.visit(*this); }
+    std::unique_ptr<BoundExpression> clone() const override {
+      return std::make_unique<BoundLiteral>(value, type);
+    }
   };
 
   class BoundCast : public BoundExpression
@@ -116,6 +135,9 @@ namespace sema
     BoundCast(std::unique_ptr<BoundExpression> e, std::shared_ptr<zir::Type> t)
         : BoundExpression(std::move(t)), expression(std::move(e)) {}
     void accept(BoundVisitor &v) override { v.visit(*this); }
+    std::unique_ptr<BoundExpression> clone() const override {
+      return std::make_unique<BoundCast>(expression->clone(), type);
+    }
   };
 
   class BoundVariableExpression : public BoundExpression
@@ -125,6 +147,9 @@ namespace sema
     explicit BoundVariableExpression(std::shared_ptr<VariableSymbol> s)
         : BoundExpression(s->type), symbol(std::move(s)) {}
     void accept(BoundVisitor &v) override { v.visit(*this); }
+    std::unique_ptr<BoundExpression> clone() const override {
+      return std::make_unique<BoundVariableExpression>(symbol);
+    }
   };
 
   class BoundBinaryExpression : public BoundExpression
@@ -140,6 +165,9 @@ namespace sema
         : BoundExpression(std::move(t)), left(std::move(l)), op(std::move(o)),
           right(std::move(r)) {}
     void accept(BoundVisitor &v) override { v.visit(*this); }
+    std::unique_ptr<BoundExpression> clone() const override {
+      return std::make_unique<BoundBinaryExpression>(left->clone(), op, right->clone(), type);
+    }
   };
 
   class BoundUnaryExpression : public BoundExpression
@@ -152,6 +180,9 @@ namespace sema
                          std::shared_ptr<zir::Type> t)
         : BoundExpression(std::move(t)), op(std::move(o)), expr(std::move(e)) {}
     void accept(BoundVisitor &v) override { v.visit(*this); }
+    std::unique_ptr<BoundExpression> clone() const override {
+      return std::make_unique<BoundUnaryExpression>(op, expr->clone(), type);
+    }
   };
 
   class BoundFunctionCall : public BoundExpression
@@ -165,6 +196,11 @@ namespace sema
         : BoundExpression(s->returnType), symbol(std::move(s)),
           arguments(std::move(args)) {}
     void accept(BoundVisitor &v) override { v.visit(*this); }
+    std::unique_ptr<BoundExpression> clone() const override {
+      std::vector<std::unique_ptr<BoundExpression>> clonedArgs;
+      for (const auto &arg : arguments) clonedArgs.push_back(arg->clone());
+      return std::make_unique<BoundFunctionCall>(symbol, std::move(clonedArgs));
+    }
   };
 
   class BoundArrayLiteral : public BoundExpression
@@ -175,6 +211,11 @@ namespace sema
                       std::shared_ptr<zir::Type> t)
         : BoundExpression(std::move(t)), elements(std::move(elems)) {}
     void accept(BoundVisitor &v) override { v.visit(*this); }
+    std::unique_ptr<BoundExpression> clone() const override {
+      std::vector<std::unique_ptr<BoundExpression>> clonedElems;
+      for (const auto &elem : elements) clonedElems.push_back(elem->clone());
+      return std::make_unique<BoundArrayLiteral>(std::move(clonedElems), type);
+    }
   };
 
   class BoundIndexAccess : public BoundExpression
@@ -188,7 +229,11 @@ namespace sema
                      std::shared_ptr<zir::Type> t)
         : BoundExpression(std::move(t)), left(std::move(l)), index(std::move(i)) {}
     void accept(BoundVisitor &v) override { v.visit(*this); }
+    std::unique_ptr<BoundExpression> clone() const override {
+      return std::make_unique<BoundIndexAccess>(left->clone(), index->clone(), type);
+    }
   };
+
 
   class BoundVariableDeclaration : public BoundStatement
   {
@@ -200,6 +245,9 @@ namespace sema
                              std::unique_ptr<BoundExpression> init)
         : symbol(std::move(s)), initializer(std::move(init)) {}
     void accept(BoundVisitor &v) override { v.visit(*this); }
+    std::unique_ptr<BoundStatement> cloneStatement() const override {
+      return std::make_unique<BoundVariableDeclaration>(symbol, initializer ? initializer->clone() : nullptr);
+    }
   };
 
   class BoundReturnStatement : public BoundStatement
@@ -209,6 +257,9 @@ namespace sema
     explicit BoundReturnStatement(std::unique_ptr<BoundExpression> e)
         : expression(std::move(e)) {}
     void accept(BoundVisitor &v) override { v.visit(*this); }
+    std::unique_ptr<BoundStatement> cloneStatement() const override {
+      return std::make_unique<BoundReturnStatement>(expression ? expression->clone() : nullptr);
+    }
   };
 
   class BoundAssignment : public BoundStatement
@@ -221,6 +272,9 @@ namespace sema
                     std::unique_ptr<BoundExpression> e)
         : target(std::move(t)), expression(std::move(e)) {}
     void accept(BoundVisitor &v) override { v.visit(*this); }
+    std::unique_ptr<BoundStatement> cloneStatement() const override {
+      return std::make_unique<BoundAssignment>(target->clone(), expression->clone());
+    }
   };
 
   class BoundIfExpression : public BoundExpression, public BoundStatement
@@ -237,6 +291,14 @@ namespace sema
         : BoundExpression(std::move(t)), condition(std::move(cond)),
           thenBody(std::move(thenB)), elseBody(std::move(elseB)) {}
     void accept(BoundVisitor &v) override { v.visit(*this); }
+    std::unique_ptr<BoundExpression> clone() const override {
+      return std::make_unique<BoundIfExpression>(condition->clone(), thenBody->cloneBlock(), elseBody ? elseBody->cloneBlock() : nullptr, type);
+    }
+    std::unique_ptr<BoundStatement> cloneStatement() const override {
+      auto clonedExpr = clone();
+      auto *ptr = clonedExpr.release();
+      return std::unique_ptr<BoundStatement>(dynamic_cast<BoundStatement *>(ptr));
+    }
   };
 
   class BoundWhileStatement : public BoundStatement
@@ -249,6 +311,9 @@ namespace sema
                         std::unique_ptr<BoundBlock> b)
         : condition(std::move(cond)), body(std::move(b)) {}
     void accept(BoundVisitor &v) override { v.visit(*this); }
+    std::unique_ptr<BoundStatement> cloneStatement() const override {
+      return std::make_unique<BoundWhileStatement>(condition->clone(), body->cloneBlock());
+    }
   };
 
   class BoundBreakStatement : public BoundStatement
@@ -256,6 +321,9 @@ namespace sema
   public:
     BoundBreakStatement() = default;
     void accept(BoundVisitor &v) override { v.visit(*this); }
+    std::unique_ptr<BoundStatement> cloneStatement() const override {
+      return std::make_unique<BoundBreakStatement>();
+    }
   };
 
   class BoundContinueStatement : public BoundStatement
@@ -263,7 +331,11 @@ namespace sema
   public:
     BoundContinueStatement() = default;
     void accept(BoundVisitor &v) override { v.visit(*this); }
+    std::unique_ptr<BoundStatement> cloneStatement() const override {
+      return std::make_unique<BoundContinueStatement>();
+    }
   };
+
 
   class BoundFunctionDeclaration : public BoundNode
   {
@@ -311,6 +383,9 @@ namespace sema
                       std::shared_ptr<zir::Type> t)
         : BoundExpression(std::move(t)), left(std::move(l)), member(std::move(m)) {}
     void accept(BoundVisitor &v) override { v.visit(*this); }
+    std::unique_ptr<BoundExpression> clone() const override {
+      return std::make_unique<BoundMemberAccess>(left->clone(), member, type);
+    }
   };
 
   class BoundStructLiteral : public BoundExpression
@@ -322,6 +397,13 @@ namespace sema
                        std::shared_ptr<zir::Type> t)
         : BoundExpression(std::move(t)), fields(std::move(f)) {}
     void accept(BoundVisitor &v) override { v.visit(*this); }
+    std::unique_ptr<BoundExpression> clone() const override {
+      std::vector<std::pair<std::string, std::unique_ptr<BoundExpression>>> clonedFields;
+      for (const auto &field : fields) {
+        clonedFields.push_back({field.first, field.second->clone()});
+      }
+      return std::make_unique<BoundStructLiteral>(std::move(clonedFields), type);
+    }
   };
 
   class BoundRootNode : public BoundNode

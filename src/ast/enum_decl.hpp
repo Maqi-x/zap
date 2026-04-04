@@ -1,4 +1,3 @@
-// ast/enum_decl.hpp
 #pragma once
 #include "node.hpp"
 #include "top_level.hpp"

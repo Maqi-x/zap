@@ -183,8 +183,16 @@ namespace zap
           if (peek().type == TokenType::SEMICOLON)
           {
             eat(TokenType::SEMICOLON);
+            body->addStatement(std::move(ifNode));
           }
-          body->addStatement(std::move(ifNode));
+          else if (peek().type == TokenType::RBRACE)
+          {
+            body->setResult(std::move(ifNode));
+          }
+          else
+          {
+            body->addStatement(std::move(ifNode));
+          }
         }
         else if (peek().type == TokenType::WHILE)
         {
@@ -222,7 +230,14 @@ namespace zap
           }
           else
           {
-            body->addStatement(std::move(expr));
+            if (peek().type == TokenType::RBRACE)
+            {
+              body->setResult(std::move(expr));
+            }
+            else
+            {
+              body->addStatement(std::move(expr));
+            }
           }
         }
       }
@@ -507,32 +522,14 @@ namespace zap
       int nextMinPrecedence =
           (opToken.type == TokenType::POW) ? precedence : precedence + 1;
 
-      if (opToken.type == TokenType::DOT)
-      {
-        Token memberToken = eat(TokenType::ID);
-        SourceSpan leftSpan = left->span;
-        left = std::move(_builder.makeMemberAccess(std::move(left), memberToken.value));
-        _builder.setSpan(left.get(), SourceSpan::merge(leftSpan, memberToken.span));
-      }
-      else if (opToken.type == TokenType::SQUARE_LBRACE)
-      {
-        auto index = parseExpression();
-        Token rbracket = eat(TokenType::SQUARE_RBRACE);
-        SourceSpan leftSpan = left->span;
-        left = _builder.makeIndexAccess(std::move(left), std::move(index));
-        _builder.setSpan(left.get(), SourceSpan::merge(leftSpan, rbracket.span));
-      }
-      else
-      {
-        auto right = parseBinaryExpression(nextMinPrecedence);
+      auto right = parseBinaryExpression(nextMinPrecedence);
 
-        SourceSpan leftSpan = left->span;
-        SourceSpan rightSpan = right->span;
-        left = _builder.makeBinExpr(std::move(left), opToken.value,
-                                    std::move(right));
-        _builder.setSpan(static_cast<BinExpr *>(left.get()),
-                         SourceSpan::merge(leftSpan, rightSpan));
-      }
+      SourceSpan leftSpan = left->span;
+      SourceSpan rightSpan = right->span;
+      left = _builder.makeBinExpr(std::move(left), opToken.value,
+                                  std::move(right));
+      _builder.setSpan(static_cast<BinExpr *>(left.get()),
+                       SourceSpan::merge(leftSpan, rightSpan));
     }
     return left;
   }
@@ -548,7 +545,42 @@ namespace zap
       _builder.setSpan(node.get(), SourceSpan::merge(opToken.span, endSpan));
       return node;
     }
-    return parsePrimaryExpression();
+    return parsePostfixExpression();
+  }
+
+  std::unique_ptr<ExpressionNode> Parser::parsePostfixExpression()
+  {
+    auto left = parsePrimaryExpression();
+
+    while (true)
+    {
+      if (isAtEnd())
+        break;
+      Token opToken = peek();
+
+      if (opToken.type == TokenType::DOT)
+      {
+        eat(TokenType::DOT);
+        Token memberToken = eat(TokenType::ID);
+        SourceSpan leftSpan = left->span;
+        left = std::move(_builder.makeMemberAccess(std::move(left), memberToken.value));
+        _builder.setSpan(left.get(), SourceSpan::merge(leftSpan, memberToken.span));
+      }
+      else if (opToken.type == TokenType::SQUARE_LBRACE)
+      {
+        eat(TokenType::SQUARE_LBRACE);
+        auto index = parseExpression();
+        Token rbracket = eat(TokenType::SQUARE_RBRACE);
+        SourceSpan leftSpan = left->span;
+        left = _builder.makeIndexAccess(std::move(left), std::move(index));
+        _builder.setSpan(left.get(), SourceSpan::merge(leftSpan, rbracket.span));
+      }
+      else
+      {
+        break;
+      }
+    }
+    return left;
   }
 
   std::unique_ptr<ExpressionNode> Parser::parsePrimaryExpression()
@@ -687,9 +719,6 @@ namespace zap
       return 20;
     case TokenType::POW:
       return 30;
-    case TokenType::DOT:
-    case TokenType::SQUARE_LBRACE:
-      return 40;
     default:
       return -1;
     }

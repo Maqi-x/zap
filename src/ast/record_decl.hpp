@@ -1,4 +1,3 @@
-// ast/record_decl.hpp
 #pragma once
 #include "node.hpp"
 #include "parameter_node.hpp"

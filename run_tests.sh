@@ -39,6 +39,7 @@ echo "--- Zap Compiler Test Suite ---"
 # Valid code (should pass)
 run_test "tests/valid.zap" 0 "Valid program"
 run_test "tests/return_void.zap" 0 "Return in void function"
+run_test "tests/modulo_test.zap" 0 "Modulo operator test"
 
 # Warning test: compile and check stderr for the warning message
 run_warning_test() {
@@ -169,6 +170,12 @@ run_runtime_test "tests/logical_ops.zap" 0 "Logical operators (&&, ||) with shor
 run_test "tests/logical_type_error.zap" 1 "Logical operators type check"
 run_runtime_test "tests/enum_test.zap" 1 "Enum test"
 run_runtime_test "tests/array_test.zap" 0 "Array declaration, initialization, and indexing"
+run_runtime_test "tests/array_const_size.zap" 0 "Array size as a constant"
+
+# If expression tests
+run_runtime_test "tests/if_expr.zap" 2 "If expression result"
+run_runtime_test "tests/if_advanced.zap" 0 "Advanced if expressions (nesting, math, complex cond)"
+run_warning_runtime_test "repro.zap" 0 "Global variables are discouraged" "If expression in function call and var decl"
 
 # Struct tests
 run_runtime_test "tests/struct_test.zap" 0 "Basic struct member access"
@@ -176,6 +183,7 @@ run_runtime_test "tests/struct_nested_test.zap" 0 "Nested struct member access"
 run_runtime_test "tests/struct_fn_test.zap" 0 "Structs as function parameters and return values"
 run_runtime_test "tests/struct_array_test.zap" 0 "Arrays of structs"
 run_runtime_test "tests/struct_types_test.zap" 0 "Structs with diverse field types"
+run_runtime_test "tests/precedence_test.zap" 0 "Operator precedence (NOT vs Member access)"
 
 echo "-------------------------------"
 echo "Results: $PASSED / $TOTAL passed"
