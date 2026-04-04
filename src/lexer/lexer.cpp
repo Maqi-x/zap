@@ -320,6 +320,8 @@ std::vector<Token> Lexer::tokenize(const std::string &input) {
         type = TokenType::CONST;
       else if (identStr == "alias")
         type = TokenType::ALIAS;
+      else if (identStr == "ref")
+        type = TokenType::REF;
 
       tokens.emplace_back(type, identStr, startLine, startColumn, startPos,
                           len);

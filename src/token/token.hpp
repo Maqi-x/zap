@@ -66,6 +66,7 @@ enum TokenType {
   CONCAT = 60, ///< '~' symbol.
   BIT_OR = 61, ///< '|' symbol.
   ALIAS = 62, ///< "alias" keyword.
+  REF = 63, ///< "ref" keyword.
   GLOBAL,
   CONST,
 };
@@ -157,6 +158,7 @@ inline std::string tokenTypeToString(TokenType type)
     case TokenType::GLOBAL: return "global";
     case TokenType::CONST: return "const";
     case TokenType::ALIAS: return "alias";
+    case TokenType::REF: return "ref";
     case TokenType::CONCAT: return "~";
     default: return "unknown token";
   }

@@ -190,16 +190,18 @@ namespace sema
   public:
     std::shared_ptr<FunctionSymbol> symbol;
     std::vector<std::unique_ptr<BoundExpression>> arguments;
+    std::vector<bool> argumentIsRef;
 
     BoundFunctionCall(std::shared_ptr<FunctionSymbol> s,
-                      std::vector<std::unique_ptr<BoundExpression>> args)
+                      std::vector<std::unique_ptr<BoundExpression>> args,
+                      std::vector<bool> argIsRef = {})
         : BoundExpression(s->returnType), symbol(std::move(s)),
-          arguments(std::move(args)) {}
+          arguments(std::move(args)), argumentIsRef(std::move(argIsRef)) {}
     void accept(BoundVisitor &v) override { v.visit(*this); }
     std::unique_ptr<BoundExpression> clone() const override {
       std::vector<std::unique_ptr<BoundExpression>> clonedArgs;
       for (const auto &arg : arguments) clonedArgs.push_back(arg->clone());
-      return std::make_unique<BoundFunctionCall>(symbol, std::move(clonedArgs));
+      return std::make_unique<BoundFunctionCall>(symbol, std::move(clonedArgs), argumentIsRef);
     }
   };
 

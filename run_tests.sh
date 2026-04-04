@@ -184,6 +184,7 @@ run_runtime_test "tests/struct_array_test.zap" 0 "Arrays of structs"
 run_runtime_test "tests/struct_types_test.zap" 0 "Structs with diverse field types"
 run_runtime_test "tests/precedence_test.zap" 0 "Operator precedence (NOT vs Member access)"
 run_runtime_test "tests/type_alias.zap" 42 "Type aliasing (alias Name = Type)"
+run_runtime_test "tests/ref_test.zap" 0 "Reference type test"
 
 echo "-------------------------------"
 echo "Results: $PASSED / $TOTAL passed"

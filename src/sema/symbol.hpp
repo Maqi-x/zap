@@ -25,9 +25,10 @@ protected:
 class VariableSymbol : public Symbol {
 public:
   bool is_const = false;
+  bool is_ref = false;
   std::shared_ptr<BoundExpression> constant_value = nullptr;
-  VariableSymbol(std::string n, std::shared_ptr<zir::Type> t, bool isConst = false)
-      : Symbol(std::move(n), std::move(t)), is_const(isConst) {}
+  VariableSymbol(std::string n, std::shared_ptr<zir::Type> t, bool isConst = false, bool isRef = false)
+      : Symbol(std::move(n), std::move(t)), is_const(isConst), is_ref(isRef) {}
   SymbolKind getKind() const noexcept override { return SymbolKind::Variable; }
 };
 

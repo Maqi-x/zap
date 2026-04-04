@@ -255,11 +255,16 @@ namespace zap
 
   std::unique_ptr<ParameterNode> Parser::parseParameter()
   {
+    bool isRef = false;
+    if (peek().type == TokenType::REF) {
+      eat(TokenType::REF);
+      isRef = true;
+    }
     Token paramNameToken = eat(TokenType::ID);
     eat(TokenType::COLON);
     auto typeNode = parseType();
     auto paramNode =
-        _builder.makeParam(paramNameToken.value, std::move(typeNode));
+        _builder.makeParam(paramNameToken.value, std::move(typeNode), isRef);
     _builder.setSpan(paramNode.get(), SourceSpan::merge(paramNameToken.span,
                                                         paramNode->type->span));
     return paramNode;
@@ -639,15 +644,20 @@ namespace zap
           do
           {
             std::string argName = "";
+            bool argIsRef = false;
             if (peek().type == TokenType::ID &&
                 peek(1).type == TokenType::ASSIGN)
             {
               argName = eat(TokenType::ID).value;
               eat(TokenType::ASSIGN);
             }
+            if (peek().type == TokenType::REF) {
+              eat(TokenType::REF);
+              argIsRef = true;
+            }
             auto argValue = parseExpression();
             funCall->params_.push_back(
-                std::make_unique<Argument>(argName, std::move(argValue)));
+                std::make_unique<Argument>(argName, std::move(argValue), argIsRef));
           } while (peek().type == TokenType::COMMA &&
                    eat(TokenType::COMMA).type == TokenType::COMMA);
         }
