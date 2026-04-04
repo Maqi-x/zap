@@ -180,7 +180,12 @@ namespace codegen
   {
     std::vector<llvm::Type *> paramTypes;
     for (const auto &param : sym.parameters)
-      paramTypes.push_back(toLLVMType(*param->type));
+    {
+      auto *ty = toLLVMType(*param->type);
+      if (param->is_ref)
+        ty = llvm::PointerType::getUnqual(ty);
+      paramTypes.push_back(ty);
+    }
 
     llvm::Type *retTy = toLLVMType(*sym.returnType);
     return llvm::FunctionType::get(retTy, paramTypes, /*isVarArg=*/false);
@@ -539,6 +544,13 @@ namespace codegen
       addr = globalValues_.at(node.symbol->name);
     }
 
+    if (node.symbol->is_ref)
+    {
+       // addr is a pointer to the pointer passed as argument
+       auto *ptrTy = llvm::PointerType::getUnqual(toLLVMType(*node.symbol->type));
+       addr = builder_.CreateLoad(ptrTy, addr, node.symbol->name + ".ptr");
+    }
+
     if (evaluateAsAddr_)
     {
       lastValue_ = addr;
@@ -728,10 +740,20 @@ namespace codegen
   {
     auto *callee = functionMap_.at(node.symbol->name);
     std::vector<llvm::Value *> args;
-    for (const auto &arg : node.arguments)
+    for (size_t i = 0; i < node.arguments.size(); ++i)
     {
-      arg->accept(*this);
+      bool isRef = false;
+      if (i < node.argumentIsRef.size())
+        isRef = node.argumentIsRef[i];
+      
+      bool old = evaluateAsAddr_;
+      if (isRef)
+        evaluateAsAddr_ = true;
+      
+      node.arguments[i]->accept(*this);
       args.push_back(lastValue_);
+      
+      evaluateAsAddr_ = old;
     }
     lastValue_ = builder_.CreateCall(callee, args);
   }

@@ -140,8 +140,9 @@ public:
   }
 
   std::unique_ptr<ParameterNode> makeParam(const std::string &name,
-                                           std::unique_ptr<TypeNode> type) {
-    return std::make_unique<ParameterNode>(name, std::move(type));
+                                           std::unique_ptr<TypeNode> type,
+                                           bool isRef = false) {
+    return std::make_unique<ParameterNode>(name, std::move(type), isRef);
   }
 
   std::unique_ptr<TypeNode> makeType(const std::string &name) {

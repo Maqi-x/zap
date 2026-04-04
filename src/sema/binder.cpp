@@ -195,7 +195,7 @@ namespace sema
         for (const auto &p : funDecl->params_)
         {
           params.push_back(
-              std::make_shared<VariableSymbol>(p->name, mapType(*p->type)));
+              std::make_shared<VariableSymbol>(p->name, mapType(*p->type), false, p->isRef));
         }
         std::shared_ptr<zir::Type> retType = nullptr;
         if (funDecl->returnType_)
@@ -225,7 +225,7 @@ namespace sema
         for (const auto &p : extDecl->params_)
         {
           params.push_back(
-              std::make_shared<VariableSymbol>(p->name, mapType(*p->type)));
+              std::make_shared<VariableSymbol>(p->name, mapType(*p->type), false, p->isRef));
         }
         auto retType =
           extDecl->returnType_
@@ -787,6 +787,9 @@ namespace sema
     }
 
     std::vector<std::unique_ptr<BoundExpression>> boundArgs;
+    std::vector<bool> argIsRefList;
+    std::vector<std::shared_ptr<VariableSymbol>> refSymbols;
+
     for (size_t i = 0; i < node.params_.size(); ++i)
     {
       node.params_[i]->value->accept(*this);
@@ -795,27 +798,81 @@ namespace sema
       auto arg = std::move(expressionStack_.top());
       expressionStack_.pop();
 
+      bool paramExpectsRef = false;
       if (i < funcSymbol->parameters.size())
       {
+        paramExpectsRef = funcSymbol->parameters[i]->is_ref;
+        if (node.params_[i]->isRef != paramExpectsRef)
+        {
+          if (paramExpectsRef)
+            error(node.params_[i]->value->span, "Argument " + std::to_string(i + 1) + " of function '" + node.funcName_ + "' must be passed with 'ref'.");
+          else
+            error(node.params_[i]->value->span, "Argument " + std::to_string(i + 1) + " of function '" + node.funcName_ + "' should not be passed with 'ref'.");
+        }
+
+        if (paramExpectsRef)
+        {
+          // Check if l-value
+          bool isLValue = false;
+          std::shared_ptr<VariableSymbol> varSym = nullptr;
+          
+          if (auto varExpr = dynamic_cast<BoundVariableExpression *>(arg.get()))
+          {
+            isLValue = true;
+            varSym = varExpr->symbol;
+          }
+          else if (dynamic_cast<BoundIndexAccess *>(arg.get()))
+            isLValue = true;
+          else if (dynamic_cast<BoundMemberAccess *>(arg.get()))
+            isLValue = true;
+
+          if (!isLValue)
+          {
+            error(node.params_[i]->value->span, "Argument " + std::to_string(i + 1) + " passed by 'ref' must be an l-value.");
+          }
+          else if (varSym)
+          {
+            if (varSym->is_const)
+            {
+               error(node.params_[i]->value->span, "Cannot pass constant '" + varSym->name + "' by 'ref'.");
+            }
+
+            // Aliasing check
+            for (const auto& s : refSymbols)
+            {
+              if (s == varSym)
+              {
+                error(node.params_[i]->value->span, "Variable '" + varSym->name + "' is already passed as a 'ref' argument in this call.");
+              }
+            }
+            refSymbols.push_back(varSym);
+          }
+        }
+
         auto expectedType = funcSymbol->parameters[i]->type;
         if (!canConvert(arg->type, expectedType))
         {
-          error(node.span, "Argument " + std::to_string(i + 1) +
+          error(node.params_[i]->value->span, "Argument " + std::to_string(i + 1) +
                                " of function '" + node.funcName_ +
                                "' expected type '" + expectedType->toString() +
                                "', but received type '" + arg->type->toString() +
                                "'");
         }
-        else
+        else if (!paramExpectsRef) // Don't wrap in cast if it's a ref
         {
           arg = wrapInCast(std::move(arg), expectedType);
         }
+        else if (arg->type->toString() != expectedType->toString())
+        {
+           error(node.params_[i]->value->span, "Argument " + std::to_string(i + 1) + " passed by 'ref' must match the parameter type exactly. Expected '" + expectedType->toString() + "', but got '" + arg->type->toString() + "'.");
+        }
       }
       boundArgs.push_back(std::move(arg));
+      argIsRefList.push_back(node.params_[i]->isRef);
     }
 
     expressionStack_.push(
-        std::make_unique<BoundFunctionCall>(funcSymbol, std::move(boundArgs)));
+        std::make_unique<BoundFunctionCall>(funcSymbol, std::move(boundArgs), std::move(argIsRefList)));
   }
 
   void Binder::visit(IfNode &node)
