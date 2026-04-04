@@ -196,7 +196,6 @@ namespace codegen
 
   void LLVMCodeGen::visit(sema::BoundRootNode &node)
   {
-    // Declare all external functions first
     for (const auto &extFn : node.externalFunctions)
     {
       auto *ft = buildFunctionType(*extFn->symbol);
@@ -209,7 +208,6 @@ namespace codegen
       functionMap_[extFn->symbol->name] = f;
     }
 
-    // Declare all functions second so forward calls resolve
     for (const auto &fn : node.functions)
     {
       auto *ft = buildFunctionType(*fn->symbol);

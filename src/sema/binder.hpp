@@ -5,6 +5,7 @@
 #include "bound_nodes.hpp"
 #include "symbol_table.hpp"
 #include <memory>
+#include <optional>
 #include <stack>
 
 namespace sema
@@ -62,6 +63,7 @@ namespace sema
     std::shared_ptr<FunctionSymbol> currentFunction_ = nullptr;
 
     std::shared_ptr<zir::Type> mapType(const TypeNode &typeNode);
+    std::optional<int64_t> evaluateConstantInt(const BoundExpression *expr);
     std::unique_ptr<BoundExpression> wrapInCast(std::unique_ptr<BoundExpression> expr, std::shared_ptr<zir::Type> targetType);
     void error(SourceSpan span, const std::string &message);
 

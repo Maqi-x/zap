@@ -169,6 +169,7 @@ run_runtime_test "tests/logical_ops.zap" 0 "Logical operators (&&, ||) with shor
 run_test "tests/logical_type_error.zap" 1 "Logical operators type check"
 run_runtime_test "tests/enum_test.zap" 1 "Enum test"
 run_runtime_test "tests/array_test.zap" 0 "Array declaration, initialization, and indexing"
+run_runtime_test "tests/array_const_size.zap" 0 "Array size as a constant"
 
 # Struct tests
 run_runtime_test "tests/struct_test.zap" 0 "Basic struct member access"

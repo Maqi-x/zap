@@ -47,8 +47,6 @@ namespace zir
       auto arg = std::make_shared<Argument>(paramSymbol->name, paramSymbol->type);
       currentFunction_->arguments.push_back(arg);
 
-      // Create an alloca for the parameter to make it mutable (standard LLVM
-      // practice)
       auto allocaReg =
           createRegister(std::make_shared<PointerType>(paramSymbol->type));
       currentBlock_->addInstruction(
