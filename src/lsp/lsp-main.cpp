@@ -1182,7 +1182,7 @@ int main() {
               static constexpr const char *keywords[] = {
                   "fun",   "return", "if",    "else",  "while", "var",
                   "const", "import", "pub",   "priv",  "struct","record",
-                  "enum",  "alias",  "extern","global","break", "continue",
+                  "enum",  "alias",  "ext",   "global","break", "continue",
                   "ref",   "as"};
               for (const char *keyword : keywords) {
                 if (seen.insert(keyword).second) {

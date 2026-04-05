@@ -956,12 +956,6 @@ namespace sema
       }
     }
 
-    if (node.isGlobal_)
-    {
-      _diag.report(node.span, zap::DiagnosticLevel::Warning,
-                   "Global variables are discouraged.");
-    }
-
     auto boundDecl = std::make_unique<BoundVariableDeclaration>(
         symbol, std::move(initializer));
 
