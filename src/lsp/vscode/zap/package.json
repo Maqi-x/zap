@@ -20,7 +20,7 @@
       "properties": {
         "zap-lsp.path": {
           "type": "string",
-          "default": "zap-lsp",
+          "default": "zapd",
           "description": "Path to the Zap LSP executable"
         }
       }
@@ -41,7 +41,7 @@
     "grammars": [
       {
         "language": "zap",
-        "scopeName": "source.zp",
+        "scopeName": "source.zap",
         "path": "./syntaxes/zap.tmLanguage.json"
       }
     ]
