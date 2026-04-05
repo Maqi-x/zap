@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 void printInt(long v)
 {
@@ -230,4 +232,47 @@ void panic(zap_string_t message)
 {
     eprintln(message);
     exit(1);
+}
+
+long exec(zap_string_t cmd)
+{
+    if (!cmd.ptr)
+    {
+        return -1;
+    }
+
+    char *buffer = (char *)malloc((size_t)cmd.len + 1);
+    if (!buffer)
+    {
+        return -1;
+    }
+
+    memcpy(buffer, cmd.ptr, (size_t)cmd.len);
+    buffer[cmd.len] = '\0';
+
+    int result = system(buffer);
+    free(buffer);
+
+    if (result == -1)
+    {
+        return -1;
+    }
+
+    if (WIFEXITED(result))
+    {
+        return WEXITSTATUS(result);
+    }
+
+    return result;
+}
+
+zap_string_t cwd()
+{
+    char *dir = getcwd(NULL, 0);
+    if (!dir)
+    {
+        return (zap_string_t){.ptr = "", .len = 0};
+    }
+
+    return (zap_string_t){.ptr = dir, .len = (long)strlen(dir)};
 }

@@ -2,3 +2,5 @@ pub ext fun exit(code: Int) Void;
 pub ext fun panic(message: String) Void;
 pub ext fun argc() Int;
 pub ext fun argv(i: Int) String;
+pub ext fun exec(cmd: String) Int;
+pub ext fun cwd() String;

@@ -184,6 +184,8 @@ run_warning_runtime_test "tests/global_var_test.zp" 0 "Global variables are disc
 run_runtime_test "tests/main_implicit.zp" 0 "Main implicit return type and implicit return 0"
 run_runtime_test "tests/ext_default_void_runtime.zp" 0 "External function without return type defaults to Void at runtime"
 run_runtime_args_test "tests/process_args_test.zp" 0 "Process argument access" alpha beta gamma
+run_runtime_test "tests/process_exec_test.zp" 0 "Process execution"
+run_runtime_test "tests/process_cwd_test.zp" 0 "Current working directory access"
 
 # Lexer errors (exit code 1)
 run_test "tests/lexer_error.zp" 1 "Lexer error: Unterminated string"
