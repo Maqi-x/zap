@@ -166,6 +166,8 @@ run_test "tests/syntax_error.zp" 1 "Multiple syntax errors"
 # Concat tests
 run_runtime_test "tests/concat.zp" 0 "Concat literal strings"
 run_test "tests/concat_char.zp" 1 "Concat char + string is currently rejected"
+run_runtime_test "tests/string_index_test.zp" 0 "String indexing"
+run_test "tests/string_index_assign_error.zp" 1 "String indexing is read-only"
 
 # Logical operator tests
 run_runtime_test "tests/logical_ops.zp" 0 "Logical operators (&&, ||) with short-circuiting"

@@ -9,6 +9,12 @@ namespace sema
 {
   namespace
   {
+    bool isStringType(const std::shared_ptr<zir::Type> &type)
+    {
+      return type && type->getKind() == zir::TypeKind::Record &&
+             static_cast<zir::RecordType *>(type.get())->getName() == "String";
+    }
+
     std::vector<std::string> splitQualified(const std::string &value)
     {
       std::vector<std::string> parts;
@@ -1081,11 +1087,6 @@ namespace sema
     auto rightType = right->type;
     std::shared_ptr<zir::Type> resultType = leftType;
 
-    auto isStringType = [](const std::shared_ptr<zir::Type> &t) {
-      return t->getKind() == zir::TypeKind::Record &&
-             static_cast<zir::RecordType *>(t.get())->getName() == "String";
-    };
-
     if (node.op_ == "~")
     {
       if (!isStringType(leftType) || !isStringType(rightType))
@@ -1262,6 +1263,14 @@ namespace sema
         return;
       }
     }
+    else if (auto indexExpr = dynamic_cast<BoundIndexAccess *>(target.get()))
+    {
+      if (isStringType(indexExpr->left->type))
+      {
+        error(node.span, "Cannot assign through String index access.");
+        return;
+      }
+    }
 
     node.expr_->accept(*this);
     if (expressionStack_.empty())
@@ -1292,7 +1301,8 @@ namespace sema
     auto left = std::move(expressionStack_.top());
     expressionStack_.pop();
 
-    if (left->type->getKind() != zir::TypeKind::Array)
+    if (left->type->getKind() != zir::TypeKind::Array &&
+        !isStringType(left->type))
     {
       error(node.span,
             "Type '" + left->type->toString() + "' does not support indexing.");
@@ -1311,9 +1321,19 @@ namespace sema
                            index->type->toString() + "'");
     }
 
-    auto arrayType = std::static_pointer_cast<zir::ArrayType>(left->type);
+    std::shared_ptr<zir::Type> elementType;
+    if (left->type->getKind() == zir::TypeKind::Array)
+    {
+      auto arrayType = std::static_pointer_cast<zir::ArrayType>(left->type);
+      elementType = arrayType->getBaseType();
+    }
+    else
+    {
+      elementType = std::make_shared<zir::PrimitiveType>(zir::TypeKind::Char);
+    }
+
     expressionStack_.push(std::make_unique<BoundIndexAccess>(
-        std::move(left), std::move(index), arrayType->getBaseType()));
+        std::move(left), std::move(index), elementType));
   }
 
   void Binder::visit(MemberAccessNode &node)

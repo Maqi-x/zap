@@ -16,7 +16,14 @@
 
 namespace codegen
 {
-
+  namespace
+  {
+    bool isStringType(const std::shared_ptr<zir::Type> &type)
+    {
+      return type && type->getKind() == zir::TypeKind::Record &&
+             static_cast<zir::RecordType *>(type.get())->getName() == "String";
+    }
+  } // namespace
   LLVMCodeGen::LLVMCodeGen() : builder_(ctx_), nextStringId_(0), evaluateAsAddr_(false)
   {
     llvm::InitializeNativeTarget();
@@ -837,32 +844,49 @@ namespace codegen
 
   void LLVMCodeGen::visit(sema::BoundIndexAccess &node)
   {
+    llvm::Value *leftAddr = nullptr;
+    llvm::Value *leftValue = nullptr;
     bool old = evaluateAsAddr_;
-    evaluateAsAddr_ = true;
-    node.left->accept(*this);
-    llvm::Value *leftAddr = lastValue_;
+
+    if (isStringType(node.left->type))
+    {
+      evaluateAsAddr_ = false;
+      node.left->accept(*this);
+      leftValue = lastValue_;
+    }
+    else
+    {
+      evaluateAsAddr_ = true;
+      node.left->accept(*this);
+      leftAddr = lastValue_;
+    }
 
     evaluateAsAddr_ = false;
     node.index->accept(*this);
     llvm::Value *indexVal = lastValue_;
     evaluateAsAddr_ = old;
 
-    auto *leftTy = toLLVMType(*node.left->type);
     llvm::Value *elemAddr = nullptr;
 
-    if (leftTy->isArrayTy())
+    if (node.left->type->getKind() == zir::TypeKind::Array)
     {
+      auto *leftTy = toLLVMType(*node.left->type);
       auto *i32Ty = llvm::Type::getInt32Ty(ctx_);
       std::vector<llvm::Value *> indices = {
           llvm::ConstantInt::get(i32Ty, 0),
           builder_.CreateIntCast(indexVal, i32Ty, /*isSigned=*/false)};
       elemAddr = builder_.CreateInBoundsGEP(leftTy, leftAddr, indices);
     }
-    else if (leftTy->isPointerTy())
+    else if (isStringType(node.left->type))
     {
-      // Pointer indexing (e.g. string[0])
-      auto *baseTy = toLLVMType(*static_cast<zir::PointerType &>(*node.left->type).getBaseType());
-      elemAddr = builder_.CreateInBoundsGEP(baseTy, leftAddr, indexVal);
+      if (evaluateAsAddr_)
+      {
+        throw std::runtime_error("String index access is not assignable.");
+      }
+
+      auto *ptr = builder_.CreateExtractValue(leftValue, {0}, "string.ptr");
+      auto *i8Ty = llvm::Type::getInt8Ty(ctx_);
+      elemAddr = builder_.CreateInBoundsGEP(i8Ty, ptr, indexVal, "string.index");
     }
     else
     {
