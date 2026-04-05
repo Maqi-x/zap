@@ -1,59 +1,93 @@
 {
-	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
-	"name": "Zap",
-	"patterns": [
-		{
-			"include": "#comments"
-		},
-		{
-			"include": "#keywords"
-		},
-		{
-			"include": "#strings"
-		},
-		{
-			"include": "#numbers"
-		},
-		{
-			"include": "#constants"
-		}
-	],
-	"repository": {
-		"constants": {
-			"patterns": [{
-				"name": "constant.language.zp",
-				"match": "\\b(true|false)\\b"
-			}]
-		},
-		"comments": {
-			"patterns": [{
-				"name": "comment.line.double-slash.zp",
-				"match": "//.*$"
-			}]
-		},
-		"numbers": {
-    	"patterns": [{
-        "name": "constant.numeric.zp",
-        "match": "\\b\\d+(\\.\\d+)?\\b"
-			}]
-		},
-		"keywords": {
-			"patterns": [{
-				"name": "keyword.control.zp",
-				"match": "\\b(if|else|record|struct|global|const|enum|while|for|return|fun|var|continue|break)\\b"
-			}]
-		},
-		"strings": {
-			"name": "string.quoted.double.zp",
-			"begin": "\"",
-			"end": "\"",
-			"patterns": [
-				{
-					"name": "constant.character.escape.zp",
-					"match": "\\\\."
-				}
-			]
-		}
-	},
-	"scopeName": "source.zp"
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Zap",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#constants"
+    },
+    {
+      "include": "#functions"
+    },
+    {
+      "include": "#types"
+    }
+  ],
+  "repository": {
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.zap",
+          "match": "\\b(true|false)\\b"
+        }
+      ]
+    },
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.zap",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.zap",
+          "match": "\\b\\d+(\\.\\d+)?\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.zap",
+          "match": "\\b(if|else|global|while|for|return|continue|break)\\b"
+        },
+        {
+          "name": "keyword.other.zap",
+          "match": "\\b(fun|ext|record|struct|const|var|enum)\\b"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "entity.name.function.zap",
+          "match": "(\\w+)\\("
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "entity.name.type.zap",
+          "match": "\\b(Int|Void|Bool|UInt|Int8|UInt8|Int16|UInt16|Int64|UInt64|Int32|UInt32)\\b"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.zap",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.zap",
+          "match": "\\\\."
+        }
+      ]
+    }
+  },
+  "scopeName": "source.zap"
 }
