@@ -2,6 +2,7 @@
 #include "node.hpp"
 #include "type_node.hpp"
 #include "visitor.hpp"
+#include "../visibility.hpp"
 #include <iostream>
 #include <memory>
 #include <vector>
@@ -12,6 +13,7 @@ public:
   std::unique_ptr<TypeNode> type;
   bool isRef = false;
   bool isVariadic = false;
+  Visibility visibility_ = Visibility::Private;
 
   ParameterNode(const std::string &name, std::unique_ptr<TypeNode> type,
                 bool isRef = false, bool isVariadic = false)

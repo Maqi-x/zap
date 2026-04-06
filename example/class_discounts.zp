@@ -1,0 +1,44 @@
+import "std/io" { printInt };
+
+class Discount {
+  pub fun apply(price: Int) Int {
+    return price;
+  }
+}
+
+class PercentDiscount : Discount {
+  prot percent: Int;
+
+  fun init(percent: Int) {
+    self.percent = percent;
+  }
+
+  pub fun apply(price: Int) Int {
+    return price - (price * self.percent) / 100;
+  }
+}
+
+class FlatDiscount : Discount {
+  prot amount: Int;
+
+  fun init(amount: Int) {
+    self.amount = amount;
+  }
+
+  pub fun apply(price: Int) Int {
+    return price - self.amount;
+  }
+}
+
+fun finalPrice(discount: Discount, basePrice: Int) Int {
+  return discount.apply(basePrice);
+}
+
+fun main() Int {
+  var weekend: Discount = new PercentDiscount(20);
+  var coupon: Discount = new FlatDiscount(35);
+
+  printInt(finalPrice(weekend, 250));
+  printInt(finalPrice(coupon, 250));
+  return 0;
+}

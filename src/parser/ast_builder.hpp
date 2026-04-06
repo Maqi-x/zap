@@ -21,6 +21,8 @@
 #include "../ast/if_node.hpp"
 #include "../ast/import_node.hpp"
 #include "../ast/index_access.hpp"
+#include "../ast/class_decl.hpp"
+#include "../ast/new_expr.hpp"
 #include "../ast/parameter_node.hpp"
 #include "../ast/record_decl.hpp"
 #include "../ast/return_node.hpp"
@@ -195,6 +197,14 @@ public:
   makeRecordDecl(const std::string &name,
                  std::vector<std::unique_ptr<ParameterNode>> fields) {
     return std::make_unique<RecordDecl>(name, std::move(fields));
+  }
+
+  std::unique_ptr<ClassDecl> makeClassDecl(const std::string &name) {
+    return std::make_unique<ClassDecl>(name);
+  }
+
+  std::unique_ptr<NewExpr> makeNewExpr(std::unique_ptr<TypeNode> type) {
+    return std::make_unique<NewExpr>(std::move(type));
   }
 
   std::unique_ptr<TypeAliasDecl>

@@ -2,5 +2,6 @@
 
 enum class Visibility {
   Private,
+  Protected,
   Public,
 };

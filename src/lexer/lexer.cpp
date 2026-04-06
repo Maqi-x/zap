@@ -328,6 +328,12 @@ std::vector<Token> Lexer::tokenize(const std::string &input) {
         type = TokenType::REF;
       else if (identStr == "as")
         type = TokenType::AS;
+      else if (identStr == "class")
+        type = TokenType::CLASS;
+      else if (identStr == "prot")
+        type = TokenType::PROT;
+      else if (identStr == "new")
+        type = TokenType::NEW;
 
       tokens.emplace_back(type, identStr, startLine, startColumn, startPos,
                           len);

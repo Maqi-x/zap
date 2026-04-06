@@ -6,15 +6,18 @@
 #include <llvm/Target/TargetMachine.h>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 
 namespace codegen
 {
+  class ClassArcEmitter;
 
   class LLVMCodeGen : public sema::BoundVisitor
   {
   public:
     LLVMCodeGen();
+    ~LLVMCodeGen();
 
     void generate(sema::BoundRootNode &root);
 
@@ -48,6 +51,7 @@ namespace codegen
     void visit(sema::BoundBreakStatement &node) override;
     void visit(sema::BoundContinueStatement &node) override;
     void visit(sema::BoundCast &node) override;
+    void visit(sema::BoundNewExpression &node) override;
 
   private:
     llvm::LLVMContext ctx_;
@@ -62,6 +66,13 @@ namespace codegen
     std::map<std::string, llvm::GlobalVariable *> globalValues_;
     std::map<std::string, llvm::Function *> functionMap_;
     std::map<std::string, llvm::StructType *> structCache_;
+    std::map<std::string, std::map<int, llvm::Function *>> classVirtualMethodFns_;
+    std::map<std::string, llvm::GlobalVariable *> classVTables_;
+    std::map<std::string, llvm::Function *> classRetainFns_;
+    std::map<std::string, llvm::Function *> classReleaseFns_;
+    std::map<std::string, llvm::Function *> classDestructorFns_;
+    std::vector<std::vector<std::pair<std::shared_ptr<zir::Type>, llvm::Value *>>> scopeClassLocals_;
+    std::unique_ptr<ClassArcEmitter> arcEmitter_;
     
     int nextStringId_ = 0;
 
@@ -76,6 +87,15 @@ namespace codegen
 
     llvm::AllocaInst *createEntryAlloca(llvm::Function *fn,
                       const std::string &name, llvm::Type *ty);
+    bool isClassType(const std::shared_ptr<zir::Type> &type) const;
+    bool expressionProducesOwnedClass(const sema::BoundExpression *expr) const;
+    void emitRetainIfNeeded(llvm::Value *value, const std::shared_ptr<zir::Type> &type);
+    void emitReleaseIfNeeded(llvm::Value *value, const std::shared_ptr<zir::Type> &type);
+    void emitScopeReleases();
+    void ensureArcSupport(sema::BoundRootNode &root);
+    void ensureClassArcSupport(const std::shared_ptr<zir::ClassType> &classType);
+
+    friend class ClassArcEmitter;
   };
 
 } // namespace codegen

@@ -13,8 +13,10 @@
 #include "../ast/if_node.hpp"
 #include "../ast/import_node.hpp"
 #include "../ast/record_decl.hpp"
+#include "../ast/class_decl.hpp"
 #include "../ast/struct_decl.hpp"
 #include "../ast/struct_literal.hpp"
+#include "../ast/new_expr.hpp"
 #include "../ast/return_node.hpp"
 #include "../ast/unsafe_block_node.hpp"
 #include "../ast/break_node.hpp"
@@ -86,6 +88,7 @@ namespace zap
     std::unique_ptr<EnumDecl> parseEnumDecl();
     std::unique_ptr<TypeAliasDecl> parseTypeAliasDecl();
     std::unique_ptr<RecordDecl> parseRecordDecl();
+    std::unique_ptr<ClassDecl> parseClassDecl();
     std::unique_ptr<StructDeclarationNode> parseStructDecl(bool isUnsafe = false);
     std::unique_ptr<StructLiteralNode> parseStructLiteral(const std::string& type_name);
     std::unique_ptr<BreakNode> parseBreak();

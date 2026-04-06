@@ -638,4 +638,17 @@ namespace zir
     valueStack_.push(res);
   }
 
+  void BoundIRGenerator::visit(sema::BoundNewExpression &node)
+  {
+    for (const auto &arg : node.arguments)
+    {
+      arg->accept(*this);
+      if (!valueStack_.empty())
+      {
+        valueStack_.pop();
+      }
+    }
+    valueStack_.push(std::make_shared<Constant>("null", node.type));
+  }
+
 } // namespace zir

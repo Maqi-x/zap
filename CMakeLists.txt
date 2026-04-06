@@ -15,6 +15,8 @@ set(SOURCES
     src/ir/ir_generator.cpp
     src/sema/binder.cpp
     src/codegen/llvm_codegen.cpp
+    src/codegen/llvm_codegen_arc.cpp
+    src/codegen/class_arc_emitter.cpp
     src/driver/driver.cpp
     src/utils/stream.cpp
 )

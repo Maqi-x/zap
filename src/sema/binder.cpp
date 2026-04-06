@@ -1,6 +1,7 @@
 #include "binder.hpp"
 #include "../ast/const/const_char.hpp"
 #include "../ast/record_decl.hpp"
+#include "../ast/class_decl.hpp"
 #include <algorithm>
 #include <cctype>
 #include <sstream>
@@ -11,7 +12,9 @@ namespace sema
   {
     bool isStringType(const std::shared_ptr<zir::Type> &type)
     {
-      return type && type->getKind() == zir::TypeKind::Record &&
+      return type &&
+             (type->getKind() == zir::TypeKind::Record ||
+              type->getKind() == zir::TypeKind::Class) &&
              static_cast<zir::RecordType *>(type.get())->getName() == "String";
     }
 
@@ -207,6 +210,7 @@ namespace sema
       for (const auto &child : module.info->root->children)
       {
         if (dynamic_cast<RecordDecl *>(child.get()) ||
+            dynamic_cast<ClassDecl *>(child.get()) ||
             dynamic_cast<StructDeclarationNode *>(child.get()) ||
             dynamic_cast<EnumDecl *>(child.get()))
         {
@@ -223,6 +227,7 @@ namespace sema
       {
         if (dynamic_cast<ImportNode *>(child.get()) ||
             dynamic_cast<RecordDecl *>(child.get()) ||
+            dynamic_cast<ClassDecl *>(child.get()) ||
             dynamic_cast<StructDeclarationNode *>(child.get()) ||
             dynamic_cast<EnumDecl *>(child.get()) ||
             dynamic_cast<TypeAliasDecl *>(child.get()))
@@ -626,6 +631,36 @@ namespace sema
           module.symbol->exports[recordDecl->name_] = symbol;
         }
       }
+      else if (auto classDecl = dynamic_cast<ClassDecl *>(child.get()))
+      {
+        auto type = std::make_shared<zir::ClassType>(
+            displayTypeName(module.info->moduleName, classDecl->name_),
+            mangleName(module.info->linkPath.empty() ? module.info->moduleId
+                                                    : module.info->linkPath,
+                       classDecl->name_));
+        auto symbol = std::make_shared<TypeSymbol>(
+            classDecl->name_, type,
+            mangleName(module.info->linkPath.empty() ? module.info->moduleId
+                                                     : module.info->linkPath,
+                       classDecl->name_),
+            module.info->moduleName, classDecl->visibility_, false, true);
+        if (!module.scope->declare(classDecl->name_, symbol))
+        {
+          error(classDecl->span,
+                "Type '" + classDecl->name_ + "' already declared.");
+        }
+        module.symbol->members[classDecl->name_] = symbol;
+        if (classDecl->visibility_ == Visibility::Public)
+        {
+          module.symbol->exports[classDecl->name_] = symbol;
+        }
+
+        ClassInfo info;
+        info.typeSymbol = symbol;
+        info.classType = type;
+        info.ownerQualifiedName = type->getName();
+        classInfos_[type->getName()] = info;
+      }
       else if (auto structDecl = dynamic_cast<StructDeclarationNode *>(child.get()))
       {
         auto type = std::make_shared<zir::RecordType>(
@@ -973,6 +1008,129 @@ namespace sema
           }
         }
       }
+      else if (auto classDecl = dynamic_cast<ClassDecl *>(child.get()))
+      {
+        auto classSymbol = std::dynamic_pointer_cast<TypeSymbol>(
+            module.scope->lookup(classDecl->name_));
+        if (!classSymbol || !classSymbol->isClass)
+        {
+          continue;
+        }
+        auto classType = std::static_pointer_cast<zir::ClassType>(classSymbol->type);
+        auto &classInfo = classInfos_[classType->getName()];
+
+        if (classDecl->baseType_)
+        {
+          auto baseType = mapType(*classDecl->baseType_);
+          if (baseType && baseType->getKind() == zir::TypeKind::Class)
+          {
+            auto baseClass = std::static_pointer_cast<zir::ClassType>(baseType);
+            auto baseIt = classInfos_.find(baseClass->getName());
+            if (baseIt != classInfos_.end())
+            {
+              classInfo.methods.insert(baseIt->second.methods.begin(),
+                                       baseIt->second.methods.end());
+              classInfo.nextVirtualSlot = baseIt->second.nextVirtualSlot;
+            }
+          }
+        }
+
+        for (const auto &methodDecl : classDecl->methods_)
+        {
+          std::vector<std::shared_ptr<VariableSymbol>> params;
+          if (!methodDecl->isStatic_)
+          {
+            params.push_back(std::make_shared<VariableSymbol>(
+                "self", classType, false, false, "self",
+                module.info->moduleName, Visibility::Private));
+          }
+
+          for (size_t i = 0; i < methodDecl->params_.size(); ++i)
+          {
+            const auto &p = methodDecl->params_[i];
+            auto mappedType = mapType(*p->type);
+            if (!mappedType)
+            {
+              error(p->span, "Unknown type: " + p->type->qualifiedName());
+              mappedType = std::make_shared<zir::PrimitiveType>(zir::TypeKind::Void);
+            }
+            params.push_back(std::make_shared<VariableSymbol>(
+                p->name, mappedType, false, p->isRef, p->name,
+                module.info->moduleName, Visibility::Private));
+          }
+
+          std::shared_ptr<zir::Type> retType;
+          bool isCtor = methodDecl->name_ == "init";
+          bool isDtor = methodDecl->name_ == "deinit";
+          if (isDtor && (!methodDecl->params_.empty() || methodDecl->returnType_))
+          {
+            error(methodDecl->span,
+                  "Destructor 'deinit' cannot have parameters or a return type.");
+          }
+          if (isCtor)
+          {
+            retType = std::make_shared<zir::PrimitiveType>(zir::TypeKind::Void);
+          }
+          else if (isDtor)
+          {
+            retType = std::make_shared<zir::PrimitiveType>(zir::TypeKind::Void);
+          }
+          else if (methodDecl->returnType_)
+          {
+            retType = mapType(*methodDecl->returnType_);
+          }
+          else
+          {
+            retType = std::make_shared<zir::PrimitiveType>(zir::TypeKind::Void);
+          }
+          if (!retType)
+          {
+            retType = std::make_shared<zir::PrimitiveType>(zir::TypeKind::Void);
+          }
+
+          auto symbol = std::make_shared<FunctionSymbol>(
+              methodDecl->name_, std::move(params), std::move(retType), "",
+              module.info->moduleName, methodDecl->visibility_, methodDecl->isUnsafe_);
+          symbol->isMethod = !methodDecl->isStatic_;
+          symbol->isStatic = methodDecl->isStatic_;
+          symbol->isConstructor = isCtor;
+          symbol->isDestructor = isDtor;
+          symbol->ownerTypeName = classType->getName();
+          if (symbol->isMethod && !symbol->isStatic &&
+              !symbol->isConstructor && !symbol->isDestructor)
+          {
+            auto existingIt = classInfo.methods.find(methodDecl->name_);
+            if (existingIt != classInfo.methods.end())
+            {
+              auto existingMethod =
+                  std::dynamic_pointer_cast<FunctionSymbol>(existingIt->second);
+              if (existingMethod && existingMethod->vtableSlot >= 0)
+              {
+                symbol->vtableSlot = existingMethod->vtableSlot;
+              }
+            }
+            if (symbol->vtableSlot < 0)
+            {
+              symbol->vtableSlot = classInfo.nextVirtualSlot++;
+            }
+          }
+          symbol->linkName = mangleName(
+              module.info->linkPath.empty() ? module.info->moduleId
+                                            : module.info->linkPath,
+              classDecl->name_ + "$" + methodDecl->name_ + "$" +
+                  sanitizeTypeName(functionSignatureKey(*symbol)));
+          declaredFunctionSymbols_[methodDecl.get()] = symbol;
+          classInfo.methods[methodDecl->name_] = symbol;
+          if (isCtor)
+          {
+            classInfo.constructor = symbol;
+          }
+          else if (isDtor)
+          {
+            classInfo.destructor = symbol;
+          }
+        }
+      }
       else if (auto extDecl = dynamic_cast<ExtDecl *>(child.get()))
       {
         ++externTypeContextDepth_;
@@ -1231,6 +1389,71 @@ namespace sema
   }
 
   void Binder::visit(ImportNode &node) { (void)node; }
+
+  void Binder::visit(ClassDecl &node)
+  {
+    auto symbol = std::dynamic_pointer_cast<TypeSymbol>(
+        currentScope_->lookup(node.name_));
+    if (!symbol || !symbol->isClass)
+    {
+      return;
+    }
+
+    auto classType = std::static_pointer_cast<zir::ClassType>(symbol->type);
+    auto &classInfo = classInfos_[classType->getName()];
+    currentClassStack_.push_back(classType->getName());
+
+    if (node.baseType_)
+    {
+      auto baseType = mapType(*node.baseType_);
+      if (!baseType || baseType->getKind() != zir::TypeKind::Class)
+      {
+        error(node.baseType_->span, "Base type must be a class.");
+      }
+      else
+      {
+        auto baseClass = std::static_pointer_cast<zir::ClassType>(baseType);
+        classType->setBase(baseClass);
+        auto baseIt = classInfos_.find(baseClass->getName());
+        if (baseIt != classInfos_.end())
+        {
+          classInfo.fields = baseIt->second.fields;
+          classInfo.methods.insert(baseIt->second.methods.begin(),
+                                   baseIt->second.methods.end());
+          for (const auto &field : baseClass->getFields())
+          {
+            classType->addField(field.name, field.type, field.visibility);
+          }
+        }
+      }
+    }
+
+    for (const auto &field : node.fields_)
+    {
+      auto fieldType = mapType(*field->type);
+      if (!fieldType)
+      {
+        error(field->span, "Unknown type: " + field->type->qualifiedName());
+        fieldType = std::make_shared<zir::PrimitiveType>(zir::TypeKind::Void);
+      }
+      classType->addField(field->name, fieldType,
+                          static_cast<int>(field->visibility_));
+      classInfo.fields[field->name] = std::make_shared<VariableSymbol>(
+          field->name, fieldType, false, false, field->name,
+          modules_[currentModuleId_].info->moduleName, field->visibility_);
+    }
+
+    auto boundRecord = std::make_unique<BoundRecordDeclaration>();
+    boundRecord->type = classType;
+    boundRoot_->records.push_back(std::move(boundRecord));
+
+    for (const auto &method : node.methods_)
+    {
+      method->accept(*this);
+    }
+
+    currentClassStack_.pop_back();
+  }
 
   void Binder::visit(FunDecl &node)
   {
@@ -2065,6 +2288,32 @@ namespace sema
         }
       }
     }
+    else if (left->type->getKind() == zir::TypeKind::Class)
+    {
+      auto classType = std::static_pointer_cast<zir::ClassType>(left->type);
+      auto infoIt = classInfos_.find(classType->getName());
+      if (infoIt != classInfos_.end())
+      {
+        auto fieldIt = infoIt->second.fields.find(node.member_);
+        if (fieldIt != infoIt->second.fields.end())
+        {
+          auto fieldVis = fieldIt->second->visibility;
+          bool allowed = fieldVis == Visibility::Public ||
+                         (!currentClassStack_.empty() &&
+                          currentClassStack_.back() == classType->getName()) ||
+                         (fieldVis == Visibility::Protected &&
+                          !currentClassStack_.empty());
+          if (!allowed)
+          {
+            error(node.span, "Field '" + node.member_ + "' is not accessible.");
+            return;
+          }
+          expressionStack_.push(std::make_unique<BoundMemberAccess>(
+              std::move(left), node.member_, fieldIt->second->type));
+          return;
+        }
+      }
+    }
 
     error(node.span, "Member '" + node.member_ + "' not found in type '" +
                          left->type->toString() + "'");
@@ -2072,6 +2321,96 @@ namespace sema
 
   void Binder::visit(FunCall &node)
   {
+    if (auto member = dynamic_cast<MemberAccessNode *>(node.callee_.get()))
+    {
+      member->left_->accept(*this);
+      if (expressionStack_.empty())
+      {
+        return;
+      }
+      auto selfExpr = std::move(expressionStack_.top());
+      expressionStack_.pop();
+      if (selfExpr->type->getKind() != zir::TypeKind::Class)
+      {
+        // Not a class method call. Fall through to the normal qualified
+        // function/module call resolution path below.
+      }
+      else
+      {
+        auto classType = std::static_pointer_cast<zir::ClassType>(selfExpr->type);
+        auto infoIt = classInfos_.find(classType->getName());
+        if (infoIt == classInfos_.end())
+        {
+          error(node.span, "Unknown class type: " + classType->getName());
+          return;
+        }
+        auto methodIt = infoIt->second.methods.find(member->member_);
+        if (methodIt == infoIt->second.methods.end())
+        {
+          error(node.span, "Class '" + classType->getName() +
+                               "' has no method '" + member->member_ + "'.");
+          return;
+        }
+        auto funcSymbol = std::dynamic_pointer_cast<FunctionSymbol>(methodIt->second);
+        if (!funcSymbol)
+        {
+          error(node.span, "'" + member->member_ + "' is not a method.");
+          return;
+        }
+        bool methodAllowed = funcSymbol->visibility == Visibility::Public ||
+                             (!currentClassStack_.empty() &&
+                              currentClassStack_.back() == classType->getName()) ||
+                             (funcSymbol->visibility == Visibility::Protected &&
+                              !currentClassStack_.empty());
+        if (!methodAllowed)
+        {
+          error(node.span, "Method '" + member->member_ + "' is not accessible.");
+          return;
+        }
+
+        std::vector<std::unique_ptr<BoundExpression>> args;
+        std::vector<bool> argIsRef;
+        if (funcSymbol->isMethod)
+        {
+          args.push_back(std::move(selfExpr));
+          argIsRef.push_back(false);
+        }
+
+        size_t paramOffset = funcSymbol->isMethod ? 1 : 0;
+        if (node.params_.size() + paramOffset != funcSymbol->parameters.size())
+        {
+          error(node.span, "No matching overload for method '" + member->member_ + "'.");
+          return;
+        }
+
+        for (size_t i = 0; i < node.params_.size(); ++i)
+        {
+          auto arg = bindExpressionWithExpected(
+              node.params_[i]->value.get(),
+              funcSymbol->parameters[i + paramOffset]->type);
+          if (!arg)
+          {
+            return;
+          }
+          auto expectedType = funcSymbol->parameters[i + paramOffset]->type;
+          if (!canConvert(arg->type, expectedType))
+          {
+            error(node.params_[i]->value->span,
+                  "Cannot convert method argument from '" +
+                      arg->type->toString() + "' to '" + expectedType->toString() + "'");
+            return;
+          }
+          arg = wrapInCast(std::move(arg), expectedType);
+          args.push_back(std::move(arg));
+          argIsRef.push_back(node.params_[i]->isRef);
+        }
+
+        expressionStack_.push(std::make_unique<BoundFunctionCall>(
+            funcSymbol, std::move(args), std::move(argIsRef)));
+        return;
+      }
+    }
+
     std::vector<std::string> calleeParts;
     if (!node.callee_ || !extractQualifiedPath(node.callee_.get(), calleeParts))
     {
@@ -2572,6 +2911,62 @@ namespace sema
     expressionStack_.push(std::make_unique<BoundFunctionCall>(
         best.symbol, std::move(best.arguments), std::move(best.argumentIsRef),
         std::move(best.variadicPack)));
+  }
+
+  void Binder::visit(NewExpr &node)
+  {
+    auto classType = mapType(*node.type_);
+    if (!classType || classType->getKind() != zir::TypeKind::Class)
+    {
+      error(node.span, "'new' expects a class type.");
+      return;
+    }
+    auto concreteType = std::static_pointer_cast<zir::ClassType>(classType);
+    auto infoIt = classInfos_.find(concreteType->getName());
+    if (infoIt == classInfos_.end())
+    {
+      error(node.span, "Unknown class type: " + concreteType->getName());
+      return;
+    }
+
+    std::vector<std::unique_ptr<BoundExpression>> args;
+    std::vector<bool> argRefs;
+    auto ctor = infoIt->second.constructor;
+    size_t ctorParamOffset = ctor && ctor->isMethod ? 1 : 0;
+    size_t expectedArgCount = ctor ? (ctor->parameters.size() - ctorParamOffset) : 0;
+    if (node.args_.size() != expectedArgCount)
+    {
+      error(node.span, "Constructor for class '" + concreteType->getName() +
+                           "' expects " + std::to_string(expectedArgCount) +
+                           " arguments, got " + std::to_string(node.args_.size()) + ".");
+      return;
+    }
+
+    for (size_t i = 0; i < node.args_.size(); ++i)
+    {
+      auto expected = ctor ? ctor->parameters[i + ctorParamOffset]->type : nullptr;
+      auto arg = bindExpressionWithExpected(node.args_[i]->value.get(), expected);
+      if (!arg)
+      {
+        return;
+      }
+      if (expected && !canConvert(arg->type, expected))
+      {
+        error(node.args_[i]->value->span,
+              "Cannot convert constructor argument from '" + arg->type->toString() +
+                  "' to '" + expected->toString() + "'");
+        return;
+      }
+      if (expected)
+      {
+        arg = wrapInCast(std::move(arg), expected);
+      }
+      args.push_back(std::move(arg));
+      argRefs.push_back(node.args_[i]->isRef);
+    }
+
+    expressionStack_.push(std::make_unique<BoundNewExpression>(
+        concreteType, ctor, std::move(args), std::move(argRefs)));
   }
 
   void Binder::visit(IfNode &node)
@@ -3077,6 +3472,19 @@ namespace sema
       return true;
     if (isNullType(from) && isPointerType(to))
       return true;
+    if (from->getKind() == zir::TypeKind::Class &&
+        to->getKind() == zir::TypeKind::Class)
+    {
+      auto fromClass = std::static_pointer_cast<zir::ClassType>(from);
+      auto toClass = std::static_pointer_cast<zir::ClassType>(to);
+      for (auto current = fromClass; current; current = current->getBase())
+      {
+        if (current->getName() == toClass->getName())
+        {
+          return true;
+        }
+      }
+    }
     if (isNumeric(from) && isNumeric(to))
       return true;
     return false;

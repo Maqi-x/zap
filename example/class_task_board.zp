@@ -1,0 +1,67 @@
+import "std/io" { printInt };
+
+class Task {
+  prot estimate: Int;
+  prot done: Bool;
+
+  fun init(estimate: Int) {
+    self.estimate = estimate;
+    self.done = false;
+  }
+
+  pub fun finish() {
+    self.done = true;
+  }
+
+  pub fun score() Int {
+    if (self.done) {
+      return self.estimate;
+    }
+    return 0;
+  }
+}
+
+class BugfixTask : Task {
+  fun init(estimate: Int) {
+    self.estimate = estimate;
+    self.done = false;
+  }
+
+  pub fun score() Int {
+    if (self.done) {
+      return self.estimate * 2;
+    }
+    return 0;
+  }
+}
+
+class FeatureTask : Task {
+  prot impact: Int;
+
+  fun init(estimate: Int, impact: Int) {
+    self.estimate = estimate;
+    self.done = false;
+    self.impact = impact;
+  }
+
+  pub fun score() Int {
+    if (self.done) {
+      return self.estimate + self.impact;
+    }
+    return 0;
+  }
+}
+
+fun complete(task: Task) Int {
+  task.finish();
+  return task.score();
+}
+
+fun main() Int {
+  var bug: Task = new BugfixTask(5);
+  var feature: Task = new FeatureTask(8, 13);
+
+  printInt(complete(bug));
+  printInt(complete(feature));
+  return 0;
+}

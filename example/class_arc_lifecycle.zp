@@ -1,0 +1,51 @@
+import "std/io" { printInt };
+
+class Buffer {
+  priv id: Int;
+
+  fun init(id: Int) {
+    self.id = id;
+    printInt(100 + id);
+  }
+
+  fun deinit() {
+    printInt(200 + self.id);
+  }
+
+  pub fun value() Int {
+    return self.id;
+  }
+}
+
+class Job {
+  priv worker: Buffer;
+  priv id: Int;
+
+  fun init(id: Int) {
+    self.id = id;
+    self.worker = new Buffer(id + 10);
+    printInt(300 + id);
+  }
+
+  fun deinit() {
+    printInt(400 + self.id);
+  }
+
+  pub fun workerId() Int {
+    return self.worker.value();
+  }
+}
+
+fun buildJob(id: Int) Job {
+  var job: Job = new Job(id);
+  return job;
+}
+
+fun main() Int {
+  var current: Job = buildJob(1);
+  printInt(current.workerId());
+
+  current = buildJob(2);
+  printInt(current.workerId());
+  return 0;
+}

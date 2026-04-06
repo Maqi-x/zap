@@ -35,6 +35,7 @@ namespace sema
   class BoundBreakStatement;
   class BoundContinueStatement;
   class BoundCast;
+  class BoundNewExpression;
 
   class BoundVisitor
   {
@@ -66,6 +67,7 @@ namespace sema
     virtual void visit(BoundBreakStatement &node) = 0;
     virtual void visit(BoundContinueStatement &node) = 0;
     virtual void visit(BoundCast &node) = 0;
+    virtual void visit(BoundNewExpression &node) = 0;
   };
 
   class BoundNode
@@ -260,6 +262,30 @@ namespace sema
       std::vector<std::unique_ptr<BoundExpression>> clonedElems;
       for (const auto &elem : elements) clonedElems.push_back(elem->clone());
       return std::make_unique<BoundArrayLiteral>(std::move(clonedElems), type);
+    }
+  };
+
+  class BoundNewExpression : public BoundExpression
+  {
+  public:
+    std::shared_ptr<zir::ClassType> classType;
+    std::shared_ptr<FunctionSymbol> constructor;
+    std::vector<std::unique_ptr<BoundExpression>> arguments;
+    std::vector<bool> argumentIsRef;
+
+    BoundNewExpression(std::shared_ptr<zir::ClassType> type,
+                       std::shared_ptr<FunctionSymbol> ctor,
+                       std::vector<std::unique_ptr<BoundExpression>> args,
+                       std::vector<bool> argRefs = {})
+        : BoundExpression(type), classType(std::move(type)),
+          constructor(std::move(ctor)), arguments(std::move(args)),
+          argumentIsRef(std::move(argRefs)) {}
+    void accept(BoundVisitor &v) override { v.visit(*this); }
+    std::unique_ptr<BoundExpression> clone() const override {
+      std::vector<std::unique_ptr<BoundExpression>> clonedArgs;
+      for (const auto &arg : arguments) clonedArgs.push_back(arg->clone());
+      return std::make_unique<BoundNewExpression>(
+          classType, constructor, std::move(clonedArgs), argumentIsRef);
     }
   };
 

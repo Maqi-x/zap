@@ -1,0 +1,46 @@
+class Counter {
+    priv value: Int;
+
+    fun init(value: Int) {
+        self.value = value;
+    }
+
+    pub fun inc(step: Int) Int {
+        self.value = self.value + step;
+        return self.value;
+    }
+
+    pub fun current() Int {
+        return self.value;
+    }
+}
+
+class DerivedCounter : Counter {
+    prot bonus: Int;
+
+    fun init(value: Int, bonus: Int) {
+        self.value = value;
+        self.bonus = bonus;
+    }
+
+    pub fun total() Int {
+        return self.value + self.bonus;
+    }
+}
+
+fun main() Int {
+    var counter: Counter = new Counter(10);
+    if (counter.current() != 10) {
+        return 1;
+    }
+    if (counter.inc(5) != 15) {
+        return 2;
+    }
+
+    var derived: DerivedCounter = new DerivedCounter(3, 7);
+    if (derived.total() != 10) {
+        return 3;
+    }
+
+    return 0;
+}

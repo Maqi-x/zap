@@ -14,3 +14,4 @@ Welcome to the official documentation for the **Zap** programming language. Zap 
 3. [Control Flow](control_flow.md)
 4. [Data Structures](data_structures.md) (Records, Enums, Arrays)
 5. [Memory Management](memory.md) (ARC)
+6. [Classes](classes.md)

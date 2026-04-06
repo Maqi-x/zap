@@ -1,0 +1,31 @@
+class Base {
+    prot x: Int;
+
+    fun init(x: Int) {
+        self.x = x;
+    }
+
+    pub fun value() Int {
+        return self.x;
+    }
+}
+
+class Derived : Base {
+    fun init(x: Int) {
+        self.x = x + 5;
+    }
+}
+
+fun main() Int {
+    var d: Derived = new Derived(10);
+    var b: Base = d;
+
+    if (d.value() != 15) {
+        return 1;
+    }
+    if (b.value() != 15) {
+        return 2;
+    }
+
+    return 0;
+}

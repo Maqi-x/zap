@@ -54,8 +54,10 @@ namespace sema
     void visit(TypeAliasDecl &node) override;
     void visit(RecordDecl &node) override;
     void visit(StructDeclarationNode &node) override;
+    void visit(ClassDecl &node) override;
     void visit(StructLiteralNode &node) override;
     void visit(UnsafeBlockNode &node) override;
+    void visit(NewExpr &node) override;
 
   private:
     zap::DiagnosticEngine &_diag;
@@ -87,6 +89,18 @@ namespace sema
     };
     std::map<std::string, ModuleState> modules_;
     std::unordered_map<const Node *, std::shared_ptr<FunctionSymbol>> declaredFunctionSymbols_;
+    struct ClassInfo {
+      std::shared_ptr<TypeSymbol> typeSymbol;
+      std::shared_ptr<zir::ClassType> classType;
+      std::shared_ptr<FunctionSymbol> constructor;
+      std::shared_ptr<FunctionSymbol> destructor;
+      std::map<std::string, std::shared_ptr<VariableSymbol>> fields;
+      std::map<std::string, std::shared_ptr<Symbol>> methods;
+      int nextVirtualSlot = 0;
+      std::string ownerQualifiedName;
+    };
+    std::unordered_map<std::string, ClassInfo> classInfos_;
+    std::vector<std::string> currentClassStack_;
 
     std::shared_ptr<zir::Type> mapType(const TypeNode &typeNode);
     std::shared_ptr<Symbol> resolveQualifiedSymbol(const std::vector<std::string> &parts,

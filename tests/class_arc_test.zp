@@ -1,0 +1,110 @@
+global var destroyed: Int = 0;
+global var holdersDestroyed: Int = 0;
+
+class Leaf {
+    priv value: Int;
+
+    fun init(value: Int) {
+        self.value = value;
+    }
+
+    fun deinit() {
+        destroyed = destroyed + self.value;
+    }
+
+    pub fun current() Int {
+        return self.value;
+    }
+}
+
+class Holder {
+    priv child: Leaf;
+
+    fun init(value: Int) {
+        self.child = new Leaf(value);
+    }
+
+    fun deinit() {
+        holdersDestroyed = holdersDestroyed + 1;
+    }
+
+    pub fun current() Int {
+        return self.child.current();
+    }
+}
+
+fun replaceParam(x: Leaf) {
+    x = new Leaf(7);
+}
+
+fun makeLeaf(value: Int) Leaf {
+    var leaf: Leaf = new Leaf(value);
+    return leaf;
+}
+
+fun runLeafScope() Int {
+    var leaf: Leaf = new Leaf(5);
+    replaceParam(leaf);
+    if (destroyed != 7) {
+        return 1;
+    }
+    if (leaf.current() != 5) {
+        return 2;
+    }
+    return 0;
+}
+
+fun runHolderScope() Int {
+    var holder: Holder = new Holder(11);
+    if (holder.current() != 11) {
+        return 1;
+    }
+    return 0;
+}
+
+fun runReturnAndReassignScope() Int {
+    var leaf: Leaf = makeLeaf(13);
+    if (destroyed != 23) {
+        return 1;
+    }
+    if (leaf.current() != 13) {
+        return 2;
+    }
+
+    leaf = new Leaf(17);
+    if (destroyed != 36) {
+        return 3;
+    }
+    return 0;
+}
+
+fun main() Int {
+    var rc: Int = runLeafScope();
+    if (rc != 0) {
+        return 10 + rc;
+    }
+    if (destroyed != 12) {
+        return 20;
+    }
+
+    rc = runHolderScope();
+    if (rc != 0) {
+        return 30 + rc;
+    }
+    if (holdersDestroyed != 1) {
+        return 40;
+    }
+    if (destroyed != 23) {
+        return 50;
+    }
+
+    rc = runReturnAndReassignScope();
+    if (rc != 0) {
+        return 60 + rc;
+    }
+    if (destroyed != 53) {
+        return 70;
+    }
+
+    return 0;
+}

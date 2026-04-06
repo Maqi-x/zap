@@ -25,6 +25,7 @@ enum class TypeKind {
   Pointer,
   NullPtr,
   Record,
+  Class,
   Array,
   Enum
 };
@@ -119,11 +120,13 @@ public:
 };
 
 class RecordType : public Type {
+public:
   struct Field {
     std::string name;
     std::shared_ptr<Type> type;
+    int visibility = 0;
   };
-
+protected:
   std::string name;
   std::string codegenName;
   std::vector<Field> fields;
@@ -137,12 +140,31 @@ public:
   bool isReferenceType() const override { return true; }
 
   void addField(std::string n, std::shared_ptr<Type> t) {
-    fields.push_back({std::move(n), std::move(t)});
+    fields.push_back({std::move(n), std::move(t), 0});
+  }
+
+  void addField(std::string n, std::shared_ptr<Type> t, int visibility) {
+    fields.push_back({std::move(n), std::move(t), visibility});
   }
 
   const std::vector<Field> &getFields() const { return fields; }
   const std::string &getName() const { return name; }
   const std::string &getCodegenName() const { return codegenName; }
+};
+
+class ClassType : public RecordType {
+  std::shared_ptr<ClassType> base;
+
+public:
+  ClassType(std::string n, std::string codegen = "")
+      : RecordType(std::move(n), std::move(codegen)) {}
+
+  TypeKind getKind() const override { return TypeKind::Class; }
+  std::string toString() const override { return "class " + name; }
+  bool isReferenceType() const override { return true; }
+
+  void setBase(std::shared_ptr<ClassType> b) { base = std::move(b); }
+  std::shared_ptr<ClassType> getBase() const { return base; }
 };
 
 class EnumType : public Type {

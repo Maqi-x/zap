@@ -51,6 +51,12 @@ public:
   std::shared_ptr<zir::Type> returnType;
   bool isUnsafe = false;
   bool isCVariadic = false;
+  bool isMethod = false;
+  bool isStatic = false;
+  bool isConstructor = false;
+  bool isDestructor = false;
+  int vtableSlot = -1;
+  std::string ownerTypeName;
 
   FunctionSymbol(std::string n,
                  std::vector<std::shared_ptr<VariableSymbol>> params,
@@ -102,11 +108,12 @@ public:
 class TypeSymbol : public Symbol {
 public:
   bool isUnsafe = false;
+  bool isClass = false;
   TypeSymbol(std::string n, std::shared_ptr<zir::Type> t, std::string link = "",
              std::string module = "", Visibility vis = Visibility::Private,
-             bool unsafe = false)
+             bool unsafe = false, bool classType = false)
       : Symbol(std::move(n), std::move(t), std::move(link), std::move(module), vis),
-        isUnsafe(unsafe) {}
+        isUnsafe(unsafe), isClass(classType) {}
   SymbolKind getKind() const noexcept override { return SymbolKind::Type; }
 };
 

@@ -103,6 +103,12 @@ namespace zap
           applyVisibility(decl.get());
           root->addChild(std::move(decl));
         }
+        else if (peek().type == TokenType::CLASS)
+        {
+          auto decl = parseClassDecl();
+          applyVisibility(decl.get());
+          root->addChild(std::move(decl));
+        }
         else if (peek().type == TokenType::CONST)
         {
           auto decl = parseConstDecl();
@@ -187,11 +193,18 @@ namespace zap
 
   std::unique_ptr<FunDecl> Parser::parseFunDecl(bool isUnsafe)
   {
+    bool isStatic = false;
+    if (peek().type == TokenType::STATIC)
+    {
+      eat(TokenType::STATIC);
+      isStatic = true;
+    }
     Token funKeyword = eat(TokenType::FUN);
 
     Token funNameToken = eat(TokenType::ID);
     auto funDecl = _builder.makeFunDecl(funNameToken.value);
     funDecl->isUnsafe_ = isUnsafe;
+    funDecl->isStatic_ = isStatic;
 
     eat(TokenType::LPAREN);
 
@@ -848,7 +861,45 @@ namespace zap
   std::unique_ptr<ExpressionNode> Parser::parsePrimaryExpression()
   {
     Token current = peek();
-    if (current.type == TokenType::INTEGER)
+    if (current.type == TokenType::NEW)
+    {
+      Token newToken = eat(TokenType::NEW);
+      auto type = parseType();
+      auto newExpr = _builder.makeNewExpr(std::move(type));
+      eat(TokenType::LPAREN);
+      if (peek().type != TokenType::RPAREN)
+      {
+        do
+        {
+          std::string argName = "";
+          bool argIsRef = false;
+          bool argIsSpread = false;
+          if (peek().type == TokenType::ID &&
+              peek(1).type == TokenType::ASSIGN)
+          {
+            argName = eat(TokenType::ID).value;
+            eat(TokenType::ASSIGN);
+          }
+          if (peek().type == TokenType::ELLIPSIS) {
+            eat(TokenType::ELLIPSIS);
+            argIsSpread = true;
+          }
+          if (peek().type == TokenType::REF) {
+            eat(TokenType::REF);
+            argIsRef = true;
+          }
+          auto argValue = parseExpression();
+          newExpr->args_.push_back(
+              std::make_unique<Argument>(argName, std::move(argValue), argIsRef,
+                                         argIsSpread));
+        } while (peek().type == TokenType::COMMA &&
+                 eat(TokenType::COMMA).type == TokenType::COMMA);
+      }
+      Token rparenToken = eat(TokenType::RPAREN);
+      _builder.setSpan(newExpr.get(), SourceSpan::merge(newToken.span, rparenToken.span));
+      return newExpr;
+    }
+    else if (current.type == TokenType::INTEGER)
     {
       eat(TokenType::INTEGER);
       int64_t val = static_cast<int64_t>(std::stoull(current.value));
@@ -1015,12 +1066,14 @@ namespace zap
       case TokenType::ENUM:
       case TokenType::STRUCT:
       case TokenType::RECORD:
+      case TokenType::CLASS:
       case TokenType::ALIAS:
       case TokenType::EXTERN:
       case TokenType::GLOBAL:
       case TokenType::CONST:
       case TokenType::PUB:
       case TokenType::PRIV:
+      case TokenType::PROT:
       case TokenType::VAR:
       case TokenType::IF:
       case TokenType::WHILE:
@@ -1117,6 +1170,61 @@ namespace zap
     _builder.setSpan(recordDecl.get(),
                      SourceSpan::merge(recordKeyword.span, rbraceToken.span));
     return recordDecl;
+  }
+
+  std::unique_ptr<ClassDecl> Parser::parseClassDecl()
+  {
+    Token classKeyword = eat(TokenType::CLASS);
+    Token classNameToken = eat(TokenType::ID);
+
+    auto classDecl = _builder.makeClassDecl(classNameToken.value);
+    if (peek().type == TokenType::COLON)
+    {
+      eat(TokenType::COLON);
+      classDecl->baseType_ = parseType();
+    }
+
+    eat(TokenType::LBRACE);
+
+    while (peek().type != TokenType::RBRACE)
+    {
+      Visibility memberVisibility = Visibility::Private;
+      if (peek().type == TokenType::PUB || peek().type == TokenType::PRIV ||
+          peek().type == TokenType::PROT)
+      {
+        Token visToken = eat(peek().type);
+        if (visToken.type == TokenType::PUB)
+        {
+          memberVisibility = Visibility::Public;
+        }
+        else if (visToken.type == TokenType::PROT)
+        {
+          memberVisibility = Visibility::Protected;
+        }
+      }
+
+      if (peek().type == TokenType::FUN || peek().type == TokenType::STATIC)
+      {
+        auto method = parseFunDecl();
+        method->visibility_ = memberVisibility;
+        classDecl->methods_.push_back(std::move(method));
+      }
+      else
+      {
+        auto field = parseParameter();
+        field->visibility_ = memberVisibility;
+        classDecl->fields_.push_back(std::move(field));
+        if (peek().type == TokenType::COMMA || peek().type == TokenType::SEMICOLON)
+        {
+          eat(peek().type);
+        }
+      }
+    }
+
+    Token rbraceToken = eat(TokenType::RBRACE);
+    _builder.setSpan(classDecl.get(),
+                     SourceSpan::merge(classKeyword.span, rbraceToken.span));
+    return classDecl;
   }
 
   std::unique_ptr<StructDeclarationNode> Parser::parseStructDecl(bool isUnsafe)

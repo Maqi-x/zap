@@ -72,6 +72,9 @@ enum TokenType {
   CONST,
   UNSAFE,
   NULL_LITERAL,
+  CLASS,
+  PROT,
+  NEW,
 };
 
 /// @brief Contains in-file related information like line, column, offset, and length.
@@ -167,6 +170,9 @@ inline std::string tokenTypeToString(TokenType type)
     case TokenType::REF: return "ref";
     case TokenType::AS: return "as";
     case TokenType::CONCAT: return "~";
+    case TokenType::CLASS: return "class";
+    case TokenType::PROT: return "prot";
+    case TokenType::NEW: return "new";
     default: return "unknown token";
   }
 }

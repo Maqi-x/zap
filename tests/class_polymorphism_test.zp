@@ -1,0 +1,27 @@
+class Base {
+    pub fun value() Int {
+        return 1;
+    }
+}
+
+class Derived : Base {
+    pub fun value() Int {
+        return 2;
+    }
+}
+
+fun main() Int {
+    var d: Derived = new Derived();
+    var b: Base = d;
+
+    if (d.value() != 2) {
+        return 1;
+    }
+
+    // This checks dynamic dispatch through the base type.
+    if (b.value() != 2) {
+        return 2;
+    }
+
+    return 0;
+}

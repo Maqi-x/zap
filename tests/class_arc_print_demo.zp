@@ -1,0 +1,38 @@
+import "std/prelude" { printInt };
+
+class Item {
+    priv id: Int;
+
+    fun init(id: Int) {
+        self.id = id;
+        printInt(100 + id);
+    }
+
+    fun deinit() {
+        printInt(200 + self.id);
+    }
+
+    pub fun value() Int {
+        return self.id;
+    }
+}
+
+fun makeItem(id: Int) Item {
+    var x: Item = new Item(id);
+    return x;
+}
+
+fun main() Int {
+    var a: Item = new Item(1);
+    var b: Item = a;
+
+    a = new Item(2);
+    printInt(b.value());
+
+    b = new Item(3);
+
+    var c: Item = makeItem(4);
+    printInt(c.value());
+
+    return 0;
+}

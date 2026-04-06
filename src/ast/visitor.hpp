@@ -21,6 +21,7 @@ class RecordDecl;
 class TypeAliasDecl;
 class StructDeclarationNode;
 class StructLiteralNode;
+class ClassDecl;
 class ImportNode;
 class ParameterNode;
 class TypeNode;
@@ -35,6 +36,7 @@ class CastExpr;
 class FunCall;
 class ArrayLiteralNode;
 class AssignNode;
+class NewExpr;
 
 class ConstInt;
 class ConstFloat;
@@ -69,6 +71,7 @@ struct Visitor
   virtual void visit(TypeAliasDecl &) {}
   virtual void visit(StructDeclarationNode &) {}
   virtual void visit(StructLiteralNode &) {}
+  virtual void visit(ClassDecl &) {}
   virtual void visit(ImportNode &) {}
   virtual void visit(ParameterNode &) {}
   virtual void visit(TypeNode &) {}
@@ -83,6 +86,7 @@ struct Visitor
   virtual void visit(FunCall &) {}
   virtual void visit(ArrayLiteralNode &) {}
   virtual void visit(AssignNode &) {}
+  virtual void visit(NewExpr &) {}
 
   virtual void visit(ConstInt &) {}
   virtual void visit(ConstFloat &) {}
