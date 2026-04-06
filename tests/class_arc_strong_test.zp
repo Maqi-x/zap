@@ -1,0 +1,107 @@
+global var destroyed: Int = 0;
+
+class Leaf {
+    priv value: Int;
+
+    fun init(value: Int) {
+        self.value = value;
+    }
+
+    fun deinit() {
+        destroyed = destroyed + self.value;
+    }
+
+    pub fun current() Int {
+        return self.value;
+    }
+}
+
+class Slot {
+    priv leaf: Leaf;
+
+    pub fun set(leaf: Leaf) {
+        self.leaf = leaf;
+    }
+
+    pub fun current() Int {
+        return self.leaf.current();
+    }
+}
+
+fun choose(flag: Bool) Leaf {
+    return flag ? new Leaf(11) : new Leaf(13);
+}
+
+fun runLocalDefaultInit() Int {
+    var leaf: Leaf;
+    leaf = new Leaf(3);
+    if (leaf.current() != 3) {
+        return 1;
+    }
+    return 0;
+}
+
+fun runFieldOverwrite() Int {
+    var slot: Slot = new Slot();
+    slot.set(new Leaf(5));
+    slot.set(new Leaf(7));
+    if (slot.current() != 7) {
+        return 1;
+    }
+    if (destroyed != 8) {
+        return 2;
+    }
+    return 0;
+}
+
+fun runOwnedTernaryReturn() Int {
+    var leaf: Leaf = choose(true);
+    if (leaf.current() != 11) {
+        return 1;
+    }
+    return 0;
+}
+
+fun runOwnedTernaryInit() Int {
+    var leaf: Leaf = false ? new Leaf(17) : new Leaf(19);
+    if (leaf.current() != 19) {
+        return 1;
+    }
+    return 0;
+}
+
+fun main() Int {
+    var rc: Int = runLocalDefaultInit();
+    if (rc != 0) {
+        return 10 + rc;
+    }
+    if (destroyed != 3) {
+        return 20;
+    }
+
+    rc = runFieldOverwrite();
+    if (rc != 0) {
+        return 30 + rc;
+    }
+    if (destroyed != 15) {
+        return 40;
+    }
+
+    rc = runOwnedTernaryReturn();
+    if (rc != 0) {
+        return 50 + rc;
+    }
+    if (destroyed != 26) {
+        return 60;
+    }
+
+    rc = runOwnedTernaryInit();
+    if (rc != 0) {
+        return 70 + rc;
+    }
+    if (destroyed != 45) {
+        return 80;
+    }
+
+    return 0;
+}

@@ -1,0 +1,45 @@
+global var destroyed: Int = 0;
+
+class Parent {
+    priv child: Child;
+
+    pub fun setChild(child: Child) {
+        self.child = child;
+    }
+
+    fun deinit() {
+        destroyed = destroyed + 1;
+    }
+}
+
+class Child {
+    priv parent: Parent;
+
+    pub fun setParent(parent: Parent) {
+        self.parent = parent;
+    }
+
+    fun deinit() {
+        destroyed = destroyed + 10;
+    }
+}
+
+fun makeCycle() Int {
+    var parent: Parent = new Parent();
+    var child: Child = new Child();
+    parent.setChild(child);
+    child.setParent(parent);
+    return 0;
+}
+
+fun main() Int {
+    if (makeCycle() != 0) {
+        return 1;
+    }
+
+    if (destroyed != 11) {
+        return 2;
+    }
+
+    return 0;
+}

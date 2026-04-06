@@ -1,341 +1,176 @@
 #include "ir_generator.hpp"
 #include <iostream>
 
-namespace zir
-{
+namespace zir {
 
-  std::unique_ptr<Module> BoundIRGenerator::generate(sema::BoundRootNode &root)
-  {
-    module_ = std::make_unique<Module>("zap_module");
-    root.accept(*this);
-    return std::move(module_);
+std::unique_ptr<Module> BoundIRGenerator::generate(sema::BoundRootNode &root) {
+  module_ = std::make_unique<Module>("zap_module");
+  root.accept(*this);
+  return std::move(module_);
+}
+
+void BoundIRGenerator::visit(sema::BoundRootNode &node) {
+  for (const auto &record : node.records) {
+    record->accept(*this);
+  }
+  for (const auto &en : node.enums) {
+    en->accept(*this);
+  }
+  for (const auto &extFunc : node.externalFunctions) {
+    extFunc->accept(*this);
+  }
+  for (const auto &func : node.functions) {
+    func->accept(*this);
+  }
+}
+
+void BoundIRGenerator::visit(sema::BoundFunctionDeclaration &node) {
+  auto symbol = node.symbol;
+  auto func = std::make_unique<Function>(symbol->linkName,
+                                         symbol->returnType->toString());
+  currentFunction_ = func.get();
+
+  auto entryBlock = std::make_unique<BasicBlock>("entry");
+  currentBlock_ = entryBlock.get();
+  currentFunction_->addBlock(std::move(entryBlock));
+
+  for (const auto &paramSymbol : symbol->parameters) {
+    auto arg = std::make_shared<Argument>(paramSymbol->name, paramSymbol->type);
+    currentFunction_->arguments.push_back(arg);
+
+    auto allocaReg =
+        createRegister(std::make_shared<PointerType>(paramSymbol->type));
+    currentBlock_->addInstruction(
+        std::make_unique<AllocaInst>(allocaReg, paramSymbol->type));
+    currentBlock_->addInstruction(std::make_unique<StoreInst>(arg, allocaReg));
+
+    symbolMap_[paramSymbol] = allocaReg;
   }
 
-  void BoundIRGenerator::visit(sema::BoundRootNode &node)
-  {
-    for (const auto &record : node.records)
-    {
-      record->accept(*this);
-    }
-    for (const auto &en : node.enums)
-    {
-      en->accept(*this);
-    }
-    for (const auto &extFunc : node.externalFunctions)
-    {
-      extFunc->accept(*this);
-    }
-    for (const auto &func : node.functions)
-    {
-      func->accept(*this);
-    }
+  if (node.body) {
+    node.body->accept(*this);
   }
 
-  void BoundIRGenerator::visit(sema::BoundFunctionDeclaration &node)
-  {
-    auto symbol = node.symbol;
-    auto func =
-        std::make_unique<Function>(symbol->linkName, symbol->returnType->toString());
-    currentFunction_ = func.get();
-
-    auto entryBlock = std::make_unique<BasicBlock>("entry");
-    currentBlock_ = entryBlock.get();
-    currentFunction_->addBlock(std::move(entryBlock));
-
-    for (const auto &paramSymbol : symbol->parameters)
-    {
-      auto arg = std::make_shared<Argument>(paramSymbol->name, paramSymbol->type);
-      currentFunction_->arguments.push_back(arg);
-
-      auto allocaReg =
-          createRegister(std::make_shared<PointerType>(paramSymbol->type));
-      currentBlock_->addInstruction(
-          std::make_unique<AllocaInst>(allocaReg, paramSymbol->type));
-      currentBlock_->addInstruction(std::make_unique<StoreInst>(arg, allocaReg));
-
-      symbolMap_[paramSymbol] = allocaReg;
-    }
-
-    if (node.body)
-    {
-      node.body->accept(*this);
-    }
-
-    if (currentBlock_ &&
-        (currentBlock_->instructions.empty() ||
-         currentBlock_->instructions.back()->getOpCode() != OpCode::Ret))
-    {
-      if (symbol->returnType->getKind() == TypeKind::Void)
-      {
-        currentBlock_->addInstruction(std::make_unique<ReturnInst>());
-      }
-      else
-      {
-        auto dummy = std::make_shared<Constant>("0", symbol->returnType);
-        currentBlock_->addInstruction(std::make_unique<ReturnInst>(dummy));
-      }
-    }
-
-    module_->addFunction(std::move(func));
-    currentFunction_ = nullptr;
-    currentBlock_ = nullptr;
-    symbolMap_.clear();
-  }
-
-  void BoundIRGenerator::visit(sema::BoundExternalFunctionDeclaration &node)
-  {
-    auto symbol = node.symbol;
-    auto func =
-        std::make_unique<Function>(symbol->linkName, symbol->returnType->toString());
-
-    for (const auto &paramSymbol : symbol->parameters)
-    {
-      auto arg = std::make_shared<Argument>(paramSymbol->name, paramSymbol->type);
-      func->arguments.push_back(arg);
-    }
-
-    module_->addExternalFunction(std::move(func));
-  }
-
-  void BoundIRGenerator::visit(sema::BoundBlock &node)
-  {
-    for (const auto &stmt : node.statements)
-    {
-      stmt->accept(*this);
-    }
-    if (node.result)
-    {
-      node.result->accept(*this);
+  if (currentBlock_ &&
+      (currentBlock_->instructions.empty() ||
+       currentBlock_->instructions.back()->getOpCode() != OpCode::Ret)) {
+    if (symbol->returnType->getKind() == TypeKind::Void) {
+      currentBlock_->addInstruction(std::make_unique<ReturnInst>());
+    } else {
+      auto dummy = std::make_shared<Constant>("0", symbol->returnType);
+      currentBlock_->addInstruction(std::make_unique<ReturnInst>(dummy));
     }
   }
 
-  void BoundIRGenerator::visit(sema::BoundVariableDeclaration &node)
-  {
-    auto type = node.symbol->type;
-    auto reg = createRegister(std::make_shared<PointerType>(type));
-    currentBlock_->addInstruction(std::make_unique<AllocaInst>(reg, type));
-    symbolMap_[node.symbol] = reg;
+  module_->addFunction(std::move(func));
+  currentFunction_ = nullptr;
+  currentBlock_ = nullptr;
+  symbolMap_.clear();
+}
 
-    if (node.initializer)
-    {
-      node.initializer->accept(*this);
-      auto val = valueStack_.top();
-      valueStack_.pop();
+void BoundIRGenerator::visit(sema::BoundExternalFunctionDeclaration &node) {
+  auto symbol = node.symbol;
+  auto func = std::make_unique<Function>(symbol->linkName,
+                                         symbol->returnType->toString());
 
-      currentBlock_->addInstruction(std::make_unique<StoreInst>(val, reg));
-    }
+  for (const auto &paramSymbol : symbol->parameters) {
+    auto arg = std::make_shared<Argument>(paramSymbol->name, paramSymbol->type);
+    func->arguments.push_back(arg);
   }
 
-  void BoundIRGenerator::visit(sema::BoundReturnStatement &node)
-  {
-    std::shared_ptr<Value> val = nullptr;
-    if (node.expression)
-    {
-      node.expression->accept(*this);
-      val = valueStack_.top();
-      valueStack_.pop();
-    }
-    currentBlock_->addInstruction(std::make_unique<ReturnInst>(val));
+  module_->addExternalFunction(std::move(func));
+}
+
+void BoundIRGenerator::visit(sema::BoundBlock &node) {
+  for (const auto &stmt : node.statements) {
+    stmt->accept(*this);
   }
+  if (node.result) {
+    node.result->accept(*this);
+  }
+}
 
-  void BoundIRGenerator::visit(sema::BoundAssignment &node)
-  {
-    node.target->accept(*this);
-    auto target = valueStack_.top();
-    valueStack_.pop();
+void BoundIRGenerator::visit(sema::BoundVariableDeclaration &node) {
+  auto type = node.symbol->type;
+  auto reg = createRegister(std::make_shared<PointerType>(type));
+  currentBlock_->addInstruction(std::make_unique<AllocaInst>(reg, type));
+  symbolMap_[node.symbol] = reg;
 
-    node.expression->accept(*this);
+  if (node.initializer) {
+    node.initializer->accept(*this);
     auto val = valueStack_.top();
     valueStack_.pop();
-    currentBlock_->addInstruction(std::make_unique<StoreInst>(val, target));
-  }
 
-  void BoundIRGenerator::visit(sema::BoundExpressionStatement &node)
-  {
+    currentBlock_->addInstruction(std::make_unique<StoreInst>(val, reg));
+  }
+}
+
+void BoundIRGenerator::visit(sema::BoundReturnStatement &node) {
+  std::shared_ptr<Value> val = nullptr;
+  if (node.expression) {
     node.expression->accept(*this);
-    if (!valueStack_.empty())
-      valueStack_.pop();
+    val = valueStack_.top();
+    valueStack_.pop();
   }
+  currentBlock_->addInstruction(std::make_unique<ReturnInst>(val));
+}
 
-  void BoundIRGenerator::visit(sema::BoundLiteral &node)
-  {
-    valueStack_.push(std::make_shared<Constant>(node.value, node.type));
+void BoundIRGenerator::visit(sema::BoundAssignment &node) {
+  node.target->accept(*this);
+  auto target = valueStack_.top();
+  valueStack_.pop();
+
+  node.expression->accept(*this);
+  auto val = valueStack_.top();
+  valueStack_.pop();
+  currentBlock_->addInstruction(std::make_unique<StoreInst>(val, target));
+}
+
+void BoundIRGenerator::visit(sema::BoundExpressionStatement &node) {
+  node.expression->accept(*this);
+  if (!valueStack_.empty())
+    valueStack_.pop();
+}
+
+void BoundIRGenerator::visit(sema::BoundLiteral &node) {
+  valueStack_.push(std::make_shared<Constant>(node.value, node.type));
+}
+
+void BoundIRGenerator::visit(sema::BoundVariableExpression &node) {
+  auto it = symbolMap_.find(node.symbol);
+  if (it == symbolMap_.end()) {
+    std::cerr << "Error: Symbol " << node.symbol->name
+              << " not found in IR symbol map\n";
+    return;
   }
+  auto addr = it->second;
+  auto reg = createRegister(node.type);
+  currentBlock_->addInstruction(std::make_unique<LoadInst>(reg, addr));
+  valueStack_.push(reg);
+}
 
-  void BoundIRGenerator::visit(sema::BoundVariableExpression &node)
-  {
-    auto it = symbolMap_.find(node.symbol);
-    if (it == symbolMap_.end())
-    {
-      std::cerr << "Error: Symbol " << node.symbol->name
-                << " not found in IR symbol map\n";
-      return;
-    }
-    auto addr = it->second;
-    auto reg = createRegister(node.type);
-    currentBlock_->addInstruction(std::make_unique<LoadInst>(reg, addr));
-    valueStack_.push(reg);
-  }
-
-  void BoundIRGenerator::visit(sema::BoundBinaryExpression &node)
-  {
-    if (node.op == "&&")
-    {
-      auto rhsLabel = createBlockLabel("and.rhs");
-      auto mergeLabel = createBlockLabel("and.merge");
-
-      node.left->accept(*this);
-      auto leftVal = valueStack_.top();
-      valueStack_.pop();
-      std::string leftBlockLabel = currentBlock_->label;
-
-      currentBlock_->addInstruction(
-          std::make_unique<CondBranchInst>(leftVal, rhsLabel, mergeLabel));
-
-      auto rhsBlock = std::make_unique<BasicBlock>(rhsLabel);
-      auto *rhsBlockPtr = rhsBlock.get();
-      currentFunction_->addBlock(std::move(rhsBlock));
-      currentBlock_ = rhsBlockPtr;
-
-      node.right->accept(*this);
-      auto rightVal = valueStack_.top();
-      valueStack_.pop();
-      std::string actualRhsBlockLabel = currentBlock_->label;
-      currentBlock_->addInstruction(std::make_unique<BranchInst>(mergeLabel));
-
-      auto mergeBlock = std::make_unique<BasicBlock>(mergeLabel);
-      auto *mergeBlockPtr = mergeBlock.get();
-      currentFunction_->addBlock(std::move(mergeBlock));
-      currentBlock_ = mergeBlockPtr;
-
-      auto res = createRegister(node.type);
-      std::vector<std::pair<std::string, std::shared_ptr<Value>>> incoming;
-      incoming.push_back({leftBlockLabel, std::make_shared<Constant>("false", node.type)});
-      incoming.push_back({actualRhsBlockLabel, rightVal});
-
-      currentBlock_->addInstruction(std::make_unique<PhiInst>(res, incoming));
-      valueStack_.push(res);
-      return;
-    }
-
-    if (node.op == "||")
-    {
-      auto rhsLabel = createBlockLabel("or.rhs");
-      auto mergeLabel = createBlockLabel("or.merge");
-
-      node.left->accept(*this);
-      auto leftVal = valueStack_.top();
-      valueStack_.pop();
-      std::string leftBlockLabel = currentBlock_->label;
-
-      currentBlock_->addInstruction(
-          std::make_unique<CondBranchInst>(leftVal, mergeLabel, rhsLabel));
-
-      auto rhsBlock = std::make_unique<BasicBlock>(rhsLabel);
-      auto *rhsBlockPtr = rhsBlock.get();
-      currentFunction_->addBlock(std::move(rhsBlock));
-      currentBlock_ = rhsBlockPtr;
-
-      node.right->accept(*this);
-      auto rightVal = valueStack_.top();
-      valueStack_.pop();
-      std::string actualRhsBlockLabel = currentBlock_->label;
-      currentBlock_->addInstruction(std::make_unique<BranchInst>(mergeLabel));
-
-      auto mergeBlock = std::make_unique<BasicBlock>(mergeLabel);
-      auto *mergeBlockPtr = mergeBlock.get();
-      currentFunction_->addBlock(std::move(mergeBlock));
-      currentBlock_ = mergeBlockPtr;
-
-      auto res = createRegister(node.type);
-      std::vector<std::pair<std::string, std::shared_ptr<Value>>> incoming;
-      incoming.push_back({leftBlockLabel, std::make_shared<Constant>("true", node.type)});
-      incoming.push_back({actualRhsBlockLabel, rightVal});
-
-      currentBlock_->addInstruction(std::make_unique<PhiInst>(res, incoming));
-      valueStack_.push(res);
-      return;
-    }
+void BoundIRGenerator::visit(sema::BoundBinaryExpression &node) {
+  if (node.op == "&&") {
+    auto rhsLabel = createBlockLabel("and.rhs");
+    auto mergeLabel = createBlockLabel("and.merge");
 
     node.left->accept(*this);
-    auto left = valueStack_.top();
+    auto leftVal = valueStack_.top();
     valueStack_.pop();
-
-    node.right->accept(*this);
-    auto right = valueStack_.top();
-    valueStack_.pop();
-
-    auto reg = createRegister(node.type);
-    bool isUnsigned = node.left->type->isUnsigned();
-    if (node.op == "==" || node.op == "!=" || node.op == "<" ||
-        (node.op == ">") || (node.op == "<=") || (node.op == ">="))
-    {
-      std::string pred;
-      if (node.op == "==") pred = "eq";
-      else if (node.op == "!=") pred = "ne";
-      else if (node.op == "<") pred = isUnsigned ? "ult" : "slt";
-      else if (node.op == ">") pred = isUnsigned ? "ugt" : "sgt";
-      else if (node.op == "<=") pred = isUnsigned ? "ule" : "sle";
-      else if (node.op == ">=") pred = isUnsigned ? "uge" : "sge";
-
-      currentBlock_->addInstruction(
-          std::make_unique<CmpInst>(pred, reg, left, right));
-    }
-    else
-    {
-      OpCode op;
-      if (node.op == "+")
-        op = OpCode::Add;
-      else if (node.op == "-")
-        op = OpCode::Sub;
-      else if (node.op == "*")
-        op = OpCode::Mul;
-      else if (node.op == "/")
-        op = isUnsigned ? OpCode::UDiv : OpCode::SDiv;
-      else if (node.op == "%")
-        op = isUnsigned ? OpCode::URem : OpCode::SRem;
-      else
-        op = OpCode::Add;
-
-      currentBlock_->addInstruction(
-          std::make_unique<BinaryInst>(op, reg, left, right));
-    }
-    valueStack_.push(reg);
-  }
-
-  void BoundIRGenerator::visit(sema::BoundTernaryExpression &node)
-  {
-    auto thenLabel = createBlockLabel("ternary.then");
-    auto elseLabel = createBlockLabel("ternary.else");
-    auto mergeLabel = createBlockLabel("ternary.merge");
-
-    node.condition->accept(*this);
-    auto condVal = valueStack_.top();
-    valueStack_.pop();
+    std::string leftBlockLabel = currentBlock_->label;
 
     currentBlock_->addInstruction(
-        std::make_unique<CondBranchInst>(condVal, thenLabel, elseLabel));
+        std::make_unique<CondBranchInst>(leftVal, rhsLabel, mergeLabel));
 
-    auto thenBlock = std::make_unique<BasicBlock>(thenLabel);
-    auto *thenBlockPtr = thenBlock.get();
-    currentFunction_->addBlock(std::move(thenBlock));
-    currentBlock_ = thenBlockPtr;
+    auto rhsBlock = std::make_unique<BasicBlock>(rhsLabel);
+    auto *rhsBlockPtr = rhsBlock.get();
+    currentFunction_->addBlock(std::move(rhsBlock));
+    currentBlock_ = rhsBlockPtr;
 
-    node.thenExpr->accept(*this);
-    auto thenVal = valueStack_.top();
+    node.right->accept(*this);
+    auto rightVal = valueStack_.top();
     valueStack_.pop();
-    std::string actualThenLabel = currentBlock_->label;
-    currentBlock_->addInstruction(std::make_unique<BranchInst>(mergeLabel));
-
-    auto elseBlock = std::make_unique<BasicBlock>(elseLabel);
-    auto *elseBlockPtr = elseBlock.get();
-    currentFunction_->addBlock(std::move(elseBlock));
-    currentBlock_ = elseBlockPtr;
-
-    node.elseExpr->accept(*this);
-    auto elseVal = valueStack_.top();
-    valueStack_.pop();
-    std::string actualElseLabel = currentBlock_->label;
+    std::string actualRhsBlockLabel = currentBlock_->label;
     currentBlock_->addInstruction(std::make_unique<BranchInst>(mergeLabel));
 
     auto mergeBlock = std::make_unique<BasicBlock>(mergeLabel);
@@ -345,310 +180,435 @@ namespace zir
 
     auto res = createRegister(node.type);
     std::vector<std::pair<std::string, std::shared_ptr<Value>>> incoming;
-    incoming.push_back({actualThenLabel, thenVal});
-    incoming.push_back({actualElseLabel, elseVal});
+    incoming.push_back(
+        {leftBlockLabel, std::make_shared<Constant>("false", node.type)});
+    incoming.push_back({actualRhsBlockLabel, rightVal});
+
     currentBlock_->addInstruction(std::make_unique<PhiInst>(res, incoming));
     valueStack_.push(res);
+    return;
   }
 
-  void BoundIRGenerator::visit(sema::BoundFunctionCall &node)
-  {
-    std::vector<std::shared_ptr<Value>> args;
-    for (const auto &arg : node.arguments)
-    {
-      arg->accept(*this);
-      args.push_back(valueStack_.top());
-      valueStack_.pop();
-    }
+  if (node.op == "||") {
+    auto rhsLabel = createBlockLabel("or.rhs");
+    auto mergeLabel = createBlockLabel("or.merge");
 
-    auto reg = createRegister(node.type);
-    currentBlock_->addInstruction(
-        std::make_unique<CallInst>(reg, node.symbol->linkName, args));
-    valueStack_.push(reg);
-  }
-
-  std::shared_ptr<Value>
-  BoundIRGenerator::createRegister(std::shared_ptr<Type> type)
-  {
-    return std::make_shared<Register>(std::to_string(nextRegisterId_++), type);
-  }
-
-  std::string BoundIRGenerator::createBlockLabel(const std::string &prefix)
-  {
-    return prefix + "." + std::to_string(nextBlockId_++);
-  }
-
-  void BoundIRGenerator::visit(sema::BoundUnaryExpression &node)
-  {
-    node.expr->accept(*this);
-  }
-
-  void BoundIRGenerator::visit(sema::BoundArrayLiteral &node)
-  {
-    valueStack_.push(std::make_shared<Constant>("0", node.type));
-  }
-
-  void BoundIRGenerator::visit(sema::BoundRecordDeclaration &node)
-  {
-    module_->addType(node.type);
-  }
-
-  void BoundIRGenerator::visit(sema::BoundEnumDeclaration &node)
-  {
-    module_->addType(node.type);
-  }
-
-  void BoundIRGenerator::visit(sema::BoundMemberAccess &node)
-  {
     node.left->accept(*this);
-    auto left = std::move(valueStack_.top());
+    auto leftVal = valueStack_.top();
     valueStack_.pop();
+    std::string leftBlockLabel = currentBlock_->label;
 
-    if (left->getType()->getKind() == zir::TypeKind::Enum)
-    {
-      auto enumType = std::static_pointer_cast<zir::EnumType>(left->getType());
-      int value = enumType->getVariantIndex(node.member);
-      if (value != -1)
-      {
-        valueStack_.push(std::make_shared<Constant>(
-            std::to_string(value),
-            std::make_shared<zir::PrimitiveType>(zir::TypeKind::Int)));
-        return;
-      }
-    }
-    else if (left->getType()->getKind() == zir::TypeKind::Record)
-    {
-      auto recordType = std::static_pointer_cast<zir::RecordType>(left->getType());
-      int fieldIndex = -1;
-      const auto &fields = recordType->getFields();
-      for (size_t i = 0; i < fields.size(); ++i)
-      {
-        if (fields[i].name == node.member)
-        {
-          fieldIndex = static_cast<int>(i);
-          break;
-        }
-      }
+    currentBlock_->addInstruction(
+        std::make_unique<CondBranchInst>(leftVal, mergeLabel, rhsLabel));
 
-      if (fieldIndex != -1)
-      {
-        auto result = createRegister(fields[fieldIndex].type);
-        currentBlock_->addInstruction(std::make_unique<GetElementPtrInst>(result, left, fieldIndex));
-        valueStack_.push(result);
-        return;
-      }
-    }
+    auto rhsBlock = std::make_unique<BasicBlock>(rhsLabel);
+    auto *rhsBlockPtr = rhsBlock.get();
+    currentFunction_->addBlock(std::move(rhsBlock));
+    currentBlock_ = rhsBlockPtr;
 
-    throw std::runtime_error("Member '" + node.member + "' not found in type '" + left->getTypeName() + "'");
-  }
-
-  void BoundIRGenerator::visit(sema::BoundStructLiteral &node)
-  {
-    auto recordType = std::static_pointer_cast<zir::RecordType>(node.type);
-    auto allocaReg = createRegister(std::make_shared<PointerType>(recordType));
-    currentBlock_->addInstruction(std::make_unique<AllocaInst>(allocaReg, recordType));
-
-    for (const auto &fieldInit : node.fields)
-    {
-      // Find field index
-      int fieldIndex = -1;
-      const auto &fields = recordType->getFields();
-      for (size_t i = 0; i < fields.size(); ++i)
-      {
-        if (fields[i].name == fieldInit.first)
-        {
-          fieldIndex = static_cast<int>(i);
-          break;
-        }
-      }
-
-      fieldInit.second->accept(*this);
-      auto val = std::move(valueStack_.top());
-      valueStack_.pop();
-
-      auto fieldAddr = createRegister(std::make_shared<PointerType>(fields[fieldIndex].type));
-      currentBlock_->addInstruction(std::make_unique<GetElementPtrInst>(fieldAddr, allocaReg, fieldIndex));
-      currentBlock_->addInstruction(std::make_unique<StoreInst>(val, fieldAddr));
-    }
-
-    auto result = createRegister(recordType);
-    currentBlock_->addInstruction(std::make_unique<LoadInst>(result, allocaReg));
-    valueStack_.push(result);
-  }
-
-  void BoundIRGenerator::visit(sema::BoundModuleReference &node)
-  {
-    (void)node;
-    throw std::runtime_error("module reference reached ZIR generation");
-  }
-
-  void BoundIRGenerator::visit(sema::BoundIfStatement &node)
-  {
-    auto trueLabel = createBlockLabel("if.then");
-    auto falseLabel = node.elseBody ? createBlockLabel("if.else") : "";
-    auto mergeLabel = createBlockLabel("if.merge");
-
-    node.condition->accept(*this);
-    auto cond = valueStack_.top();
+    node.right->accept(*this);
+    auto rightVal = valueStack_.top();
     valueStack_.pop();
-
-    if (node.elseBody)
-    {
-      currentBlock_->addInstruction(
-          std::make_unique<CondBranchInst>(cond, trueLabel, falseLabel));
-    }
-    else
-    {
-      currentBlock_->addInstruction(
-          std::make_unique<CondBranchInst>(cond, trueLabel, mergeLabel));
-    }
-
-    auto thenBlock = std::make_unique<BasicBlock>(trueLabel);
-    auto *thenBlockPtr = thenBlock.get();
-    currentFunction_->addBlock(std::move(thenBlock));
-    currentBlock_ = thenBlockPtr;
-
-    if (node.thenBody)
-      node.thenBody->accept(*this);
-
-    std::string actualThenLabel = currentBlock_->label;
-
-    if (currentBlock_->instructions.empty() ||
-        currentBlock_->instructions.back()->getOpCode() != OpCode::Ret)
-    {
-      currentBlock_->addInstruction(std::make_unique<BranchInst>(mergeLabel));
-    }
-
-    std::string actualElseLabel = "";
-    if (node.elseBody)
-    {
-      auto elseBlock = std::make_unique<BasicBlock>(falseLabel);
-      auto *elseBlockPtr = elseBlock.get();
-      currentFunction_->addBlock(std::move(elseBlock));
-      currentBlock_ = elseBlockPtr;
-      node.elseBody->accept(*this);
-
-      actualElseLabel = currentBlock_->label;
-
-      if (currentBlock_->instructions.empty() ||
-          currentBlock_->instructions.back()->getOpCode() != OpCode::Ret)
-      {
-        currentBlock_->addInstruction(std::make_unique<BranchInst>(mergeLabel));
-      }
-    }
+    std::string actualRhsBlockLabel = currentBlock_->label;
+    currentBlock_->addInstruction(std::make_unique<BranchInst>(mergeLabel));
 
     auto mergeBlock = std::make_unique<BasicBlock>(mergeLabel);
     auto *mergeBlockPtr = mergeBlock.get();
     currentFunction_->addBlock(std::move(mergeBlock));
     currentBlock_ = mergeBlockPtr;
+
+    auto res = createRegister(node.type);
+    std::vector<std::pair<std::string, std::shared_ptr<Value>>> incoming;
+    incoming.push_back(
+        {leftBlockLabel, std::make_shared<Constant>("true", node.type)});
+    incoming.push_back({actualRhsBlockLabel, rightVal});
+
+    currentBlock_->addInstruction(std::make_unique<PhiInst>(res, incoming));
+    valueStack_.push(res);
+    return;
   }
 
-  void BoundIRGenerator::visit(sema::BoundWhileStatement &node)
-  {
-    auto condLabel = createBlockLabel("while.cond");
-    auto bodyLabel = createBlockLabel("while.body");
-    auto endLabel = createBlockLabel("while.end");
+  node.left->accept(*this);
+  auto left = valueStack_.top();
+  valueStack_.pop();
 
-    currentBlock_->addInstruction(std::make_unique<BranchInst>(condLabel));
+  node.right->accept(*this);
+  auto right = valueStack_.top();
+  valueStack_.pop();
 
-    auto condBlock = std::make_unique<BasicBlock>(condLabel);
-    auto *condBlockPtr = condBlock.get();
-    currentFunction_->addBlock(std::move(condBlock));
-    currentBlock_ = condBlockPtr;
+  auto reg = createRegister(node.type);
+  bool isUnsigned = node.left->type->isUnsigned();
+  if (node.op == "==" || node.op == "!=" || node.op == "<" ||
+      (node.op == ">") || (node.op == "<=") || (node.op == ">=")) {
+    std::string pred;
+    if (node.op == "==")
+      pred = "eq";
+    else if (node.op == "!=")
+      pred = "ne";
+    else if (node.op == "<")
+      pred = isUnsigned ? "ult" : "slt";
+    else if (node.op == ">")
+      pred = isUnsigned ? "ugt" : "sgt";
+    else if (node.op == "<=")
+      pred = isUnsigned ? "ule" : "sle";
+    else if (node.op == ">=")
+      pred = isUnsigned ? "uge" : "sge";
 
-    node.condition->accept(*this);
-    auto cond = valueStack_.top();
-    valueStack_.pop();
     currentBlock_->addInstruction(
-        std::make_unique<CondBranchInst>(cond, bodyLabel, endLabel));
+        std::make_unique<CmpInst>(pred, reg, left, right));
+  } else {
+    OpCode op;
+    if (node.op == "+")
+      op = OpCode::Add;
+    else if (node.op == "-")
+      op = OpCode::Sub;
+    else if (node.op == "*")
+      op = OpCode::Mul;
+    else if (node.op == "/")
+      op = isUnsigned ? OpCode::UDiv : OpCode::SDiv;
+    else if (node.op == "%")
+      op = isUnsigned ? OpCode::URem : OpCode::SRem;
+    else
+      op = OpCode::Add;
 
-    auto bodyBlock = std::make_unique<BasicBlock>(bodyLabel);
-    auto *bodyBlockPtr = bodyBlock.get();
-    currentFunction_->addBlock(std::move(bodyBlock));
-    currentBlock_ = bodyBlockPtr;
-    loopLabelStack_.push_back({condLabel, endLabel});
-    node.body->accept(*this);
-    loopLabelStack_.pop_back();
-    if (currentBlock_->instructions.empty() ||
-        currentBlock_->instructions.back()->getOpCode() != OpCode::Ret)
-    {
-      currentBlock_->addInstruction(std::make_unique<BranchInst>(condLabel));
-    }
+    currentBlock_->addInstruction(
+        std::make_unique<BinaryInst>(op, reg, left, right));
+  }
+  valueStack_.push(reg);
+}
 
-    auto endBlock = std::make_unique<BasicBlock>(endLabel);
-    auto *endBlockPtr = endBlock.get();
-    currentFunction_->addBlock(std::move(endBlock));
-    currentBlock_ = endBlockPtr;
+void BoundIRGenerator::visit(sema::BoundTernaryExpression &node) {
+  auto thenLabel = createBlockLabel("ternary.then");
+  auto elseLabel = createBlockLabel("ternary.else");
+  auto mergeLabel = createBlockLabel("ternary.merge");
+
+  node.condition->accept(*this);
+  auto condVal = valueStack_.top();
+  valueStack_.pop();
+
+  currentBlock_->addInstruction(
+      std::make_unique<CondBranchInst>(condVal, thenLabel, elseLabel));
+
+  auto thenBlock = std::make_unique<BasicBlock>(thenLabel);
+  auto *thenBlockPtr = thenBlock.get();
+  currentFunction_->addBlock(std::move(thenBlock));
+  currentBlock_ = thenBlockPtr;
+
+  node.thenExpr->accept(*this);
+  auto thenVal = valueStack_.top();
+  valueStack_.pop();
+  std::string actualThenLabel = currentBlock_->label;
+  currentBlock_->addInstruction(std::make_unique<BranchInst>(mergeLabel));
+
+  auto elseBlock = std::make_unique<BasicBlock>(elseLabel);
+  auto *elseBlockPtr = elseBlock.get();
+  currentFunction_->addBlock(std::move(elseBlock));
+  currentBlock_ = elseBlockPtr;
+
+  node.elseExpr->accept(*this);
+  auto elseVal = valueStack_.top();
+  valueStack_.pop();
+  std::string actualElseLabel = currentBlock_->label;
+  currentBlock_->addInstruction(std::make_unique<BranchInst>(mergeLabel));
+
+  auto mergeBlock = std::make_unique<BasicBlock>(mergeLabel);
+  auto *mergeBlockPtr = mergeBlock.get();
+  currentFunction_->addBlock(std::move(mergeBlock));
+  currentBlock_ = mergeBlockPtr;
+
+  auto res = createRegister(node.type);
+  std::vector<std::pair<std::string, std::shared_ptr<Value>>> incoming;
+  incoming.push_back({actualThenLabel, thenVal});
+  incoming.push_back({actualElseLabel, elseVal});
+  currentBlock_->addInstruction(std::make_unique<PhiInst>(res, incoming));
+  valueStack_.push(res);
+}
+
+void BoundIRGenerator::visit(sema::BoundFunctionCall &node) {
+  std::vector<std::shared_ptr<Value>> args;
+  for (const auto &arg : node.arguments) {
+    arg->accept(*this);
+    args.push_back(valueStack_.top());
+    valueStack_.pop();
   }
 
-  void BoundIRGenerator::visit(sema::BoundBreakStatement &node)
-  {
-    if (loopLabelStack_.empty())
-    {
-      // Should have been diagnosed earlier in binder, but guard anyway
+  auto reg = createRegister(node.type);
+  currentBlock_->addInstruction(
+      std::make_unique<CallInst>(reg, node.symbol->linkName, args));
+  valueStack_.push(reg);
+}
+
+std::shared_ptr<Value>
+BoundIRGenerator::createRegister(std::shared_ptr<Type> type) {
+  return std::make_shared<Register>(std::to_string(nextRegisterId_++), type);
+}
+
+std::string BoundIRGenerator::createBlockLabel(const std::string &prefix) {
+  return prefix + "." + std::to_string(nextBlockId_++);
+}
+
+void BoundIRGenerator::visit(sema::BoundUnaryExpression &node) {
+  node.expr->accept(*this);
+}
+
+void BoundIRGenerator::visit(sema::BoundArrayLiteral &node) {
+  valueStack_.push(std::make_shared<Constant>("0", node.type));
+}
+
+void BoundIRGenerator::visit(sema::BoundRecordDeclaration &node) {
+  module_->addType(node.type);
+}
+
+void BoundIRGenerator::visit(sema::BoundEnumDeclaration &node) {
+  module_->addType(node.type);
+}
+
+void BoundIRGenerator::visit(sema::BoundMemberAccess &node) {
+  node.left->accept(*this);
+  auto left = std::move(valueStack_.top());
+  valueStack_.pop();
+
+  if (left->getType()->getKind() == zir::TypeKind::Enum) {
+    auto enumType = std::static_pointer_cast<zir::EnumType>(left->getType());
+    int value = enumType->getVariantIndex(node.member);
+    if (value != -1) {
+      valueStack_.push(std::make_shared<Constant>(
+          std::to_string(value),
+          std::make_shared<zir::PrimitiveType>(zir::TypeKind::Int)));
       return;
     }
-    auto endLabel = loopLabelStack_.back().second;
-    currentBlock_->addInstruction(std::make_unique<BranchInst>(endLabel));
-  }
-
-  void BoundIRGenerator::visit(sema::BoundContinueStatement &node)
-  {
-    if (loopLabelStack_.empty())
-    {
-      return;
-    }
-    auto condLabel = loopLabelStack_.back().first;
-    currentBlock_->addInstruction(std::make_unique<BranchInst>(condLabel));
-  }
-
-  void BoundIRGenerator::visit(sema::BoundIndexAccess &node)
-  {
-    node.left->accept(*this);
-    auto left = valueStack_.top();
-    valueStack_.pop();
-
-    node.index->accept(*this);
-    auto indexVal = valueStack_.top();
-    valueStack_.pop();
-
-    int idx = 0;
-    if (auto *c = dynamic_cast<Constant *>(indexVal.get())) {
-        try {
-            idx = std::stoi(c->getName());
-        } catch (...) {}
-    }
-
-    auto ptr = createRegister(std::make_shared<PointerType>(node.type));
-    currentBlock_->addInstruction(std::make_unique<GetElementPtrInst>(ptr, left, idx));
-    
-    auto res = createRegister(node.type);
-    currentBlock_->addInstruction(std::make_unique<LoadInst>(res, ptr));
-    valueStack_.push(res);
-  }
-
-  void BoundIRGenerator::visit(sema::BoundCast &node)
-  {
-    node.expression->accept(*this);
-    auto src = valueStack_.top();
-    valueStack_.pop();
-
-    auto res = createRegister(node.type);
-    currentBlock_->addInstruction(std::make_unique<CastInst>(res, src, node.type));
-    valueStack_.push(res);
-  }
-
-  void BoundIRGenerator::visit(sema::BoundNewExpression &node)
-  {
-    for (const auto &arg : node.arguments)
-    {
-      arg->accept(*this);
-      if (!valueStack_.empty())
-      {
-        valueStack_.pop();
+  } else if (left->getType()->getKind() == zir::TypeKind::Record) {
+    auto recordType =
+        std::static_pointer_cast<zir::RecordType>(left->getType());
+    int fieldIndex = -1;
+    const auto &fields = recordType->getFields();
+    for (size_t i = 0; i < fields.size(); ++i) {
+      if (fields[i].name == node.member) {
+        fieldIndex = static_cast<int>(i);
+        break;
       }
     }
-    valueStack_.push(std::make_shared<Constant>("null", node.type));
+
+    if (fieldIndex != -1) {
+      auto result = createRegister(fields[fieldIndex].type);
+      currentBlock_->addInstruction(
+          std::make_unique<GetElementPtrInst>(result, left, fieldIndex));
+      valueStack_.push(result);
+      return;
+    }
   }
+
+  throw std::runtime_error("Member '" + node.member + "' not found in type '" +
+                           left->getTypeName() + "'");
+}
+
+void BoundIRGenerator::visit(sema::BoundStructLiteral &node) {
+  auto recordType = std::static_pointer_cast<zir::RecordType>(node.type);
+  auto allocaReg = createRegister(std::make_shared<PointerType>(recordType));
+  currentBlock_->addInstruction(
+      std::make_unique<AllocaInst>(allocaReg, recordType));
+
+  for (const auto &fieldInit : node.fields) {
+    // Find field index
+    int fieldIndex = -1;
+    const auto &fields = recordType->getFields();
+    for (size_t i = 0; i < fields.size(); ++i) {
+      if (fields[i].name == fieldInit.first) {
+        fieldIndex = static_cast<int>(i);
+        break;
+      }
+    }
+
+    fieldInit.second->accept(*this);
+    auto val = std::move(valueStack_.top());
+    valueStack_.pop();
+
+    auto fieldAddr =
+        createRegister(std::make_shared<PointerType>(fields[fieldIndex].type));
+    currentBlock_->addInstruction(
+        std::make_unique<GetElementPtrInst>(fieldAddr, allocaReg, fieldIndex));
+    currentBlock_->addInstruction(std::make_unique<StoreInst>(val, fieldAddr));
+  }
+
+  auto result = createRegister(recordType);
+  currentBlock_->addInstruction(std::make_unique<LoadInst>(result, allocaReg));
+  valueStack_.push(result);
+}
+
+void BoundIRGenerator::visit(sema::BoundModuleReference &node) {
+  (void)node;
+  throw std::runtime_error("module reference reached ZIR generation");
+}
+
+void BoundIRGenerator::visit(sema::BoundIfStatement &node) {
+  auto trueLabel = createBlockLabel("if.then");
+  auto falseLabel = node.elseBody ? createBlockLabel("if.else") : "";
+  auto mergeLabel = createBlockLabel("if.merge");
+
+  node.condition->accept(*this);
+  auto cond = valueStack_.top();
+  valueStack_.pop();
+
+  if (node.elseBody) {
+    currentBlock_->addInstruction(
+        std::make_unique<CondBranchInst>(cond, trueLabel, falseLabel));
+  } else {
+    currentBlock_->addInstruction(
+        std::make_unique<CondBranchInst>(cond, trueLabel, mergeLabel));
+  }
+
+  auto thenBlock = std::make_unique<BasicBlock>(trueLabel);
+  auto *thenBlockPtr = thenBlock.get();
+  currentFunction_->addBlock(std::move(thenBlock));
+  currentBlock_ = thenBlockPtr;
+
+  if (node.thenBody)
+    node.thenBody->accept(*this);
+
+  std::string actualThenLabel = currentBlock_->label;
+
+  if (currentBlock_->instructions.empty() ||
+      currentBlock_->instructions.back()->getOpCode() != OpCode::Ret) {
+    currentBlock_->addInstruction(std::make_unique<BranchInst>(mergeLabel));
+  }
+
+  std::string actualElseLabel = "";
+  if (node.elseBody) {
+    auto elseBlock = std::make_unique<BasicBlock>(falseLabel);
+    auto *elseBlockPtr = elseBlock.get();
+    currentFunction_->addBlock(std::move(elseBlock));
+    currentBlock_ = elseBlockPtr;
+    node.elseBody->accept(*this);
+
+    actualElseLabel = currentBlock_->label;
+
+    if (currentBlock_->instructions.empty() ||
+        currentBlock_->instructions.back()->getOpCode() != OpCode::Ret) {
+      currentBlock_->addInstruction(std::make_unique<BranchInst>(mergeLabel));
+    }
+  }
+
+  auto mergeBlock = std::make_unique<BasicBlock>(mergeLabel);
+  auto *mergeBlockPtr = mergeBlock.get();
+  currentFunction_->addBlock(std::move(mergeBlock));
+  currentBlock_ = mergeBlockPtr;
+}
+
+void BoundIRGenerator::visit(sema::BoundWhileStatement &node) {
+  auto condLabel = createBlockLabel("while.cond");
+  auto bodyLabel = createBlockLabel("while.body");
+  auto endLabel = createBlockLabel("while.end");
+
+  currentBlock_->addInstruction(std::make_unique<BranchInst>(condLabel));
+
+  auto condBlock = std::make_unique<BasicBlock>(condLabel);
+  auto *condBlockPtr = condBlock.get();
+  currentFunction_->addBlock(std::move(condBlock));
+  currentBlock_ = condBlockPtr;
+
+  node.condition->accept(*this);
+  auto cond = valueStack_.top();
+  valueStack_.pop();
+  currentBlock_->addInstruction(
+      std::make_unique<CondBranchInst>(cond, bodyLabel, endLabel));
+
+  auto bodyBlock = std::make_unique<BasicBlock>(bodyLabel);
+  auto *bodyBlockPtr = bodyBlock.get();
+  currentFunction_->addBlock(std::move(bodyBlock));
+  currentBlock_ = bodyBlockPtr;
+  loopLabelStack_.push_back({condLabel, endLabel});
+  node.body->accept(*this);
+  loopLabelStack_.pop_back();
+  if (currentBlock_->instructions.empty() ||
+      currentBlock_->instructions.back()->getOpCode() != OpCode::Ret) {
+    currentBlock_->addInstruction(std::make_unique<BranchInst>(condLabel));
+  }
+
+  auto endBlock = std::make_unique<BasicBlock>(endLabel);
+  auto *endBlockPtr = endBlock.get();
+  currentFunction_->addBlock(std::move(endBlock));
+  currentBlock_ = endBlockPtr;
+}
+
+void BoundIRGenerator::visit(sema::BoundBreakStatement &node) {
+  if (loopLabelStack_.empty()) {
+    // Should have been diagnosed earlier in binder, but guard anyway
+    return;
+  }
+  auto endLabel = loopLabelStack_.back().second;
+  currentBlock_->addInstruction(std::make_unique<BranchInst>(endLabel));
+}
+
+void BoundIRGenerator::visit(sema::BoundContinueStatement &node) {
+  if (loopLabelStack_.empty()) {
+    return;
+  }
+  auto condLabel = loopLabelStack_.back().first;
+  currentBlock_->addInstruction(std::make_unique<BranchInst>(condLabel));
+}
+
+void BoundIRGenerator::visit(sema::BoundWeakLockExpression &node) {
+  node.weakExpression->accept(*this);
+  if (!valueStack_.empty()) {
+    valueStack_.pop();
+  }
+  valueStack_.push(std::make_shared<Constant>("0", node.type));
+}
+
+void BoundIRGenerator::visit(sema::BoundWeakAliveExpression &node) {
+  node.weakExpression->accept(*this);
+  if (!valueStack_.empty()) {
+    valueStack_.pop();
+  }
+  valueStack_.push(std::make_shared<Constant>(
+      "false", std::make_shared<zir::PrimitiveType>(zir::TypeKind::Bool)));
+}
+
+void BoundIRGenerator::visit(sema::BoundIndexAccess &node) {
+  node.left->accept(*this);
+  auto left = valueStack_.top();
+  valueStack_.pop();
+
+  node.index->accept(*this);
+  auto indexVal = valueStack_.top();
+  valueStack_.pop();
+
+  int idx = 0;
+  if (auto *c = dynamic_cast<Constant *>(indexVal.get())) {
+    try {
+      idx = std::stoi(c->getName());
+    } catch (...) {
+    }
+  }
+
+  auto ptr = createRegister(std::make_shared<PointerType>(node.type));
+  currentBlock_->addInstruction(
+      std::make_unique<GetElementPtrInst>(ptr, left, idx));
+
+  auto res = createRegister(node.type);
+  currentBlock_->addInstruction(std::make_unique<LoadInst>(res, ptr));
+  valueStack_.push(res);
+}
+
+void BoundIRGenerator::visit(sema::BoundCast &node) {
+  node.expression->accept(*this);
+  auto src = valueStack_.top();
+  valueStack_.pop();
+
+  auto res = createRegister(node.type);
+  currentBlock_->addInstruction(
+      std::make_unique<CastInst>(res, src, node.type));
+  valueStack_.push(res);
+}
+
+void BoundIRGenerator::visit(sema::BoundNewExpression &node) {
+  for (const auto &arg : node.arguments) {
+    arg->accept(*this);
+    if (!valueStack_.empty()) {
+      valueStack_.pop();
+    }
+  }
+  valueStack_.push(std::make_shared<Constant>("null", node.type));
+}
 
 } // namespace zir

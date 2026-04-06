@@ -6,9 +6,9 @@ syntax case match
 
 syntax keyword zapConditional if else match
 syntax keyword zapRepeat while for
-syntax keyword zapStatement return break continue import as unsafe
-syntax keyword zapStorageClass fun ext pub priv global const var ref module impl static
-syntax keyword zapStructure record struct enum alias
+syntax keyword zapStatement return break continue import as unsafe new self
+syntax keyword zapStorageClass fun ext pub priv prot global const var ref module impl static
+syntax keyword zapStructure record struct class enum alias
 
 syntax match zapLineComment "//.*$"
 syntax region zapString start=+"+ skip=+\\.+ end=+"+ contains=zapEscape
@@ -23,7 +23,7 @@ syntax keyword zapBoolean true false null
 syntax match zapNamespace "\<[A-Za-z_][A-Za-z0-9_]*\>\ze\s*\."
 syntax match zapFunction "\<\%(unsafe\s\+fun\|fun\|ext\s\+fun\)\s\+\zs[A-Za-z_][A-Za-z0-9_]*\>"
 syntax match zapFunctionCall "\<[A-Za-z_][A-Za-z0-9_]*\>\ze\s*("
-syntax match zapTypeDecl "\<\%(record\|struct\|unsafe\s\+struct\|enum\|alias\)\s\+\zs[A-Za-z_][A-Za-z0-9_]*\>"
+syntax match zapTypeDecl "\<\%(record\|struct\|unsafe\s\+struct\|class\|enum\|alias\)\s\+\zs[A-Za-z_][A-Za-z0-9_]*\>"
 syntax match zapVarDecl "\<\%(var\|const\)\s\+\zs[A-Za-z_][A-Za-z0-9_]*\>"
 syntax match zapParameter "\<\%(ref\s\+\)\?\zs[A-Za-z_][A-Za-z0-9_]*\ze\s*:"
 syntax match zapType ":\s*\zs\%(\.\.\.\s*\)\?\%(\*\s*\)*[A-Za-z_][A-Za-z0-9_]*\%(\s*\.\s*[A-Za-z_][A-Za-z0-9_]*\)*\>"

@@ -1,0 +1,75 @@
+global var destroyed: Int = 0;
+
+class Parent {
+    pub fun current() Int {
+        return 7;
+    }
+
+    fun deinit() {
+        destroyed = destroyed + 1;
+    }
+}
+
+class Child {
+    priv parent: weak Parent;
+
+    pub fun setParent(parent: weak Parent) {
+        self.parent = parent;
+    }
+
+    pub fun hasParent() Bool {
+        return alive(self.parent);
+    }
+
+    pub fun currentParentValue() Int {
+        if (!alive(self.parent)) {
+            return -1;
+        }
+
+        var parent: Parent = lock(self.parent);
+        return parent.current();
+    }
+}
+
+fun main() Int {
+    var child: Child = new Child();
+
+    if (child.hasParent()) {
+        return 1;
+    }
+
+    if (child.currentParentValue() != -1) {
+        return 2;
+    }
+
+    if (destroyed != 0) {
+        return 3;
+    }
+
+    if (true) {
+        var parent: Parent = new Parent();
+        child.setParent(parent);
+
+        if (!child.hasParent()) {
+            return 4;
+        }
+
+        if (child.currentParentValue() != 7) {
+            return 5;
+        }
+    }
+
+    if (destroyed != 1) {
+        return 6;
+    }
+
+    if (child.hasParent()) {
+        return 7;
+    }
+
+    if (child.currentParentValue() != -1) {
+        return 8;
+    }
+
+    return 0;
+}

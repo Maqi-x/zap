@@ -1,0 +1,15 @@
+class Node {
+    priv parent: weak Node;
+
+    pub fun current() Int {
+        return 1;
+    }
+
+    pub fun bad() Int {
+        return self.parent.current();
+    }
+}
+
+fun main() Int {
+    return 0;
+}

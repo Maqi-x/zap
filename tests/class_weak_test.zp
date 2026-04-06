@@ -1,0 +1,67 @@
+global var destroyed: Int = 0;
+
+class Leaf {
+    fun deinit() {
+        destroyed = destroyed + 1;
+    }
+}
+
+class Parent {
+    priv child: Child;
+
+    pub fun setChild(child: Child) {
+        self.child = child;
+    }
+
+    fun deinit() {
+        destroyed = destroyed + 10;
+    }
+}
+
+class Child {
+    priv parent: weak Parent;
+
+    pub fun setParent(parent: weak Parent) {
+        self.parent = parent;
+    }
+
+    fun deinit() {
+        destroyed = destroyed + 100;
+    }
+}
+
+fun runWeakLocalScope() Int {
+    var leaf: weak Leaf = new Leaf();
+    if (destroyed != 1) {
+        return 1;
+    }
+    return 0;
+}
+
+fun runCycleScope() Int {
+    var parent: Parent = new Parent();
+    var child: Child = new Child();
+    parent.setChild(child);
+    child.setParent(parent);
+    if (destroyed != 1) {
+        return 1;
+    }
+    return 0;
+}
+
+fun main() Int {
+    var rc: Int = runWeakLocalScope();
+    if (rc != 0) {
+        return 10 + rc;
+    }
+
+    rc = runCycleScope();
+    if (rc != 0) {
+        return 20 + rc;
+    }
+    if (destroyed != 111) {
+        return 30;
+    }
+
+    return 0;
+}

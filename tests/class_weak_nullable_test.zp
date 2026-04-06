@@ -1,0 +1,46 @@
+class Parent {
+    pub fun value() Int {
+        return 9;
+    }
+}
+
+class Child {
+    priv parent: weak Parent;
+
+    pub fun setParent(parent: weak Parent) {
+        self.parent = parent;
+    }
+
+    pub fun nullableValue() Int {
+        var parent: Parent = lock(self.parent);
+        if (parent == null) {
+            return -1;
+        }
+        if (parent != null) {
+            return parent.value();
+        }
+        return -2;
+    }
+}
+
+fun main() Int {
+    var child: Child = new Child();
+
+    if (child.nullableValue() != -1) {
+        return 1;
+    }
+
+    if (true) {
+        var parent: Parent = new Parent();
+        child.setParent(parent);
+        if (child.nullableValue() != 9) {
+            return 2;
+        }
+    }
+
+    if (child.nullableValue() != -1) {
+        return 3;
+    }
+
+    return 0;
+}

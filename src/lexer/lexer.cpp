@@ -334,6 +334,8 @@ std::vector<Token> Lexer::tokenize(const std::string &input) {
         type = TokenType::PROT;
       else if (identStr == "new")
         type = TokenType::NEW;
+      else if (identStr == "weak")
+        type = TokenType::WEAK;
 
       tokens.emplace_back(type, identStr, startLine, startColumn, startPos,
                           len);
@@ -418,25 +420,40 @@ std::vector<Token> Lexer::tokenize(const std::string &input) {
       ++_pos;
       _column++;
       if (isAtEnd()) {
-        _diag.report(SourceSpan(startLine, startColumn, charStart, 1), zap::DiagnosticLevel::Error,
-                     "Unterminated char literal");
+        _diag.report(SourceSpan(startLine, startColumn, charStart, 1),
+                     zap::DiagnosticLevel::Error, "Unterminated char literal");
         return tokens;
       }
       if (_input[_pos] == '\\') {
         ++_pos;
         if (isAtEnd()) {
-          _diag.report(SourceSpan(startLine, startColumn, charStart, 1), zap::DiagnosticLevel::Error,
+          _diag.report(SourceSpan(startLine, startColumn, charStart, 1),
+                       zap::DiagnosticLevel::Error,
                        "Unterminated char literal");
           return tokens;
         }
         switch (_input[_pos]) {
-        case 'n': charVal += '\n'; break;
-        case 't': charVal += '\t'; break;
-        case 'r': charVal += '\r'; break;
-        case '\\': charVal += '\\'; break;
-        case '\'': charVal += '\''; break;
-        case '0': charVal += '\0'; break;
-        default: charVal += _input[_pos]; break;
+        case 'n':
+          charVal += '\n';
+          break;
+        case 't':
+          charVal += '\t';
+          break;
+        case 'r':
+          charVal += '\r';
+          break;
+        case '\\':
+          charVal += '\\';
+          break;
+        case '\'':
+          charVal += '\'';
+          break;
+        case '0':
+          charVal += '\0';
+          break;
+        default:
+          charVal += _input[_pos];
+          break;
         }
       } else {
         charVal += _input[_pos];
@@ -444,8 +461,8 @@ std::vector<Token> Lexer::tokenize(const std::string &input) {
       ++_pos;
       _column++;
       if (isAtEnd() || _input[_pos] != '\'') {
-        _diag.report(SourceSpan(startLine, startColumn, charStart, 1), zap::DiagnosticLevel::Error,
-                     "Unterminated char literal");
+        _diag.report(SourceSpan(startLine, startColumn, charStart, 1),
+                     zap::DiagnosticLevel::Error, "Unterminated char literal");
         return tokens;
       }
       ++_pos;

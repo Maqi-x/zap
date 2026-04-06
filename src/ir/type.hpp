@@ -15,7 +15,7 @@ enum class TypeKind {
   UInt16,
   UInt32,
   UInt64,
-  Int, // Default Int (32-bit)
+  Int,  // Default Int (32-bit)
   UInt, // Default UInt (32-bit)
   Float,
   Float32,
@@ -42,10 +42,11 @@ public:
   }
   virtual bool isInteger() const {
     auto k = getKind();
-    return k == TypeKind::Int8 || k == TypeKind::Int16 || k == TypeKind::Int32 ||
-           k == TypeKind::Int64 || k == TypeKind::UInt8 ||
-           k == TypeKind::UInt16 || k == TypeKind::UInt32 ||
-           k == TypeKind::UInt64 || k == TypeKind::Int || k == TypeKind::UInt;
+    return k == TypeKind::Int8 || k == TypeKind::Int16 ||
+           k == TypeKind::Int32 || k == TypeKind::Int64 ||
+           k == TypeKind::UInt8 || k == TypeKind::UInt16 ||
+           k == TypeKind::UInt32 || k == TypeKind::UInt64 ||
+           k == TypeKind::Int || k == TypeKind::UInt;
   }
   virtual bool isUnsigned() const {
     auto k = getKind();
@@ -126,6 +127,7 @@ public:
     std::shared_ptr<Type> type;
     int visibility = 0;
   };
+
 protected:
   std::string name;
   std::string codegenName;
@@ -154,17 +156,22 @@ public:
 
 class ClassType : public RecordType {
   std::shared_ptr<ClassType> base;
+  bool weakRef = false;
 
 public:
   ClassType(std::string n, std::string codegen = "")
       : RecordType(std::move(n), std::move(codegen)) {}
 
   TypeKind getKind() const override { return TypeKind::Class; }
-  std::string toString() const override { return "class " + name; }
+  std::string toString() const override {
+    return std::string(weakRef ? "weak class " : "class ") + name;
+  }
   bool isReferenceType() const override { return true; }
 
   void setBase(std::shared_ptr<ClassType> b) { base = std::move(b); }
   std::shared_ptr<ClassType> getBase() const { return base; }
+  void setWeak(bool weak) { weakRef = weak; }
+  bool isWeak() const { return weakRef; }
 };
 
 class EnumType : public Type {
