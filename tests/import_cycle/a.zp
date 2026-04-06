@@ -1,0 +1,5 @@
+import "b.zp";
+
+pub fun a() Int {
+  return 1;
+}

@@ -18,7 +18,7 @@
 
 - [x] `import "path";`
 - [x] Each file is its own namespace
-- [ ] Circular import detection
+- [x] Circular import detection
 - [x] `main` function resolution across files
 
 ---
