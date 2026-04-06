@@ -471,6 +471,12 @@ std::string renderType(const TypeNode *type) {
   if (!type) {
     return "Void";
   }
+  if (type->isVarArgs && type->baseType) {
+    return "..." + renderType(type->baseType.get());
+  }
+  if (type->isPointer && type->baseType) {
+    return "*" + renderType(type->baseType.get());
+  }
   if (type->isArray && type->baseType) {
     return "[" + renderType(type->baseType.get()) + "]";
   }
@@ -506,11 +512,14 @@ std::optional<LspSignature> signatureForNode(const Node *node) {
     for (const auto &param : ext->params_) {
       params.push_back(renderParameter(param.get()));
     }
+    if (ext->isCVariadic_) {
+      params.push_back("...");
+    }
     std::string label = ext->name_ + "(";
     for (size_t i = 0; i < params.size(); ++i) {
       if (i != 0) {
         label += ", ";
-      }
+        }
       label += params[i];
     }
     label += ") " + renderType(ext->returnType_.get());

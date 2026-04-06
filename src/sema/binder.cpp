@@ -15,6 +15,44 @@ namespace sema
              static_cast<zir::RecordType *>(type.get())->getName() == "String";
     }
 
+    std::string sanitizeTypeName(const std::string &value)
+    {
+      std::string out;
+      out.reserve(value.size());
+      for (char ch : value)
+      {
+        if (std::isalnum(static_cast<unsigned char>(ch)))
+        {
+          out.push_back(ch);
+        }
+        else
+        {
+          out.push_back('_');
+        }
+      }
+      return out;
+    }
+
+    std::shared_ptr<zir::RecordType>
+    makeVariadicViewType(const std::shared_ptr<zir::Type> &elementType)
+    {
+      auto suffix = sanitizeTypeName(elementType->toString());
+      auto type = std::make_shared<zir::RecordType>(
+          "__zap_varargs_" + suffix, "__zap_varargs_" + suffix);
+      type->addField("data", std::make_shared<zir::PointerType>(elementType));
+      type->addField("len",
+                     std::make_shared<zir::PrimitiveType>(zir::TypeKind::Int));
+      return type;
+    }
+
+    bool isVariadicViewType(const std::shared_ptr<zir::Type> &type)
+    {
+      return type && type->getKind() == zir::TypeKind::Record &&
+             static_cast<zir::RecordType *>(type.get())
+                     ->getName()
+                     .rfind("__zap_varargs_", 0) == 0;
+    }
+
     std::vector<std::string> splitQualified(const std::string &value)
     {
       std::vector<std::string> parts;
@@ -520,7 +558,7 @@ namespace sema
           {
             symbol->is_variadic_pack = true;
             symbol->variadic_element_type = mappedType;
-            symbol->type = std::make_shared<zir::PointerType>(mappedType);
+            symbol->type = makeVariadicViewType(mappedType);
           }
           params.push_back(std::move(symbol));
         }
@@ -1519,6 +1557,7 @@ namespace sema
     expressionStack_.pop();
 
     if (left->type->getKind() != zir::TypeKind::Array &&
+        !isVariadicViewType(left->type) &&
         !isStringType(left->type))
     {
       error(node.span,
@@ -1543,6 +1582,18 @@ namespace sema
     {
       auto arrayType = std::static_pointer_cast<zir::ArrayType>(left->type);
       elementType = arrayType->getBaseType();
+    }
+    else if (isVariadicViewType(left->type))
+    {
+      auto recordType = std::static_pointer_cast<zir::RecordType>(left->type);
+      const auto &fields = recordType->getFields();
+      if (fields.empty() || fields[0].type->getKind() != zir::TypeKind::Pointer)
+      {
+        error(node.span, "Internal error: invalid variadic view layout.");
+        return;
+      }
+      elementType =
+          std::static_pointer_cast<zir::PointerType>(fields[0].type)->getBaseType();
     }
     else
     {
@@ -1704,6 +1755,12 @@ namespace sema
 
       if (argIsSpread)
       {
+        if (i < fixedParamCount)
+        {
+          error(node.params_[i]->value->span,
+                "Spread argument cannot be used in place of required positional parameters.");
+          return;
+        }
         if (argIsRef)
         {
           error(node.params_[i]->value->span,

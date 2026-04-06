@@ -26,9 +26,14 @@ syntax match zapFunctionCall "\<[A-Za-z_][A-Za-z0-9_]*\>\ze\s*("
 syntax match zapTypeDecl "\<\%(record\|struct\|unsafe\s\+struct\|enum\|alias\)\s\+\zs[A-Za-z_][A-Za-z0-9_]*\>"
 syntax match zapVarDecl "\<\%(var\|const\)\s\+\zs[A-Za-z_][A-Za-z0-9_]*\>"
 syntax match zapParameter "\<\%(ref\s\+\)\?\zs[A-Za-z_][A-Za-z0-9_]*\ze\s*:"
-syntax match zapType ":\s*\zs\%(\*\s*\)*[A-Za-z_][A-Za-z0-9_]*\%(\s*\.\s*[A-Za-z_][A-Za-z0-9_]*\)*\>"
-syntax match zapReturnType ")\s*\zs\%(\*\s*\)*[A-Za-z_][A-Za-z0-9_]*\%(\s*\.\s*[A-Za-z_][A-Za-z0-9_]*\)*\>"
+syntax match zapType ":\s*\zs\%(\.\.\.\s*\)\?\%(\*\s*\)*[A-Za-z_][A-Za-z0-9_]*\%(\s*\.\s*[A-Za-z_][A-Za-z0-9_]*\)*\>"
+syntax match zapReturnType ")\s*\zs\%(\.\.\.\s*\)\?\%(\*\s*\)*[A-Za-z_][A-Za-z0-9_]*\%(\s*\.\s*[A-Za-z_][A-Za-z0-9_]*\)*\>"
 syntax match zapBuiltinType "\<\%(Int\|Int8\|Int16\|Int32\|Int64\|UInt\|UInt8\|UInt16\|UInt32\|UInt64\|Float\|Float32\|Float64\|Bool\|Void\|Char\|String\)\>"
+syntax match zapLogicalOperator "&&\|||"
+syntax match zapComparisonOperator "==\|!=\|>=\|<=\|>\|<"
+syntax match zapAssignmentOperator "="
+syntax match zapArithmeticOperator "[+\-/%^~]"
+syntax match zapUnaryOperator "!"
 syntax match zapPointerOperator "\%(^\|[^A-Za-z0-9_]\)\zs[&*]\ze\%([^=]\|$\)"
 
 highlight default link zapConditional Conditional
@@ -51,6 +56,11 @@ highlight default link zapParameter Identifier
 highlight default link zapType Type
 highlight default link zapReturnType Type
 highlight default link zapBuiltinType Type
+highlight default link zapLogicalOperator Operator
+highlight default link zapComparisonOperator Operator
+highlight default link zapAssignmentOperator Operator
+highlight default link zapArithmeticOperator Operator
+highlight default link zapUnaryOperator Operator
 highlight default link zapPointerOperator Operator
 
 let b:current_syntax = "zap"

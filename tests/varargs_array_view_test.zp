@@ -1,5 +1,3 @@
-import "std/io";
-
 fun sum(first: Int, rest: ...Int) Int {
     var total: Int = first;
     var i: Int = 0;
@@ -10,12 +8,14 @@ fun sum(first: Int, rest: ...Int) Int {
     return total;
 }
 
-fun forward(rest: ...Int) Int {
-    return sum(10, ...rest);
-}
-
 fun main() Int {
-    io.printfln("sum(5, 1, 2, 3) = %d", sum(5, 1, 2, 3));
-    io.printfln("forward(7, 8) = %d", forward(7, 8));
+    if sum(1, 2, 3, 4, 5) != 15 {
+        return 1;
+    }
+
+    if sum(9) != 9 {
+        return 2;
+    }
+
     return 0;
 }

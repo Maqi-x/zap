@@ -76,7 +76,6 @@ namespace codegen
 
     llvm::AllocaInst *createEntryAlloca(llvm::Function *fn,
                       const std::string &name, llvm::Type *ty);
-    std::string variadicCountSlotName(const std::string &name) const;
   };
 
 } // namespace codegen

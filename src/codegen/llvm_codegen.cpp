@@ -23,6 +23,14 @@ namespace codegen
       return type && type->getKind() == zir::TypeKind::Record &&
              static_cast<zir::RecordType *>(type.get())->getName() == "String";
     }
+
+    bool isVariadicViewType(const std::shared_ptr<zir::Type> &type)
+    {
+      return type && type->getKind() == zir::TypeKind::Record &&
+             static_cast<zir::RecordType *>(type.get())
+                     ->getName()
+                     .rfind("__zap_varargs_", 0) == 0;
+    }
   } // namespace
   LLVMCodeGen::LLVMCodeGen() : builder_(ctx_), nextStringId_(0), evaluateAsAddr_(false)
   {
@@ -228,11 +236,6 @@ namespace codegen
     return entry.CreateAlloca(ty, nullptr, name);
   }
 
-  std::string LLVMCodeGen::variadicCountSlotName(const std::string &name) const
-  {
-    return name + "#count";
-  }
-
   void LLVMCodeGen::visit(sema::BoundRootNode &node)
   {
     for (const auto &extFn : node.externalFunctions)
@@ -341,16 +344,24 @@ namespace codegen
       if (param->is_variadic_pack)
       {
         auto &countArg = *argIt;
-        auto *countAlloca = createEntryAlloca(fn, variadicCountSlotName(param->name),
-                                              countArg.getType());
-        builder_.CreateStore(&countArg, countAlloca);
-        localValues_[variadicCountSlotName(param->name)] = countAlloca;
-
         ++argIt;
         auto &dataArg = *argIt;
-        auto *dataAlloca = createEntryAlloca(fn, param->name, dataArg.getType());
-        builder_.CreateStore(&dataArg, dataAlloca);
-        localValues_[param->name] = dataAlloca;
+        auto *sliceTy = static_cast<llvm::StructType *>(toLLVMType(*param->type));
+        auto *sliceAlloca = createEntryAlloca(fn, param->name, sliceTy);
+        llvm::Value *sliceValue = llvm::PoisonValue::get(sliceTy);
+        sliceValue =
+            builder_.CreateInsertValue(sliceValue, &dataArg, {0}, param->name + ".data");
+        llvm::Value *countValue = &countArg;
+        if (countValue->getType() != sliceTy->getElementType(1))
+        {
+          countValue = builder_.CreateIntCast(countValue, sliceTy->getElementType(1),
+                                              /*isSigned=*/true,
+                                              param->name + ".len.cast");
+        }
+        sliceValue =
+            builder_.CreateInsertValue(sliceValue, countValue, {1}, param->name + ".len");
+        builder_.CreateStore(sliceValue, sliceAlloca);
+        localValues_[param->name] = sliceAlloca;
         continue;
       }
 
@@ -1001,12 +1012,14 @@ namespace codegen
       llvm::Value *forwardedData = llvm::ConstantPointerNull::get(elemPtrTy);
       if (node.variadicPack)
       {
-        auto *packVar = dynamic_cast<sema::BoundVariableExpression *>(node.variadicPack.get());
         node.variadicPack->accept(*this);
-        forwardedData = lastValue_;
-        auto *countAlloca = localValues_.at(variadicCountSlotName(packVar->symbol->name));
-        forwardedCount = builder_.CreateLoad(llvm::Type::getInt32Ty(ctx_), countAlloca,
-                                             packVar->symbol->name + ".count");
+        forwardedData = builder_.CreateExtractValue(lastValue_, {0}, "varargs.forward.data");
+        forwardedCount = builder_.CreateExtractValue(lastValue_, {1}, "varargs.forward.len");
+        if (forwardedCount->getType() != llvm::Type::getInt32Ty(ctx_))
+        {
+          forwardedCount = builder_.CreateIntCast(
+              forwardedCount, llvm::Type::getInt32Ty(ctx_), /*isSigned=*/true);
+        }
       }
 
       llvm::Value *explicitCount =
@@ -1154,6 +1167,17 @@ namespace codegen
           llvm::ConstantInt::get(i32Ty, 0),
           builder_.CreateIntCast(indexVal, i32Ty, /*isSigned=*/false)};
       elemAddr = builder_.CreateInBoundsGEP(leftTy, leftAddr, indices);
+    }
+    else if (isVariadicViewType(node.left->type))
+    {
+      auto *sliceTy = static_cast<llvm::StructType *>(toLLVMType(*node.left->type));
+      auto *dataAddr = builder_.CreateStructGEP(sliceTy, leftAddr, 0, "varargs.data.addr");
+      auto *dataPtrTy = llvm::cast<llvm::PointerType>(sliceTy->getElementType(0));
+      auto *dataPtr = builder_.CreateLoad(dataPtrTy, dataAddr, "varargs.data");
+      auto recordType = std::static_pointer_cast<zir::RecordType>(node.left->type);
+      auto dataType = std::static_pointer_cast<zir::PointerType>(recordType->getFields()[0].type);
+      auto *elemTy = toLLVMType(*dataType->getBaseType());
+      elemAddr = builder_.CreateInBoundsGEP(elemTy, dataPtr, indexVal, "varargs.index");
     }
     else if (isStringType(node.left->type))
     {

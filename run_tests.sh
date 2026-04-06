@@ -310,6 +310,7 @@ run_test "tests/string_index_assign_error.zp" 1 "String indexing is read-only"
 # Logical operator tests
 run_runtime_test "tests/logical_ops.zp" 0 "Logical operators (&&, ||) with short-circuiting"
 run_test "tests/logical_type_error.zp" 1 "Logical operators type check"
+run_test "tests/varargs_spread_missing_fixed_error.zp" 1 "Spread cannot replace required fixed parameters"
 run_runtime_test "tests/if_else_if.zp" 0 "If / else if / else chains"
 run_runtime_test "tests/if_nested.zp" 0 "Nested if statements"
 run_runtime_test "tests/if_state_merge.zp" 0 "If branches mutating shared state"
@@ -334,6 +335,7 @@ run_runtime_test "tests/precedence_test.zp" 0 "Operator precedence (NOT vs Membe
 run_runtime_test "tests/type_alias.zp" 42 "Type aliasing (alias Name = Type)"
 run_runtime_test "tests/ref_test.zp" 0 "Reference type test"
 run_runtime_test "tests/varargs_syntax_test.zp" 0 "Variadic syntax (... and ...T)"
+run_runtime_test "tests/varargs_array_view_test.zp" 0 "Variadic array view (.len and index)"
 run_runtime_test "tests/varargs_forwarding_test.zp" 0 "Variadic forwarding"
 run_runtime_compile_args_test "tests/ext_c_varargs_test.zp" 0 "ext C varargs" --allow-unsafe
 run_runtime_test "tests/std_io_printf_test.zp" 0 "std/io printf wrappers"
