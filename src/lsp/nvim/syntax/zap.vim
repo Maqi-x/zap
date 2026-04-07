@@ -10,7 +10,6 @@ syntax keyword zapStatement return break continue import as unsafe new self
 syntax keyword zapStorageClass fun ext pub priv prot global const var ref module impl static
 syntax keyword zapStructure record struct class enum alias
 
-syntax match zapLineComment "//.*$"
 syntax region zapString start=+"+ skip=+\\.+ end=+"+ contains=zapEscape
 syntax match zapEscape +\\["\\abfnrtv0]+ contained
 syntax match zapEscape +\\x[0-9a-fA-F]\{2}+ contained
@@ -35,6 +34,9 @@ syntax match zapAssignmentOperator "="
 syntax match zapArithmeticOperator "[+\-/%^~]"
 syntax match zapUnaryOperator "!"
 syntax match zapPointerOperator "\%(^\|[^A-Za-z0-9_]\)\zs[&*]\ze\%([^=]\|$\)"
+
+" Define comments after other matches so they win priority over operators and keywords.
+syntax match zapLineComment "//.*$" contains=@Spell
 
 highlight default link zapConditional Conditional
 highlight default link zapRepeat Repeat

@@ -62,6 +62,24 @@ std::filesystem::path stdlibRootPath(const std::filesystem::path &argv0Hint) {
   return std::filesystem::path(ZAPC_STDLIB_DIR);
 }
 
+std::filesystem::path stdlibObjectPath(const std::filesystem::path &argv0Hint) {
+  if (const char *configured = std::getenv("ZAPC_STDLIB_PATH")) {
+    if (*configured != '\0') {
+      return std::filesystem::path(configured);
+    }
+  }
+
+  if (auto exePath = currentExecutablePath(argv0Hint)) {
+    auto siblingObject = exePath->parent_path() / "stdlib.o";
+    if (std::filesystem::exists(siblingObject) &&
+        std::filesystem::is_regular_file(siblingObject)) {
+      return siblingObject;
+    }
+  }
+
+  return std::filesystem::path(ZAPC_STDLIB_PATH);
+}
+
 std::string stripSourceExtension(const std::filesystem::path &path) {
   auto normalized = path.generic_string();
   if (path.extension() == ".zp" && normalized.size() >= 4) {
@@ -634,7 +652,7 @@ bool driver::link() {
   std::string cmd = "/usr/bin/cc ";
 
   if (inc_stdlib) {
-    cmd += std::string(ZAPC_STDLIB_PATH) + " ";
+    cmd += stdlibObjectPath(executable_path).string() + " ";
   } else {
     cmd += "-nostdlib ";
   }
