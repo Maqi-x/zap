@@ -1,17 +1,62 @@
 # Zap Language Documentation
 
-Welcome to the official documentation for the **Zap** programming language. Zap is a modern, high-level systems programming language designed to be a faster, safer, and more expressive alternative to Go.
+Welcome to the official documentation for the **Zap** programming language.
+
+Zap is a modern systems programming language focused on predictable performance, explicit behavior, and developer-friendly syntax.
 
 ## Core Philosophy
-- **Performance**: Compiled to native code via LLVM.
-- **Memory Safety**: Uses **Automatic Reference Counting (ARC)** instead of a Garbage Collector (GC).
-- **Expressiveness**: Features like concise control flow, ternary expressions, and real enums reduce boilerplate.
-- **Simplicity**: Maintains a Go-like syntax for low cognitive overhead.
 
-## Documentation Sections
-1. [Variables and Types](variables.md)
-2. [Functions](functions.md)
-3. [Control Flow](control_flow.md)
-4. [Data Structures](data_structures.md) (Records, Enums, Arrays)
-5. [Memory Management](memory.md) (ARC)
-6. [Classes](classes.md)
+- **Performance**: Native code generation via LLVM.
+- **Predictability**: ARC-based memory management (no stop-the-world GC pauses).
+- **Safety**: Strong static typing and clear compile-time diagnostics.
+- **Expressiveness**: Practical syntax for control flow, data modeling, and generic code.
+- **Tooling**: Compiler + LSP diagnostics designed for fast iteration.
+
+---
+
+## Documentation Map
+
+### Language Basics
+
+1. [Variables and Types](variables.md)  
+   Variable/constant declarations, primitive types, arrays, and type basics.
+
+2. [Functions](functions.md)  
+   Function declarations, return types, parameters, calls, and recursion.
+
+3. [Control Flow](control_flow.md)  
+   `if`, `while`, ternary expressions, and condition typing rules.
+
+---
+
+### Data & Memory
+
+4. [Data Structures](data_structures.md)  
+   Records, enums, and arrays.
+
+5. [Classes](classes.md)  
+   Heap-only classes, methods, inheritance, visibility, and `new`.
+
+6. [Memory Management](memory.md)  
+   ARC model, object lifetime behavior, and performance implications.
+
+7. [Generics](generics.md)  
+   Generic functions, generic structs/classes, constraints (`where`), and compile-time `iftype`.
+
+---
+
+### Diagnostics & Tooling
+
+8. [Diagnostic Codes](diagnostic_codes.md)  
+   Full reference for parser/semantic/warning/note diagnostic codes (`Pxxxx`, `Sxxxx`, `Wxxxx`, `Nxxxx`), including examples and maintenance guidelines.
+
+---
+
+## Notes
+
+- Zap is currently in **early alpha**; some features and docs are evolving quickly.
+- If diagnostics or language behavior changes, update both:
+  - implementation/tests, and
+  - the corresponding docs pages.
+
+If you contribute new language features, please also update this index so the section map stays accurate.

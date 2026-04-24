@@ -1948,6 +1948,9 @@ JsonObject makeDiagnostic(const zap::Diagnostic &diagnostic) {
   object.emplace("severity", JsonObject(toLspSeverity(diagnostic.level)));
   object.emplace("source", JsonObject("zap-lsp"));
   object.emplace("message", JsonObject(diagnostic.message));
+  if (!diagnostic.code.empty()) {
+    object.emplace("code", JsonObject(diagnostic.code));
+  }
   return JsonObject(std::move(object));
 }
 

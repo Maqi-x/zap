@@ -58,7 +58,12 @@ namespace zap
     const Token &peek(size_t offset = 0) const;
     Token eat(TokenType expectedType);
     bool isAtEnd() const;
-    void synchronize();
+    enum class SyncContext {
+      TopLevel,
+      Block
+    };
+
+    void synchronize(SyncContext context = SyncContext::Block);
     SourceSpan pointAfter(const SourceSpan &span) const;
 
     // Parsing rules

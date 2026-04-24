@@ -1,0 +1,9 @@
+fun main() Void {
+	var msg: String = "hello 😀	world";
+	var a: Int = "not an int";
+	var arr: [3]Int = {1, 2, "x"};
+
+	if msg {
+		return;
+	}
+}

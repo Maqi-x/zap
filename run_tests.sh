@@ -50,6 +50,45 @@ run_test() {
     fi
 }
 
+run_diagnostic_code_test() {
+    local file=$1
+    local expected_exit_code=$2
+    local description=$3
+    shift 3
+
+    require_test_file "$file" "$description" || return
+
+    ((TOTAL++))
+    echo -n "Running $description ($file)... "
+
+    local tmpfile
+    tmpfile=$(mktemp)
+    $ZAPC "$file" > /dev/null 2> "$tmpfile"
+    local exit_code=$?
+
+    if [ $exit_code -ne $expected_exit_code ]; then
+        echo -e "${RED}FAIL${NC} (expected exit $expected_exit_code, got $exit_code)"
+        rm -f "$tmpfile"
+        return
+    fi
+
+    local missing=0
+    for code in "$@"; do
+        if ! grep -q "$code" "$tmpfile"; then
+            echo -e "${RED}FAIL${NC} (missing diagnostic code: $code)"
+            missing=1
+            break
+        fi
+    done
+
+    if [ $missing -eq 0 ]; then
+        echo -e "${GREEN}PASS${NC}"
+        ((PASSED++))
+    fi
+
+    rm -f "$tmpfile"
+}
+
 echo "--- Zap Compiler Test Suite ---"
 
 # Valid code (should pass)
@@ -436,6 +475,14 @@ run_runtime_test "tests/import_std_string/main.zp" 0 "Importing the builtin std/
 run_runtime_test "tests/import_std_collection/main.zp" 0 "Importing the builtin std/collection module"
 run_runtime_test "tests/import_overload/main.zp" 0 "Importing overloaded functions through module namespace"
 run_test "tests/import_private_fail/main.zp" 1 "Private module member access is rejected"
+
+# Advanced diagnostics regression tests (codes + help notes + cascade behavior)
+run_diagnostic_code_test "tests/diagnostics/01_caret_alignment.zp" 1 "Diagnostics: caret alignment and semantic codes" S2002 S2003 S2009 N1000
+run_diagnostic_code_test "tests/diagnostics/02_parser_sync.zp" 1 "Diagnostics: parser synchronization with coded parse errors" P1002 P1003 P1004 N1000
+run_diagnostic_code_test "tests/diagnostics/03_type_messages.zp" 1 "Diagnostics: user-facing semantic type messages with codes" S2002 S2003 S2007 S2008 S2010 N1000
+run_diagnostic_code_test "tests/diagnostics/04_codes_parser.zp" 1 "Diagnostics: parser code coverage regression sample" P1002 P1003 P1004 N1000
+run_diagnostic_code_test "tests/diagnostics/05_codes_semantic.zp" 1 "Diagnostics: semantic code coverage regression sample" S2001 S2002 S2003 S2005 S2006 S2007 S2008 S2009 S2010 S2012 N1000 E0000
+run_diagnostic_code_test "tests/diagnostics/06_codes_cascade_stress.zp" 1 "Diagnostics: cascade stress remains bounded and coded" P1002 P1003 P1004 N1000
 
 echo "-------------------------------"
 echo "Results: $PASSED / $TOTAL passed"

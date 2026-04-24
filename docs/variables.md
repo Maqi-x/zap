@@ -1,44 +1,184 @@
 # Variables and Types
 
-In Zap, all types start with a capital letter (e.g., `Int`, `Float`, `Bool`, `String`).
+This page documents variable declarations, constants, and core type usage in Zap.
 
-## Declaring Variables and Constants
+## Variable Declarations (`var`)
 
-### Variables
-Variables are declared using the `var` keyword. You can optionally specify a type and provide an initial value. Variables can be reassigned.
+Variables are declared with explicit types:
 
-```zap
-var x: Int = 10;
-x = 20; // OK
+```/dev/null/examples.zp#L1-3
+var count: Int = 10;
+var name: String = "Zap";
+var ready: Bool = true;
 ```
 
-### Constants
-Constants are declared using the `const` keyword. They **must** be initialized when declared and cannot be reassigned. Constants can be declared both globally (at the top level) and locally (within functions).
+You can reassign variables as long as the assigned value is type-compatible:
 
-```zap
+```/dev/null/examples.zp#L1-3
+var x: Int = 1;
+x = 2;        // OK
+x = "hello";  // error: type mismatch
+```
+
+---
+
+## Constants (`const`)
+
+Constants must be initialized at declaration time and cannot be reassigned.
+
+```/dev/null/examples.zp#L1-6
 const PI: Float = 3.14159;
-const APP_NAME: String = "Zap Demo";
 
 fun main() {
-    const LOCAL_X: Int = 42;
-    // LOCAL_X = 43; // Error: Cannot assign to constant
+    const LIMIT: Int = 100;
+    // LIMIT = 101; // error: cannot assign to constant
 }
 ```
 
-### Note on Punctuation
-Statements in Zap typically end with a semicolon `;`.
+Constants can be declared globally and locally.
 
-## Basic Types
-- `Int`: 64-bit signed integer.
-- `Float`: 64-bit floating point number.
-- `Bool`: Boolean value (`true` or `false`).
-- `String`: UTF-8 encoded string.
-- `Void`: Used for functions that do not return a value.
+---
+
+## Global Variables
+
+Zap supports global mutable variables using `global var`:
+
+```/dev/null/examples.zp#L1-7
+global var counter: Int = 0;
+
+fun inc() Int {
+    counter = counter + 1;
+    return counter;
+}
+```
+
+At top level, `global` must be followed by `var`.
+
+---
+
+## Statement Terminators
+
+Zap uses semicolons (`;`) to terminate statements in declarations and assignments:
+
+```/dev/null/examples.zp#L1-4
+var a: Int = 1;
+var b: Int = 2;
+a = a + b;
+```
+
+Missing semicolons are parser errors.
+
+---
+
+## Primitive Types
+
+Common built-in scalar types:
+
+- Signed integers: `Int`, `Int8`, `Int16`, `Int32`, `Int64`
+- Unsigned integers: `UInt`, `UInt8`, `UInt16`, `UInt32`, `UInt64`
+- Floating point: `Float`, `Float32`, `Float64`
+- Other: `Bool`, `Char`, `Void`
+
+Examples:
+
+```/dev/null/examples.zp#L1-8
+var i: Int = 42;
+var u: UInt8 = 255;
+var f: Float = 3.5;
+var d: Float64 = 1.0;
+var ok: Bool = true;
+var c: Char = 'A';
+```
+
+> `Void` is primarily used as a function return type.
+
+---
+
+## String Type
+
+`String` is a first-class type:
+
+```/dev/null/examples.zp#L1-4
+var greeting: String = "hello";
+var suffix: Char = '!';
+var combined: String = greeting + suffix;
+```
+
+Strings can be indexed for reading, but indexed assignment is rejected.
+
+---
 
 ## Arrays
-Arrays are fixed-size collections of elements of the same type.
 
-```zap
-var simple: [5]Int;
-var initialized: [3]Int = {1, 2, 3};
+Zap arrays are fixed-size and typed: `[N]Type`
+
+```/dev/null/examples.zp#L1-4
+var empty: [5]Int;
+var nums: [3]Int = {1, 2, 3};
+var first: Int = nums[0];
 ```
+
+Rules:
+- Size is part of the type (`[3]Int` differs from `[4]Int`)
+- Elements must be type-compatible
+- Index expression must be an integer type
+
+---
+
+## Type Aliases
+
+You can create aliases for readability:
+
+```/dev/null/examples.zp#L1-4
+alias UserId = Int;
+
+fun load(id: UserId) Int {
+    return id;
+}
+```
+
+---
+
+## Pointers and `unsafe`
+
+Raw pointers are available, but restricted to unsafe-enabled code paths.
+
+```/dev/null/examples.zp#L1-9
+fun read_first(ptr: *Int) Int {
+    unsafe {
+        return *ptr;
+    }
+}
+```
+
+Notes:
+- Pointer types use `*Type` syntax.
+- Dereference (`*expr`) and address-of operations are unsafe features.
+- Unsafe usage is gated by compiler/runtime rules and context checks.
+
+---
+
+## Type Checking and Diagnostics
+
+Zap enforces type compatibility at compile time. Typical errors include:
+
+- Assigning incompatible types
+- Using non-`Bool` conditions in `if`/`while`
+- Indexing non-indexable types
+- Using non-integer indices for arrays
+
+Diagnostics now include stable codes (for example, semantic `S2xxx` and parser `P1xxx` families), making CI assertions and tooling integration easier.
+
+For full list and meaning of codes, see:
+
+- [Diagnostic Codes](diagnostic_codes.md)
+
+---
+
+## Best Practices
+
+- Prefer explicit, domain-friendly aliases for key identifiers.
+- Keep globals minimal; prefer function-local state.
+- Use unsigned widths intentionally (`UInt8`, `UInt32`, etc.).
+- Keep pointer logic isolated and audited in unsafe blocks.
+- Treat diagnostic codes as stable contracts in tests.

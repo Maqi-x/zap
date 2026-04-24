@@ -1,0 +1,42 @@
+fun main() {
+  var n: Int = 42;
+  var flag: Bool = true;
+  var text: String = "hello";
+  var bytes: [4]UInt8 = {1, 2, 3, 4};
+  var p: *Int;
+
+  // assign mismatch
+  n = flag;
+
+  // binop mismatch
+  var bad_sum: Int = text + n;
+
+  // bool condition mismatch
+  if n {
+    n = 1;
+  }
+
+  // while condition mismatch
+  while text {
+    n = n + 1;
+  }
+
+  // indexing non-indexable type
+  var x: Int = n[0];
+
+  // index type mismatch
+  var y: UInt8 = bytes[flag];
+
+  // unary mismatch
+  var z: Int = ~text;
+  var q: Bool = !n;
+
+  // cast mismatch
+  var k: *Int = (text as *Int);
+
+  // pointer dereference mismatch
+  var t: Int = *n;
+
+  // assignment to incompatible target
+  p = text;
+}

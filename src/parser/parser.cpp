@@ -103,16 +103,16 @@ std::unique_ptr<RootNode> Parser::parse() {
           _diag.report(peek().span, DiagnosticLevel::Error,
                        "Expected 'var' after 'global'");
           _pos++;
-          synchronize();
+          synchronize(SyncContext::TopLevel);
         }
       } else {
         _diag.report(peek().span, DiagnosticLevel::Error,
                      "Unexpected token " + peek().value);
         _pos++;
-        synchronize();
+        synchronize(SyncContext::TopLevel);
       }
     } catch (const ParseError &e) {
-      synchronize();
+      synchronize(SyncContext::TopLevel);
     }
   }
   return root;
@@ -1202,12 +1202,38 @@ SourceSpan Parser::pointAfter(const SourceSpan &span) const {
                     1);
 }
 
-void Parser::synchronize() {
+void Parser::synchronize(SyncContext context) {
+  size_t lastPos = _pos;
+  size_t stalledIterations = 0;
+  const size_t kMaxStalledIterations = 8;
+  const size_t kMaxScanTokens = 4096;
+  size_t scannedTokens = 0;
+
   while (!isAtEnd()) {
+    if (_pos == lastPos) {
+      ++stalledIterations;
+    } else {
+      stalledIterations = 0;
+      lastPos = _pos;
+    }
+
+    if (stalledIterations > kMaxStalledIterations ||
+        scannedTokens > kMaxScanTokens) {
+      if (!isAtEnd()) {
+        ++_pos; // force progress to avoid anti-recovery infinite cascade
+      }
+      return;
+    }
+
+    ++scannedTokens;
+
     switch (peek().type) {
     case TokenType::SEMICOLON:
       _pos++;
       return;
+    case TokenType::RBRACE:
+      return;
+
     case TokenType::FUN:
     case TokenType::IMPORT:
     case TokenType::ENUM:
@@ -1221,13 +1247,23 @@ void Parser::synchronize() {
     case TokenType::PUB:
     case TokenType::PRIV:
     case TokenType::PROT:
+      if (context == SyncContext::TopLevel) {
+        return;
+      }
+      _pos++;
+      break;
+
     case TokenType::VAR:
     case TokenType::IF:
     case TokenType::WHILE:
     case TokenType::RETURN:
-    case TokenType::RBRACE:
     case TokenType::UNSAFE:
+      if (context == SyncContext::TopLevel) {
+        _pos++;
+        break;
+      }
       return;
+
     default:
       _pos++;
       break;

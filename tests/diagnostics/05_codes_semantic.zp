@@ -1,0 +1,67 @@
+// Semantic diagnostic regression sample for typed error codes coverage.
+// This file is intentionally invalid and should fail compilation with
+// multiple semantic diagnostics (and associated error codes).
+
+fun takesInt(x: Int) Int {
+  return x;
+}
+
+fun chooseInt(a: Int, b: Int) Int {
+  return a;
+}
+
+fun chooseFloat(a: Float, b: Float) Float {
+  return a;
+}
+
+fun main() {
+  var n: Int = 1;
+  var f: Float = 2.5;
+  var flag: Bool = true;
+  var text: String = "hello";
+  var arr: [3]Int = {1, 2, 3};
+  var p: *Int;
+
+  // S2001 (undefined identifier)
+  ghost = 1;
+
+  // S2002 (assignment type mismatch)
+  n = text;
+
+  // S2003 (if condition must be Bool)
+  if n {
+    n = 2;
+  }
+
+  // S2003 (while condition must be Bool)
+  while text {
+    n = n + 1;
+  }
+
+  // S2005 (operator cannot be applied)
+  var bad_bin: Int = n + flag;
+
+  // S2006 (invalid cast)
+  var bad_cast: Int = (text as Int);
+
+  // S2007 (type does not support indexing)
+  var idx_bad_base: Int = n[0];
+
+  // S2008 (array index must be integer)
+  var idx_bad_type: Int = arr[flag];
+
+  // S2009 (array elements must have same type)
+  var arr_bad: [3]Int = {1, 2, "x"};
+
+  // S2010 (cannot dereference non-pointer)
+  var deref_bad: Int = *n;
+
+  // S2012 (no matching overload)
+  takesInt(text);
+
+  // Overload mismatch (reliably invalid for current signatures)
+  chooseFloat(n, text);
+
+  // Keep pointer mismatch for additional S2002-like path
+  p = text;
+}

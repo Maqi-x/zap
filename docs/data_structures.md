@@ -1,34 +1,147 @@
 # Data Structures
 
-Zap provides built-in support for complex data structures like records, enums, and arrays.
+Zap provides first-class support for core data structures used in systems programming:
 
-## Records
-Records are custom data types that group together variables under a single name.
+- **Arrays** for fixed-size homogeneous collections
+- **Records/Structs** for named field aggregates
+- **Enums** for closed sets of named variants
 
-```zap
+This page reflects currently supported syntax and behavior.
+
+---
+
+## Arrays
+
+Arrays are fixed-size and strongly typed. The size is part of the type.
+
+```/dev/null/examples.zp#L1-4
+var a: [5]Int;
+var b: [3]Int = {1, 2, 3};
+var c: [4]UInt8 = {1, 2, 3, 4};
+var first: Int = b[0];
+```
+
+### Rules
+
+- Type syntax is `[N]T`
+- `N` is the declared compile-time size
+- All elements in an initializer must be type-compatible
+- Index expression must be an integer type
+- Indexing is zero-based
+
+### Common diagnostics
+
+- Element type mismatch:
+  - `Array elements must have the same type. Expected 'Int', but got 'String'`
+- Invalid index type:
+  - `Array index must be an integer, but got 'Bool'`
+- Indexing unsupported type:
+  - `Type 'Int' does not support indexing.`
+
+---
+
+## Records and Structs
+
+Zap supports user-defined aggregate data types with named fields.
+
+## `record`
+
+Use `record` for named product types:
+
+```/dev/null/examples.zp#L1-8
 record Person {
     name: String,
     age: Int,
     email: String
 }
+
+fun age_of(p: Person) Int {
+    return p.age;
+}
 ```
 
-Records can be used to pass complex data between functions and organize your application state.
+## `struct`
+
+`struct` is also available for field-based aggregate modeling:
+
+```/dev/null/examples.zp#L1-8
+struct Vec2 {
+    x: Float,
+    y: Float
+}
+
+fun length_sq(v: Vec2) Float {
+    return v.x * v.x + v.y * v.y;
+}
+```
+
+> Both forms are supported in current Zap tooling/tests. Use project conventions consistently.
+
+### Struct/record literals
+
+Fielded aggregate literals are supported in typed contexts (for example where the target type is known), with rules enforced by semantic analysis:
+
+- field must exist on the target type
+- value must be assignable to field type
+- required fields must be initialized
+
+Typical diagnostics include:
+
+- `Field 'foo' not found in struct 'TypeName'`
+- `Cannot assign type 'X' to field 'foo' of type 'Y'`
+- `Field 'bar' of struct 'TypeName' is not initialized.`
+
+---
 
 ## Enums
-Enums are used to define a set of named constants.
 
-```zap
+Enums define a closed set of named variants.
+
+```/dev/null/examples.zp#L1-6
 enum Color { Red, Green, Blue }
 
-enum Size { Small, Medium, Large, ExtraLarge }
+fun is_red(c: Color) Bool {
+    return c == Color.Red;
+}
 ```
 
-Enums are especially powerful when combined with pattern matching (planned feature).
+Trailing commas in enum declarations are accepted in current compiler behavior.
 
-## Arrays
-Arrays are fixed-size, zero-indexed collections of elements.
-
-```zap
-var list: [3]Int = {1, 2, 3};
+```/dev/null/examples.zp#L1-4
+enum Size {
+    Small,
+    Medium,
+    Large,
+}
 ```
+
+### Notes
+
+- Enum variants are accessed via member syntax (`EnumName.Variant`)
+- Enums are statically typed and checked at compile time
+
+---
+
+## Choosing Between Them
+
+- Use **arrays** when:
+  - size is fixed and known
+  - you need contiguous homogeneous storage
+
+- Use **record/struct** when:
+  - you need a custom type with named fields
+
+- Use **enum** when:
+  - value must be one of a known finite set
+
+---
+
+## Related Documentation
+
+- [Variables and Types](variables.md)
+- [Functions](functions.md)
+- [Control Flow](control_flow.md)
+- [Classes](classes.md)
+- [Diagnostic Codes](diagnostic_codes.md)
+
+---

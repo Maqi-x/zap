@@ -22,7 +22,7 @@ or are ready to step into systems programming.** ARC memory
 model, LLVM backend, modern syntax. Write low-level software
 without low-level frustration.
 
-[Discord](https://discord.gg/cVGqffBA6m) · [Roadmap](ROADMAP.md)
+[Discord](https://discord.gg/cVGqffBA6m) · [Roadmap](ROADMAP.md) · [Documentation](docs/README.md)
 
 ---
 
@@ -40,6 +40,7 @@ without low-level frustration.
 | Concise conditional expressions | Ternary operator `?:` |
 | Single-platform compilers | LLVM: x86, ARM, RISC-V, WASM, embedded |
 | No lightweight concurrency | Fibers, like goroutines without the runtime cost |
+| Hard to triage compiler errors at scale | Stable diagnostic codes (`Pxxxx`, `Sxxxx`, `Wxxxx`, `Nxxxx`) in CLI and LSP |
 
 ---
 
@@ -83,6 +84,15 @@ fun main() Int {
 ```
 
 ---
+
+## Documentation
+
+Start here: **[docs/README.md](docs/README.md)**
+
+Highlights:
+- Language guide: variables, functions, control flow, data structures, classes, memory
+- Generics coverage: function/type generics, constraints (`where`), and compile-time `iftype` (see docs sections and tests)
+- Diagnostic code reference: **[docs/diagnostic_codes.md](docs/diagnostic_codes.md)**
 
 ## Contributing
 

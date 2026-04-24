@@ -155,6 +155,7 @@ private:
   std::string currentModuleLinkPath() const;
   std::string displayTypeName(const std::string &moduleName,
                               const std::string &name) const;
+  std::string renderTypeForUser(const std::shared_ptr<zir::Type> &type) const;
   std::string functionSignatureKey(const FunctionSymbol &function) const;
   std::string renderFunctionSignature(const FunctionSymbol &function) const;
   std::shared_ptr<FunctionSymbol>

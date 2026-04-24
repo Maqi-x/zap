@@ -1538,6 +1538,73 @@ std::string Binder::displayTypeName(const std::string &moduleName,
   return moduleName + "." + name;
 }
 
+std::string
+Binder::renderTypeForUser(const std::shared_ptr<zir::Type> &type) const {
+  if (!type) {
+    return "<unknown>";
+  }
+
+  switch (type->getKind()) {
+  case zir::TypeKind::Void:
+    return "Void";
+  case zir::TypeKind::Bool:
+    return "Bool";
+  case zir::TypeKind::Char:
+    return "Char";
+  case zir::TypeKind::Int:
+    return "Int";
+  case zir::TypeKind::Int8:
+    return "Int8";
+  case zir::TypeKind::Int16:
+    return "Int16";
+  case zir::TypeKind::Int32:
+    return "Int32";
+  case zir::TypeKind::Int64:
+    return "Int64";
+  case zir::TypeKind::UInt:
+    return "UInt";
+  case zir::TypeKind::UInt8:
+    return "UInt8";
+  case zir::TypeKind::UInt16:
+    return "UInt16";
+  case zir::TypeKind::UInt32:
+    return "UInt32";
+  case zir::TypeKind::UInt64:
+    return "UInt64";
+  case zir::TypeKind::Float:
+    return "Float";
+  case zir::TypeKind::Float32:
+    return "Float32";
+  case zir::TypeKind::Float64:
+    return "Float64";
+  case zir::TypeKind::NullPtr:
+    return "null";
+  case zir::TypeKind::Pointer: {
+    auto ptr = std::static_pointer_cast<zir::PointerType>(type);
+    return "*" + renderTypeForUser(ptr->getBaseType());
+  }
+  case zir::TypeKind::Array: {
+    auto arr = std::static_pointer_cast<zir::ArrayType>(type);
+    return "[" + std::to_string(arr->getSize()) + "]" +
+           renderTypeForUser(arr->getBaseType());
+  }
+  case zir::TypeKind::Record: {
+    auto rec = std::static_pointer_cast<zir::RecordType>(type);
+    return rec->getName();
+  }
+  case zir::TypeKind::Class: {
+    auto cls = std::static_pointer_cast<zir::ClassType>(type);
+    return std::string(cls->isWeak() ? "weak " : "") + cls->getName();
+  }
+  case zir::TypeKind::Enum: {
+    auto en = std::static_pointer_cast<zir::EnumType>(type);
+    return en->getName();
+  }
+  }
+
+  return type->toString();
+}
+
 std::string Binder::currentModuleLinkPath() const {
   auto it = modules_.find(currentModuleId_);
   if (it == modules_.end() || !it->second.info) {
@@ -2568,9 +2635,9 @@ void Binder::visit(VarDecl &node) {
     if (initializer) {
       if (!canConvert(initializer->type, type)) {
         error(node.initializer_->span, "Cannot assign expression of type '" +
-                                           initializer->type->toString() +
+                                           renderTypeForUser(initializer->type) +
                                            "' to variable of type '" +
-                                           type->toString() + "'");
+                                           renderTypeForUser(type) + "'");
       } else {
         initializer = wrapInCast(std::move(initializer), type);
       }
@@ -2617,9 +2684,9 @@ void Binder::visit(ConstDecl &node) {
     if (initializer) {
       if (!canConvert(initializer->type, type)) {
         error(node.initializer_->span, "Cannot assign expression of type '" +
-                                           initializer->type->toString() +
+                                           renderTypeForUser(initializer->type) +
                                            "' to constant of type '" +
-                                           type->toString() + "'");
+                                           renderTypeForUser(type) + "'");
       } else {
         initializer = wrapInCast(std::move(initializer), type);
       }
@@ -2669,8 +2736,8 @@ void Binder::visit(ReturnNode &node) {
     if (!canConvert(actualType, expectedType)) {
       error(node.span, "Function '" + currentFunction_->name +
                            "' expects return type '" +
-                           expectedType->toString() + "', but received '" +
-                           actualType->toString() + "'");
+                           renderTypeForUser(expectedType) + "', but received '" +
+                           renderTypeForUser(actualType) + "'");
     } else if (expr) {
       expr = wrapInCast(std::move(expr), expectedType);
     }
@@ -2733,7 +2800,8 @@ void Binder::visit(BinExpr &node) {
       error(SourceSpan::merge(node.left_->span, node.right_->span),
             "Concatenation requires String and/or Char operands with at least "
             "one String, got '" +
-                leftType->toString() + "' and '" + rightType->toString() + "'");
+                renderTypeForUser(leftType) + "' and '" +
+                renderTypeForUser(rightType) + "'");
     }
     resultType = std::make_shared<zir::RecordType>("String", "String");
   } else if ((node.op_ == "+" || node.op_ == "-") &&
@@ -2759,15 +2827,17 @@ void Binder::visit(BinExpr &node) {
       resultType = std::make_shared<zir::PrimitiveType>(zir::TypeKind::Int);
     } else {
       error(SourceSpan::merge(node.left_->span, node.right_->span),
-            "Invalid pointer arithmetic between '" + leftType->toString() +
-                "' and '" + rightType->toString() + "'");
+            "Invalid pointer arithmetic between '" +
+                renderTypeForUser(leftType) + "' and '" +
+                renderTypeForUser(rightType) + "'");
     }
   } else if (node.op_ == "+" || node.op_ == "-" || node.op_ == "*" ||
              node.op_ == "/" || node.op_ == "%") {
     if (!isNumeric(leftType) || !isNumeric(rightType)) {
       error(SourceSpan::merge(node.left_->span, node.right_->span),
             "Operator '" + node.op_ + "' cannot be applied to '" +
-                leftType->toString() + "' and '" + rightType->toString() + "'");
+                renderTypeForUser(leftType) + "' and '" +
+                renderTypeForUser(rightType) + "'");
     } else {
       resultType = getPromotedType(leftType, rightType);
       left = wrapInCast(std::move(left), resultType);
@@ -2778,7 +2848,8 @@ void Binder::visit(BinExpr &node) {
       error(SourceSpan::merge(node.left_->span, node.right_->span),
             "Bitwise operator '" + node.op_ +
                 "' requires integer operands, got '" +
-                leftType->toString() + "' and '" + rightType->toString() + "'");
+                renderTypeForUser(leftType) + "' and '" +
+                renderTypeForUser(rightType) + "'");
     } else {
       resultType = getPromotedType(leftType, rightType);
       left = wrapInCast(std::move(left), resultType);
@@ -2788,7 +2859,8 @@ void Binder::visit(BinExpr &node) {
     if (!leftType->isInteger() || !rightType->isInteger()) {
       error(SourceSpan::merge(node.left_->span, node.right_->span),
             "Shift operator '" + node.op_ + "' requires integer operands, got '" +
-                leftType->toString() + "' and '" + rightType->toString() + "'");
+                renderTypeForUser(leftType) + "' and '" +
+                renderTypeForUser(rightType) + "'");
     } else {
       // Keep the left-hand integer type for shift results.
       resultType = leftType;
@@ -2805,8 +2877,9 @@ void Binder::visit(BinExpr &node) {
           if (width == 0 || static_cast<uint64_t>(*shiftAmount) >= width) {
             error(SourceSpan::merge(node.left_->span, node.right_->span),
                   "Shift amount '" + std::to_string(*shiftAmount) +
-                      "' is out of range for type '" + resultType->toString() +
-                      "' (" + std::to_string(width) + "-bit width).");
+                      "' is out of range for type '" +
+                      renderTypeForUser(resultType) + "' (" +
+                      std::to_string(width) + "-bit width).");
           }
         }
       }
@@ -2827,14 +2900,14 @@ void Binder::visit(BinExpr &node) {
     if (leftType->getKind() == zir::TypeKind::Record ||
         rightType->getKind() == zir::TypeKind::Record) {
       error(SourceSpan::merge(node.left_->span, node.right_->span),
-            "Cannot compare struct types '" + leftType->toString() + "' and '" +
-                rightType->toString() + "'");
+            "Cannot compare struct types '" + renderTypeForUser(leftType) +
+                "' and '" + renderTypeForUser(rightType) + "'");
     }
 
     if (!canConvert(leftType, rightType) && !canConvert(rightType, leftType)) {
       error(SourceSpan::merge(node.left_->span, node.right_->span),
-            "Cannot compare '" + leftType->toString() + "' and '" +
-                rightType->toString() + "'");
+            "Cannot compare '" + renderTypeForUser(leftType) + "' and '" +
+                renderTypeForUser(rightType) + "'");
     } else if (isNullType(leftType) && isPointerType(rightType)) {
       left = wrapInCast(std::move(left), rightType);
     } else if (isNullType(rightType) && isPointerType(leftType)) {
@@ -2869,7 +2942,7 @@ void Binder::visit(TernaryExpr &node) {
 
   if (condition->type->getKind() != zir::TypeKind::Bool) {
     error(node.condition_->span, "Ternary condition must be Bool, got '" +
-                                     condition->type->toString() + "'");
+                                     renderTypeForUser(condition->type) + "'");
   }
 
   node.thenExpr_->accept(*this);
@@ -2888,8 +2961,8 @@ void Binder::visit(TernaryExpr &node) {
       !canConvert(elseExpr->type, thenExpr->type)) {
     error(SourceSpan::merge(node.thenExpr_->span, node.elseExpr_->span),
           "Ternary branches must be compatible, got '" +
-              thenExpr->type->toString() + "' and '" +
-              elseExpr->type->toString() + "'");
+              renderTypeForUser(thenExpr->type) + "' and '" +
+              renderTypeForUser(elseExpr->type) + "'");
   }
 
   auto resultType = canConvert(thenExpr->type, elseExpr->type) ? elseExpr->type
@@ -2966,8 +3039,8 @@ void Binder::visit(CastExpr &node) {
     castAllowed = true;
 
   if (!castAllowed) {
-    error(node.span, "Cannot cast from '" + expr->type->toString() + "' to '" +
-                         targetType->toString() + "'");
+    error(node.span, "Cannot cast from '" + renderTypeForUser(expr->type) +
+                         "' to '" + renderTypeForUser(targetType) + "'");
     return;
   }
 
@@ -3032,8 +3105,8 @@ void Binder::visit(AssignNode &node) {
 
   if (!canConvert(expr->type, target->type)) {
     error(node.span, "Cannot assign expression of type '" +
-                         expr->type->toString() + "' to type '" +
-                         target->type->toString() + "'");
+                         renderTypeForUser(expr->type) + "' to type '" +
+                         renderTypeForUser(target->type) + "'");
   } else {
     expr = wrapInCast(std::move(expr), target->type);
   }
@@ -3052,7 +3125,8 @@ void Binder::visit(IndexAccessNode &node) {
   if (left->type->getKind() != zir::TypeKind::Array &&
       !isVariadicViewType(left->type) && !isStringType(left->type)) {
     error(node.span,
-          "Type '" + left->type->toString() + "' does not support indexing.");
+          "Type '" + renderTypeForUser(left->type) +
+              "' does not support indexing.");
     return;
   }
 
@@ -3064,7 +3138,7 @@ void Binder::visit(IndexAccessNode &node) {
 
   if (!index->type->isInteger()) {
     error(node.span, "Array index must be an integer, but got '" +
-                         index->type->toString() + "'");
+                         renderTypeForUser(index->type) + "'");
   }
 
   std::shared_ptr<zir::Type> elementType;
@@ -3177,7 +3251,7 @@ void Binder::visit(MemberAccessNode &node) {
   }
 
   error(node.span, "Member '" + node.member_ + "' not found in type '" +
-                       left->type->toString() + "'");
+                       renderTypeForUser(left->type) + "'");
 }
 
 void Binder::visit(FunCall &node) {
@@ -3297,8 +3371,8 @@ void Binder::visit(FunCall &node) {
         if (!canConvert(arg->type, expectedType)) {
           error(node.params_[i]->value->span,
                 "Cannot convert method argument from '" +
-                    arg->type->toString() + "' to '" +
-                    expectedType->toString() + "'");
+                    renderTypeForUser(arg->type) + "' to '" +
+                    renderTypeForUser(expectedType) + "'");
           return;
         }
         arg = wrapInCast(std::move(arg), expectedType);
@@ -3572,7 +3646,7 @@ void Binder::visit(FunCall &node) {
             failed = true;
             failureReason = "ref argument for parameter '" + parameter->name +
                             "' must exactly match type '" +
-                            expectedType->toString() + "'";
+                            renderTypeForUser(expectedType) + "'";
             break;
           }
           match.cost.push_back(0);
@@ -3582,8 +3656,8 @@ void Binder::visit(FunCall &node) {
           failed = true;
           failureReason = "argument for parameter '" + parameter->name +
                           "' is not convertible from '" +
-                          arg->type->toString() + "' to '" +
-                          expectedType->toString() + "'";
+                          renderTypeForUser(arg->type) + "' to '" +
+                          renderTypeForUser(expectedType) + "'";
           break;
         } else {
           int cost = conversionCost(arg->type, expectedType);
@@ -3591,8 +3665,8 @@ void Binder::visit(FunCall &node) {
             failed = true;
             failureReason = "argument for parameter '" + parameter->name +
                             "' is not convertible from '" +
-                            arg->type->toString() + "' to '" +
-                            expectedType->toString() + "'";
+                            renderTypeForUser(arg->type) + "' to '" +
+                            renderTypeForUser(expectedType) + "'";
             break;
           }
           match.cost.push_back(cost);
@@ -3615,8 +3689,8 @@ void Binder::visit(FunCall &node) {
         if (!canConvert(arg->type, expectedType)) {
           failed = true;
           failureReason = "variadic argument is not convertible from '" +
-                          arg->type->toString() + "' to '" +
-                          expectedType->toString() + "'";
+                          renderTypeForUser(arg->type) + "' to '" +
+                          renderTypeForUser(expectedType) + "'";
           break;
         }
         int cost = conversionCost(arg->type, expectedType);
@@ -3636,7 +3710,7 @@ void Binder::visit(FunCall &node) {
         auto promotedType = getCVariadicArgumentType(arg->type);
         if (!promotedType) {
           failed = true;
-          failureReason = "type '" + arg->type->toString() +
+          failureReason = "type '" + renderTypeForUser(arg->type) +
                           "' is not supported in C variadic arguments";
           break;
         }
@@ -3675,7 +3749,7 @@ void Binder::visit(FunCall &node) {
       } else {
         match.returnCost = 50;
         match.notes.push_back("return: incompatible with expected " +
-                              expectedReturnType->toString());
+                              renderTypeForUser(expectedReturnType));
       }
     }
 
@@ -3895,7 +3969,8 @@ void Binder::visit(NewExpr &node) {
     if (expected && !canConvert(arg->type, expected)) {
       error(node.args_[i]->value->span,
             "Cannot convert constructor argument from '" +
-                arg->type->toString() + "' to '" + expected->toString() + "'");
+                renderTypeForUser(arg->type) + "' to '" +
+                renderTypeForUser(expected) + "'");
       return;
     }
     if (expected) {
@@ -3919,7 +3994,8 @@ void Binder::visit(IfNode &node) {
 
   if (cond->type->getKind() != zir::TypeKind::Bool) {
     error(node.condition_->span,
-          "If condition must be Bool, got '" + cond->type->toString() + "'");
+          "If condition must be Bool, got '" + renderTypeForUser(cond->type) +
+              "'");
   }
 
   auto thenBody = bindBody(node.thenBody_.get(), true);
@@ -3961,7 +4037,7 @@ void Binder::visit(IfTypeNode &node) {
     return;
   }
 
-  bool matched = actualType->toString() == matchType->toString();
+  bool matched = renderTypeForUser(actualType) == renderTypeForUser(matchType);
   std::unique_ptr<BoundBlock> selectedBody = nullptr;
   if (matched) {
     selectedBody = bindBody(node.thenBody_.get(), true);
@@ -3984,7 +4060,8 @@ void Binder::visit(WhileNode &node) {
 
   if (cond->type->getKind() != zir::TypeKind::Bool) {
     error(node.condition_->span,
-          "While condition must be Bool, got '" + cond->type->toString() + "'");
+          "While condition must be Bool, got '" +
+              renderTypeForUser(cond->type) + "'");
   }
 
   ++loopDepth_;
@@ -4230,7 +4307,8 @@ void Binder::visit(UnaryExpr &node) {
     requireUnsafeContext(node.span, "pointer dereference");
     if (!isPointerType(type)) {
       error(node.span,
-            "Cannot dereference non-pointer type '" + type->toString() + "'");
+            "Cannot dereference non-pointer type '" + renderTypeForUser(type) +
+                "'");
     } else {
       type = std::static_pointer_cast<zir::PointerType>(type)->getBaseType();
       if (type->getKind() == zir::TypeKind::Void) {
@@ -4241,18 +4319,18 @@ void Binder::visit(UnaryExpr &node) {
   } else if (node.op_ == "-" || node.op_ == "+") {
     if (!isNumeric(type)) {
       error(node.span, "Operator '" + node.op_ +
-                           "' cannot be applied to type '" + type->toString() +
-                           "'");
+                           "' cannot be applied to type '" +
+                           renderTypeForUser(type) + "'");
     }
   } else if (node.op_ == "!") {
     if (type->getKind() != zir::TypeKind::Bool) {
       error(node.span, "Operator '!' cannot be applied to type '" +
-                           type->toString() + "'");
+                           renderTypeForUser(type) + "'");
     }
   } else if (node.op_ == "~") {
     if (!type->isInteger()) {
       error(node.span, "Operator '~' cannot be applied to type '" +
-                           type->toString() + "'");
+                           renderTypeForUser(type) + "'");
     }
   }
 
@@ -4273,9 +4351,9 @@ void Binder::visit(ArrayLiteralNode &node) {
       if (!elementType) {
         elementType = boundEl->type;
       } else if (!canConvert(boundEl->type, elementType)) {
-        error(node.span, "Array elements must have the same type. Expected '" +
-                             elementType->toString() + "', but got '" +
-                             boundEl->type->toString() + "'");
+        error(el->span, "Array elements must have the same type. Expected '" +
+                            renderTypeForUser(elementType) + "', but got '" +
+                            renderTypeForUser(boundEl->type) + "'");
       }
       elements.push_back(std::move(boundEl));
     }
@@ -4385,9 +4463,10 @@ void Binder::visit(StructLiteralNode &node) {
     for (const auto &f : recordType->getFields()) {
       if (f.name == fieldInit.name) {
         if (!canConvert(boundVal->type, f.type)) {
-          error(node.span, "Cannot assign type '" + boundVal->type->toString() +
-                               "' to field '" + f.name + "' of type '" +
-                               f.type->toString() + "'");
+          error(node.span,
+                "Cannot assign type '" + renderTypeForUser(boundVal->type) +
+                    "' to field '" + f.name + "' of type '" +
+                    renderTypeForUser(f.type) + "'");
         }
         found = true;
         break;

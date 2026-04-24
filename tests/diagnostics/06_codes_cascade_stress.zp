@@ -1,0 +1,44 @@
+fun main() {
+    var i: Int = 0
+    var msg: String = "ok"
+
+    // Missing expression
+    var a: Int = ;
+    var b: Bool = ;
+
+    // Missing semicolons and malformed expressions
+    var c: Int = 1
+    var d: Int = 2
+    var e: Int = c + ;
+    var f: Int = + ;
+
+    // Bad conditions
+    if msg {
+        var t: Int = "x";
+    }
+
+    while msg {
+        i = i + 1
+    }
+
+    // Indexing/type mismatches
+    var arr: [3]Int = {1, 2, "x"};
+    var k: Int = i[0];
+    var z: Int = arr[msg];
+
+    // More parser-level stress
+    foo(1, , 3);
+    bar(,);
+
+    if (i > ) {
+        i = i + 1;
+    } else {
+        i = i + 2;;
+    }
+
+    while (i < 10 {
+        i = i + ;
+    }
+
+    return;
+}
