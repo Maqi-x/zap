@@ -2,7 +2,7 @@
 - [x] using pointers outside of unsafe{} (only dereferencing is unsafe)
 - [x] generics (syntax like in C#)
 - [ ] Cycle detection via reference count subtraction(the one we have now is just MVP which we need to replace)
-- [ ] proper error handling via failable function
+- [x] proper error handling via failable function
 - [x] bit shifts
 - [x] hex values
 - [ ] improvment over std lib

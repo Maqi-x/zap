@@ -1,0 +1,71 @@
+import "std/io" { println, printInt };
+
+@error
+enum DecodeError {
+    InvalidPrefix,
+    InvalidDigit,
+    ValueTooSmall,
+}
+
+struct DecodedOrder {
+    region: Int,
+    sequence: Int,
+}
+
+fun decodeRegion(prefix: Int) Int!DecodeError {
+    // 10 -> EU, 20 -> US, 30 -> APAC
+    if prefix == 10 || prefix == 20 || prefix == 30 {
+        return prefix;
+    }
+    fail DecodeError.InvalidPrefix;
+    return 0;
+}
+
+fun decodeSequence(raw: Int) Int!DecodeError {
+    if raw < 0 {
+        fail DecodeError.InvalidDigit;
+    }
+
+    // Simple validity check for a realistic order ID
+    if raw < 1000 {
+        fail DecodeError.ValueTooSmall;
+    }
+
+    return raw;
+}
+
+fun decodeOrderId(prefix: Int, seq: Int) DecodedOrder!DecodeError {
+    var region: Int = decodeRegion(prefix)?;
+    var sequence: Int = decodeSequence(seq)?;
+    return DecodedOrder{ region: region, sequence: sequence };
+}
+
+fun main() Int {
+    // 1) Success
+    var ok: DecodedOrder = decodeOrderId(20, 12345) or DecodedOrder{ region: 0, sequence: 0 };
+    if ok.region != 20 { return 1; }
+    if ok.sequence != 12345 { return 2; }
+
+    // 2) Simple fallback with `or`
+    var fb: DecodedOrder = decodeOrderId(99, 7777) or DecodedOrder{ region: -1, sequence: -1 };
+    if fb.region != -1 { return 3; }
+    if fb.sequence != -1 { return 4; }
+
+    // 3) Local error handling with `or err`
+    var handledDecoded: DecodedOrder = decodeOrderId(10, 12) or err {
+        if err == DecodeError.ValueTooSmall {
+            DecodedOrder{ region: 10, sequence: 1000 }
+        } else {
+            DecodedOrder{ region: -1, sequence: -1 }
+        }
+    };
+    var handled: Int = handledDecoded.sequence;
+    if handled != 1000 { return 5; }
+
+    println("decoded region:");
+    printInt(ok.region);
+    println("decoded sequence:");
+    printInt(ok.sequence);
+
+    return 0;
+}

@@ -1,0 +1,21 @@
+@error
+enum TinyError {
+    TooSmall,
+}
+
+fun ensureMin10(value: Int) Int!TinyError {
+    if value < 10 {
+        fail TinyError.TooSmall;
+    }
+    return value;
+}
+
+fun main() Int {
+    var ok: Int = ensureMin10(12) or 0;   // success -> 12
+    var fb: Int = ensureMin10(3) or 99;   // failure -> fallback 99
+
+    if ok != 12 { return 1; }
+    if fb != 99 { return 2; }
+
+    return 0;
+}

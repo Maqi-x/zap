@@ -1,0 +1,132 @@
+import "std/io" { println, printInt };
+
+@error
+enum CheckoutError {
+    EmptyCart,
+    InvalidCoupon,
+    OutOfStock,
+    PaymentRejected,
+}
+
+struct Cart {
+    itemsCount: Int,
+    subtotal: Int,
+}
+
+struct Receipt {
+    charged: Int,
+    discount: Int,
+}
+
+fun validateCart(cart: Cart) Cart!CheckoutError {
+    if cart.itemsCount <= 0 || cart.subtotal <= 0 {
+        fail CheckoutError.EmptyCart;
+    }
+    return cart;
+}
+
+fun normalizeCoupon(code: Int) Int!CheckoutError {
+    // 0 -> no coupon
+    // 10 -> SAVE10
+    // 20 -> VIP20
+    if code == 0 {
+        return 0;
+    }
+    if code == 10 {
+        return 10;
+    }
+    if code == 20 {
+        return 20;
+    }
+    fail CheckoutError.InvalidCoupon;
+    return 0;
+}
+
+fun reserveStock(cart: Cart, stockAvailable: Bool) Cart!CheckoutError {
+    if !stockAvailable {
+        fail CheckoutError.OutOfStock;
+    }
+    return cart;
+}
+
+fun charge(total: Int, paymentOk: Bool) Int!CheckoutError {
+    if !paymentOk {
+        fail CheckoutError.PaymentRejected;
+    }
+    return total;
+}
+
+fun checkout(
+    cart: Cart,
+    couponCode: Int,
+    stockAvailable: Bool,
+    paymentOk: Bool
+) Receipt!CheckoutError {
+    var valid: Cart = validateCart(cart)?;
+    var reserved: Cart = reserveStock(valid, stockAvailable)?;
+    var coupon: Int = normalizeCoupon(couponCode)?;
+
+    var discount: Int = coupon;
+    var finalTotal: Int = reserved.subtotal - discount;
+    if finalTotal < 0 {
+        finalTotal = 0;
+    }
+
+    var charged: Int = charge(finalTotal, paymentOk)?;
+    return Receipt{ charged: charged, discount: discount };
+}
+
+fun main() Int {
+    var cart: Cart = Cart{ itemsCount: 2, subtotal: 120 };
+
+    // 1) Success path
+    var ok: Receipt = checkout(cart, 10, true, true) or Receipt{ charged: -1, discount: -1 };
+    if ok.charged != 110 { return 1; }
+    if ok.discount != 10 { return 2; }
+
+    // 2) Fallback with `or`
+    var fallback: Receipt = checkout(cart, 77, true, true) or Receipt{ charged: 120, discount: 0 };
+    if fallback.charged != 120 { return 3; }
+    if fallback.discount != 0 { return 4; }
+
+    // 3) Local typed handling with `or err` (payment failure)
+    var handledPayment: Receipt = checkout(cart, 10, true, false) or err {
+        if err == CheckoutError.PaymentRejected {
+            Receipt{ charged: 999, discount: 0 }
+        } else {
+            Receipt{ charged: -1, discount: 0 }
+        }
+    };
+    if handledPayment.charged != 999 { return 5; }
+
+    // 4) Local typed handling with `or err` (stock failure)
+    var handledStock: Receipt = checkout(cart, 0, false, true) or err {
+        if err == CheckoutError.OutOfStock {
+            Receipt{ charged: 0, discount: 0 }
+        } else {
+            Receipt{ charged: -2, discount: 0 }
+        }
+    };
+    if handledStock.charged != 0 { return 6; }
+
+    // 5) Empty cart path
+    var empty: Cart = Cart{ itemsCount: 0, subtotal: 0 };
+    var handledEmpty: Receipt = checkout(empty, 0, true, true) or err {
+        if err == CheckoutError.EmptyCart {
+            Receipt{ charged: 123, discount: 0 }
+        } else {
+            Receipt{ charged: -3, discount: 0 }
+        }
+    };
+    if handledEmpty.charged != 123 { return 7; }
+
+    // Optional output, useful when running manually:
+    println("checkout success charged:");
+    printInt(ok.charged);
+    println("fallback charged:");
+    printInt(fallback.charged);
+    println("handled payment charged:");
+    printInt(handledPayment.charged);
+
+    return 0;
+}
