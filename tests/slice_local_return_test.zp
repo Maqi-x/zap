@@ -1,0 +1,67 @@
+fun sum(values: []Int) Int {
+    var total: Int = 0;
+    var i: Int = 0;
+
+    while i < values.len {
+        total = total + values[i];
+        i = i + 1;
+    }
+
+    return total;
+}
+
+fun tail(values: []Int) []Int {
+    return values;
+}
+
+fun localCopy(values: []Int) Int {
+    var local: []Int = values;
+
+    if local.len != values.len {
+        return -1;
+    }
+
+    local[0] = local[0] + 10;
+    return local[0];
+}
+
+fun main() Int {
+    var values: [3]Int = {1, 2, 3};
+
+    var whole: []Int = values;
+    if whole.len != 3 {
+        return 1;
+    }
+
+    if sum(whole) != 6 {
+        return 2;
+    }
+
+    var returned: []Int = tail(whole);
+    if returned.len != 3 {
+        return 3;
+    }
+
+    if returned[1] != 2 {
+        return 4;
+    }
+
+    returned[1] = 20;
+    if values[1] != 20 {
+        return 5;
+    }
+
+    if localCopy(returned) != 11 {
+        return 6;
+    }
+
+    if values[0] != 11 {
+        return 7;
+    }
+
+    if sum(returned) != 34 {
+        return 8;
+    }
+
+    return 0;
+}

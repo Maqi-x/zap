@@ -600,10 +600,14 @@ std::unique_ptr<TypeNode> Parser::parseType() {
   }
 
   if (peek().type == TokenType::SQUARE_LBRACE &&
-      (peek(1).type == TokenType::INTEGER || peek(1).type == TokenType::ID ||
+      (peek(1).type == TokenType::SQUARE_RBRACE ||
+       peek(1).type == TokenType::INTEGER || peek(1).type == TokenType::ID ||
        peek(1).type == TokenType::SQUARE_LBRACE)) {
     Token lbracket = eat(TokenType::SQUARE_LBRACE);
-    auto size = parseExpression();
+    std::unique_ptr<ExpressionNode> size = nullptr;
+    if (peek().type != TokenType::SQUARE_RBRACE) {
+      size = parseExpression();
+    }
     Token rbracket = eat(TokenType::SQUARE_RBRACE);
     auto baseType = parseType();
 

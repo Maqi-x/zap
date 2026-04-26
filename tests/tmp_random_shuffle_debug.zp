@@ -1,0 +1,76 @@
+import "std/io";
+import "std/random";
+
+fun printArray(values: []Int) {
+    var i: Int = 0;
+    while i < values.len {
+        io.printInt(values[i]);
+        if i + 1 < values.len {
+            io.printf(",");
+        } else {
+            io.printf("\n");
+        }
+        i = i + 1;
+    }
+}
+
+fun main() Int {
+    // Mirror std_random_test setup as closely as possible.
+    var rng: random.Rng = new random.Rng(42, 54);
+
+    // Consume RNG in the same pattern before shuffle.
+    var first: UInt = rng.nextUInt32();
+    var second: UInt = rng.nextUInt32();
+
+    var again: random.Rng = new random.Rng(42, 54);
+    if first != again.nextUInt32() {
+        return 1;
+    }
+    if second != again.nextUInt32() {
+        return 2;
+    }
+
+    var pcg: random.Pcg32 = new random.Pcg32(42, 54);
+    var rnd: random.Random = new random.Random(42, 54);
+    if pcg.nextUInt32() != rnd.nextUInt32() {
+        return 3;
+    }
+
+    var i: Int = 0;
+    while i < 64 {
+        var x: Int = rng.nextRange(10, 20);
+        if x < 10 || x >= 20 {
+            return 4;
+        }
+
+        var y: Int = rng.nextRangeInclusive(1, 6);
+        if y < 1 || y > 6 {
+            return 5;
+        }
+
+        var u: UInt = rng.nextUIntBounded(100);
+        if u >= 100 {
+            return 6;
+        }
+
+        i = i + 1;
+    }
+
+    // Shuffle and print exact output for inspection.
+    var values: [8]Int = {1, 2, 3, 4, 5, 6, 7, 8};
+    rng.shuffleInt(values);
+
+    io.println("shuffled:");
+    printArray(values);
+
+    // Also print a couple of subsequent samples to inspect stream continuity.
+    io.println("post-shuffle samples:");
+    io.printInt(rng.nextRangeInclusive(1, 6));
+    io.printf(",");
+    io.printInt(rng.nextRangeInclusive(1, 6));
+    io.printf(",");
+    io.printInt(rng.nextRangeInclusive(1, 6));
+    io.printf("\n");
+
+    return 0;
+}

@@ -1,0 +1,49 @@
+fun sum(values: []Int) Int {
+    var total: Int = 0;
+    var i: Int = 0;
+
+    while i < values.len {
+        total = total + values[i];
+        i = i + 1;
+    }
+
+    return total;
+}
+
+fun bumpAll(values: []Int, delta: Int) {
+    var i: Int = 0;
+
+    while i < values.len {
+        values[i] = values[i] + delta;
+        i = i + 1;
+    }
+}
+
+fun main() Int {
+    var values: [4]Int = {1, 2, 3, 4};
+
+    if sum(values) != 10 {
+        return 1;
+    }
+
+    bumpAll(values, 5);
+
+    if values[0] != 6 {
+        return 2;
+    }
+    if values[1] != 7 {
+        return 3;
+    }
+    if values[2] != 8 {
+        return 4;
+    }
+    if values[3] != 9 {
+        return 5;
+    }
+
+    if sum(values) != 30 {
+        return 6;
+    }
+
+    return 0;
+}

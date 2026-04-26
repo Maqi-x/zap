@@ -1,0 +1,94 @@
+import "std/slice";
+
+fun main() Int {
+    var values: [5]Int = {3, 6, 9, 12, 15};
+    var view: []Int = values;
+
+    if slice.isEmpty<Int>(view) {
+        return 1;
+    }
+
+    if slice.count<Int>(view) != 5 {
+        return 2;
+    }
+
+    if slice.first<Int>(view) != 3 {
+        return 3;
+    }
+
+    if slice.last<Int>(view) != 15 {
+        return 4;
+    }
+
+    if slice.at<Int>(view, 0) != 3 {
+        return 5;
+    }
+
+    if slice.at<Int>(view, 3) != 12 {
+        return 6;
+    }
+
+    slice.setAt<Int>(view, 2, 99);
+    if values[2] != 99 {
+        return 7;
+    }
+
+    if slice.indexOf<Int>(view, 99) != 2 {
+        return 8;
+    }
+
+    if slice.indexOf<Int>(view, 12345) != -1 {
+        return 9;
+    }
+
+    if !slice.contains<Int>(view, 12) {
+        return 10;
+    }
+
+    if slice.contains<Int>(view, -4) {
+        return 11;
+    }
+
+    var emptyArr: [0]Int;
+    var emptyView: []Int = emptyArr;
+
+    if !slice.isEmpty<Int>(emptyView) {
+        return 12;
+    }
+
+    if slice.count<Int>(emptyView) != 0 {
+        return 13;
+    }
+
+    if slice.indexOf<Int>(emptyView, 7) != -1 {
+        return 14;
+    }
+
+    if slice.contains<Int>(emptyView, 7) {
+        return 15;
+    }
+
+    // Ensure helpers also work when passing array directly as []Int argument.
+    if slice.first<Int>(values) != 3 {
+        return 16;
+    }
+
+    if slice.last<Int>(values) != 15 {
+        return 17;
+    }
+
+    slice.setAt<Int>(values, 4, 123);
+    if values[4] != 123 {
+        return 18;
+    }
+
+    if slice.at<Int>(values, 4) != 123 {
+        return 19;
+    }
+
+    if slice.count<Int>(values) != 5 {
+        return 20;
+    }
+
+    return 0;
+}

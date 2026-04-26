@@ -632,6 +632,10 @@ std::shared_ptr<zir::Type> Binder::substituteGenericType(
   if (type->getKind() == zir::TypeKind::Record) {
     auto record = std::static_pointer_cast<zir::RecordType>(type);
     auto it = genericBindings.find(record->getName());
+    if (it == genericBindings.end() && !record->getName().empty() &&
+        record->getName()[0] == '%') {
+      it = genericBindings.find(record->getName().substr(1));
+    }
     if (it != genericBindings.end()) {
       return it->second;
     }
@@ -656,12 +660,35 @@ std::shared_ptr<zir::Type> Binder::substituteGenericType(
       }
       return substituted;
     }
+
+    if (record->getName().rfind("__zap_varargs_", 0) == 0) {
+      const auto &fields = record->getFields();
+      if (fields.size() >= 2 &&
+          fields[0].type->getKind() == zir::TypeKind::Pointer) {
+        auto dataPtr =
+            std::static_pointer_cast<zir::PointerType>(fields[0].type);
+        auto elemType =
+            substituteGenericType(dataPtr->getBaseType(), genericBindings);
+        auto substitutedView = std::make_shared<zir::RecordType>(
+            "__zap_varargs_" + sanitizeTypeName(elemType->toString()),
+            "__zap_varargs_" + sanitizeTypeName(elemType->toString()));
+        substitutedView->addField("data",
+                                  std::make_shared<zir::PointerType>(elemType));
+        substitutedView->addField(
+            "len", std::make_shared<zir::PrimitiveType>(zir::TypeKind::Int));
+        return substitutedView;
+      }
+    }
     return type;
   }
 
   if (type->getKind() == zir::TypeKind::Class) {
     auto classType = std::static_pointer_cast<zir::ClassType>(type);
     auto it = genericBindings.find(classType->getName());
+    if (it == genericBindings.end() && !classType->getName().empty() &&
+        classType->getName()[0] == '%') {
+      it = genericBindings.find(classType->getName().substr(1));
+    }
     if (it != genericBindings.end()) {
       return it->second;
     }
@@ -1265,6 +1292,35 @@ Binder::buildGenericBindings(
 
     if (paramType->getKind() == zir::TypeKind::Record) {
       auto rec = std::static_pointer_cast<zir::RecordType>(paramType);
+
+      if (isVariadicViewType(paramType)) {
+        const auto &fields = rec->getFields();
+        if (fields.size() < 2 ||
+            fields[0].type->getKind() != zir::TypeKind::Pointer) {
+          return false;
+        }
+        auto dataPtr =
+            std::static_pointer_cast<zir::PointerType>(fields[0].type);
+
+        if (argType->getKind() == zir::TypeKind::Array) {
+          auto aa = std::static_pointer_cast<zir::ArrayType>(argType);
+          return inferFrom(dataPtr->getBaseType(), aa->getBaseType());
+        }
+
+        if (argType->getKind() == zir::TypeKind::Record &&
+            isVariadicViewType(argType)) {
+          auto argRec = std::static_pointer_cast<zir::RecordType>(argType);
+          const auto &argFields = argRec->getFields();
+          if (argFields.size() < 2 ||
+              argFields[0].type->getKind() != zir::TypeKind::Pointer) {
+            return false;
+          }
+          auto argDataPtr =
+              std::static_pointer_cast<zir::PointerType>(argFields[0].type);
+          return inferFrom(dataPtr->getBaseType(), argDataPtr->getBaseType());
+        }
+      }
+
       if (rec->isGenericInstance() && argType->getKind() == zir::TypeKind::Record) {
         auto argRecord = std::static_pointer_cast<zir::RecordType>(argType);
         if (!argRecord->isGenericInstance() ||
@@ -1282,14 +1338,18 @@ Binder::buildGenericBindings(
         return true;
       }
       auto paramName = rec->getName();
+      std::string normalizedParamName =
+          (!paramName.empty() && paramName[0] == '%')
+              ? paramName.substr(1)
+              : paramName;
       auto isGenericName = std::find(function.genericParameterNames.begin(),
                                      function.genericParameterNames.end(),
-                                     paramName) !=
+                                     normalizedParamName) !=
                            function.genericParameterNames.end();
       if (isGenericName) {
-        auto it = bindings.find(paramName);
+        auto it = bindings.find(normalizedParamName);
         if (it == bindings.end()) {
-          bindings[paramName] = argType;
+          bindings[normalizedParamName] = argType;
           return true;
         }
         return it->second->toString() == argType->toString();
@@ -1322,14 +1382,18 @@ Binder::buildGenericBindings(
         return true;
       }
       auto paramName = cls->getName();
+      std::string normalizedParamName =
+          (!paramName.empty() && paramName[0] == '%')
+              ? paramName.substr(1)
+              : paramName;
       auto isGenericName = std::find(function.genericParameterNames.begin(),
                                      function.genericParameterNames.end(),
-                                     paramName) !=
+                                     normalizedParamName) !=
                            function.genericParameterNames.end();
       if (isGenericName) {
-        auto it = bindings.find(paramName);
+        auto it = bindings.find(normalizedParamName);
         if (it == bindings.end()) {
-          bindings[paramName] = argType;
+          bindings[normalizedParamName] = argType;
           return true;
         }
         return it->second->toString() == argType->toString();
@@ -1343,6 +1407,8 @@ Binder::buildGenericBindings(
       auto ap = std::static_pointer_cast<zir::PointerType>(argType);
       return inferFrom(pp->getBaseType(), ap->getBaseType());
     }
+
+
 
     if (paramType->getKind() == zir::TypeKind::Array &&
         argType->getKind() == zir::TypeKind::Array) {
@@ -1620,6 +1686,9 @@ Binder::renderTypeForUser(const std::shared_ptr<zir::Type> &type) const {
   }
   case zir::TypeKind::Array: {
     auto arr = std::static_pointer_cast<zir::ArrayType>(type);
+    if (arr->getSize() == 0) {
+      return "[]" + renderTypeForUser(arr->getBaseType());
+    }
     return "[" + std::to_string(arr->getSize()) + "]" +
            renderTypeForUser(arr->getBaseType());
   }
@@ -3665,11 +3734,25 @@ void Binder::visit(FunCall &node) {
           break;
         }
 
-        auto *varExpr = dynamic_cast<BoundVariableExpression *>(arg.get());
-        if (!varExpr || !varExpr->symbol->is_variadic_pack || !variadicParam ||
-            !varExpr->symbol->variadic_element_type ||
-            varExpr->symbol->variadic_element_type->toString() !=
-                variadicParam->variadic_element_type->toString()) {
+        if (!variadicParam || !variadicParam->variadic_element_type) {
+          failed = true;
+          failureReason = "internal error: missing variadic parameter type";
+          break;
+        }
+
+        auto expectedViewType =
+            makeVariadicViewType(variadicParam->variadic_element_type);
+
+        if (arg->type && arg->type->getKind() == zir::TypeKind::Array) {
+          if (!canConvert(arg->type, expectedViewType)) {
+            failed = true;
+            failureReason =
+                "spread argument type does not match variadic parameter";
+            break;
+          }
+          arg = wrapInCast(std::move(arg), expectedViewType);
+        } else if (!arg->type || !isVariadicViewType(arg->type) ||
+                   !canConvert(arg->type, expectedViewType)) {
           failed = true;
           failureReason =
               "spread argument type does not match variadic parameter";
@@ -4266,20 +4349,22 @@ std::shared_ptr<zir::Type> Binder::mapType(const TypeNode &typeNode) {
     if (!typeNode.baseType)
       return nullptr;
     auto base = mapType(*typeNode.baseType);
-    size_t size = 0;
 
-    if (typeNode.arraySize) {
-      typeNode.arraySize->accept(*this);
-      if (!expressionStack_.empty()) {
-        auto boundSize = std::move(expressionStack_.top());
-        expressionStack_.pop();
-        auto evaluated = evaluateConstantInt(boundSize.get());
-        if (evaluated) {
-          size = static_cast<size_t>(*evaluated);
-        } else {
-          error(typeNode.span,
-                "Array size must be a constant integer expression.");
-        }
+    if (!typeNode.arraySize) {
+      return makeVariadicViewType(base);
+    }
+
+    size_t size = 0;
+    typeNode.arraySize->accept(*this);
+    if (!expressionStack_.empty()) {
+      auto boundSize = std::move(expressionStack_.top());
+      expressionStack_.pop();
+      auto evaluated = evaluateConstantInt(boundSize.get());
+      if (evaluated) {
+        size = static_cast<size_t>(*evaluated);
+      } else {
+        error(typeNode.span,
+              "Array size must be a constant integer expression.");
       }
     }
 
@@ -4614,6 +4699,17 @@ bool Binder::canConvert(std::shared_ptr<zir::Type> from,
       if (current->getName() == toClass->getName()) {
         return true;
       }
+    }
+  }
+  if (from->getKind() == zir::TypeKind::Array && isVariadicViewType(to)) {
+    auto arrayType = std::static_pointer_cast<zir::ArrayType>(from);
+    auto viewType = std::static_pointer_cast<zir::RecordType>(to);
+    if (!viewType->getFields().empty() &&
+        viewType->getFields()[0].type->getKind() == zir::TypeKind::Pointer) {
+      auto dataType =
+          std::static_pointer_cast<zir::PointerType>(viewType->getFields()[0].type);
+      return arrayType->getBaseType()->toString() ==
+             dataType->getBaseType()->toString();
     }
   }
   if (isNumeric(from) && isNumeric(to))

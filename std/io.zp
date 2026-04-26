@@ -1,3 +1,4 @@
+pub ext fun print(s: String) Void;
 pub ext fun println(s: String) Void;
 pub ext fun printInt(i: Int) Void;
 pub ext fun printFloat(f: Float) Void;

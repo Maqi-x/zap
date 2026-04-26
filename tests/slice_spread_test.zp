@@ -1,0 +1,58 @@
+fun keep(first: Int, rest: ...Int) Int {
+    return first;
+}
+
+fun sum(prefix: Int, rest: ...Int) Int {
+    var total: Int = prefix;
+    var i: Int = 0;
+
+    while i < rest.len {
+        total = total + rest[i];
+        i = i + 1;
+    }
+
+    return total;
+}
+
+fun forwardSlice(values: []Int) Int {
+    return keep(10, ...values);
+}
+
+fun forwardArray(values: [3]Int) Int {
+    return keep(20, ...values);
+}
+
+fun main() Int {
+    var arr: [4]Int = {1, 2, 3, 4};
+    var view: []Int = arr;
+
+    if forwardSlice(view) != 10 {
+        return 1;
+    }
+
+    var arr3: [3]Int = {7, 8, 9};
+    if forwardArray(arr3) != 20 {
+        return 2;
+    }
+
+    if sum(5, ...view) != 15 {
+        return 3;
+    }
+
+    if sum(0, ...arr) != 10 {
+        return 4;
+    }
+
+    var empty: [0]Int;
+    var emptyView: []Int = empty;
+
+    if sum(99, ...emptyView) != 99 {
+        return 5;
+    }
+
+    if sum(42, ...empty) != 42 {
+        return 6;
+    }
+
+    return 0;
+}

@@ -81,6 +81,30 @@ fun main() Int {
         return 12;
     }
 
+    var values: [8]Int = {1, 2, 3, 4, 5, 6, 7, 8};
+    rng.shuffleInt(values);
+
+    i = 0;
+    while i < 8 {
+        var value: Int = values[i];
+        if value < 1 || value > 8 {
+            return 19;
+        }
+        i = i + 1;
+    }
+
+    var changed: Bool = false;
+    i = 0;
+    while i < 8 {
+        if values[i] != i + 1 {
+            changed = true;
+        }
+        i = i + 1;
+    }
+    if !changed {
+        return 21;
+    }
+
     // C vararg promotion coverage:
     // - UInt8/Int8/Bool/Char must be promoted to int-compatible values.
     // - Float must be promoted to double for %f.

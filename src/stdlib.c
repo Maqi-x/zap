@@ -254,6 +254,13 @@ typedef struct {
   long len;
 } zap_string_t;
 
+void print(zap_string_t s) {
+  if (!s.ptr || s.len <= 0) {
+    return;
+  }
+  fwrite(s.ptr, 1, (size_t)s.len, stdout);
+}
+
 static char *zap_string_to_cstr(zap_string_t s) {
   size_t len = s.len > 0 ? (size_t)s.len : 0;
   char *out = (char *)malloc(len + 1);

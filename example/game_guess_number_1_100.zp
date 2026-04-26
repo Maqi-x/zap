@@ -1,0 +1,85 @@
+import "std/io" { println, printfln, getLn };
+import "std/random";
+import "std/string";
+import "std/convert";
+
+const MIN_NUMBER: Int = 1;
+const MAX_NUMBER: Int = 100;
+
+// Rng currently needs explicit seed/stream in this codebase.
+const RNG_SEED: UInt64 = 42;
+const RNG_STREAM: UInt64 = 54;
+
+// Parses a non-empty string containing only digits 0-9.
+// Returns -1 when input is invalid.
+fun parsePositiveInt(raw: String) Int {
+    var n: Int = string.len(raw);
+    if n == 0 {
+        return -1;
+    }
+
+    var value: Int = 0;
+    var i: Int = 0;
+
+    while i < n {
+        var ch: Char = string.at(raw, i);
+        var code: Int = convert.toInt(ch);
+
+        if code < 48 || code > 57 {
+            return -1;
+        }
+
+        value = value * 10 + (code - 48);
+        i = i + 1;
+    }
+
+    return value;
+}
+
+fun pickSecret(rng: random.Rng) Int {
+    return rng.range(MIN_NUMBER, MAX_NUMBER + 1);
+}
+
+fun main() Int {
+    var rng: random.Rng = new random.Rng(RNG_SEED, RNG_STREAM);
+    var secret: Int = pickSecret(rng);
+
+    println("=== Guess the number (1-100) ===");
+    println("Type a number and press Enter.");
+
+    var attempts: Int = 0;
+
+    while true {
+        printfln("Attempt %d - your guess:", attempts + 1);
+        var line: String = getLn();
+        var guess: Int = parsePositiveInt(line);
+
+        if guess < 0 {
+            println("Please enter digits only (example: 42).");
+            continue;
+        }
+
+        if guess < MIN_NUMBER || guess > MAX_NUMBER {
+            println("Your guess must be between 1 and 100.");
+            continue;
+        }
+
+        attempts = attempts + 1;
+
+        if guess < secret {
+            println("Too low!");
+            continue;
+        }
+
+        if guess > secret {
+            println("Too high!");
+            continue;
+        }
+
+        printfln("Correct! The number was %d.", secret);
+        printfln("You needed %d attempt(s).", attempts);
+        return 0;
+    }
+
+    return 0;
+}

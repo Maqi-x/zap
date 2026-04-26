@@ -1000,7 +1000,10 @@ void BoundIRGenerator::visit(sema::BoundIndexAccess &node) {
       auto sliceAddr = valueStack_.top();
       valueStack_.pop();
 
+      bool oldIndexEvaluateAsAddress = evaluateAsAddress_;
+      evaluateAsAddress_ = false;
       node.index->accept(*this);
+      evaluateAsAddress_ = oldIndexEvaluateAsAddress;
       auto indexValue = valueStack_.top();
       valueStack_.pop();
 
@@ -1064,6 +1067,60 @@ void BoundIRGenerator::visit(sema::BoundIndexAccess &node) {
 }
 
 void BoundIRGenerator::visit(sema::BoundCast &node) {
+  auto isArrayViewType = [](const std::shared_ptr<Type> &type) {
+    return type && type->getKind() == TypeKind::Record &&
+           std::static_pointer_cast<RecordType>(type)
+                   ->getName()
+                   .rfind("__zap_varargs_", 0) == 0;
+  };
+
+  if (node.expression->type &&
+      node.expression->type->getKind() == TypeKind::Array &&
+      isArrayViewType(node.type)) {
+    auto arrayType = std::static_pointer_cast<ArrayType>(node.expression->type);
+    auto viewType = std::static_pointer_cast<RecordType>(node.type);
+
+    bool oldEvaluateAsAddress = evaluateAsAddress_;
+    evaluateAsAddress_ = true;
+    node.expression->accept(*this);
+    evaluateAsAddress_ = oldEvaluateAsAddress;
+
+    auto arrayAddr = valueStack_.top();
+    valueStack_.pop();
+
+    auto data = createRegister(
+        std::make_shared<PointerType>(arrayType->getBaseType()));
+    currentBlock_->addInstruction(
+        std::make_unique<GetElementPtrInst>(data, arrayAddr, 0));
+
+    auto viewAddr = createRegister(std::make_shared<PointerType>(node.type));
+    currentBlock_->addInstruction(
+        std::make_unique<AllocaInst>(viewAddr, node.type));
+
+    auto dataFieldAddr = createRegister(
+        std::make_shared<PointerType>(viewType->getFields()[0].type));
+    currentBlock_->addInstruction(
+        std::make_unique<GetElementPtrInst>(dataFieldAddr, viewAddr, 0));
+    currentBlock_->addInstruction(
+        std::make_unique<StoreInst>(data, dataFieldAddr));
+
+    auto lenType = viewType->getFields()[1].type;
+    auto lenFieldAddr =
+        createRegister(std::make_shared<PointerType>(lenType));
+    currentBlock_->addInstruction(
+        std::make_unique<GetElementPtrInst>(lenFieldAddr, viewAddr, 1));
+    currentBlock_->addInstruction(std::make_unique<StoreInst>(
+        std::make_shared<Constant>(std::to_string(arrayType->getSize()),
+                                   lenType),
+        lenFieldAddr));
+
+    auto result = createRegister(node.type);
+    currentBlock_->addInstruction(
+        std::make_unique<LoadInst>(result, viewAddr));
+    valueStack_.push(result);
+    return;
+  }
+
   node.expression->accept(*this);
   auto src = valueStack_.top();
   valueStack_.pop();
