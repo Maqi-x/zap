@@ -1,0 +1,11 @@
+// optind is a standard C global (int) from <unistd.h>, default value is 1
+ext var optind: Int32;
+
+fun main() Int {
+    unsafe {
+        if optind != 1 {
+            return 1;
+        }
+    }
+    return 0;
+}

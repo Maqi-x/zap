@@ -18,6 +18,9 @@ public:
   bool isVarArgs = false;
   bool isWeak = false;
   bool isFailable = false;
+  bool isFunPtr = false;
+  std::vector<std::unique_ptr<TypeNode>> funPtrParams;
+  std::unique_ptr<TypeNode> funPtrReturn;
   std::unique_ptr<TypeNode> errorType;
   std::unique_ptr<ExpressionNode> arraySize; // nullptr for non-array types
   std::unique_ptr<TypeNode>

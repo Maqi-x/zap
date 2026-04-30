@@ -93,6 +93,7 @@ void BoundIRGenerator::visit(sema::BoundFunctionDeclaration &node) {
                                          symbol->isDestructor,
                                          symbol->vtableSlot,
                                          symbol->isCVariadic);
+  func->returnsRef = symbol->returnsRef;
   currentFunction_ = func.get();
 
   auto entryBlock = std::make_unique<BasicBlock>("entry");
@@ -148,6 +149,7 @@ void BoundIRGenerator::visit(sema::BoundExternalFunctionDeclaration &node) {
                                          symbol->isDestructor,
                                          symbol->vtableSlot,
                                          symbol->isCVariadic);
+  func->returnsRef = symbol->returnsRef;
 
   for (const auto &paramSymbol : symbol->parameters) {
     auto argType = paramSymbol->is_ref
@@ -202,6 +204,14 @@ void BoundIRGenerator::visit(sema::BoundVariableDeclaration &node) {
   auto type = node.symbol->type;
 
   if (!currentFunction_) {
+    if (node.symbol->is_external) {
+      auto global = std::make_shared<Global>(node.symbol->name,
+                                             node.symbol->linkName, type,
+                                             nullptr, false);
+      module_->addExternalGlobal(global);
+      globalSymbolMap_[node.symbol] = global;
+      return;
+    }
     std::shared_ptr<Value> initializer = nullptr;
     if (node.initializer) {
       node.initializer->accept(*this);
@@ -232,7 +242,12 @@ void BoundIRGenerator::visit(sema::BoundVariableDeclaration &node) {
 void BoundIRGenerator::visit(sema::BoundReturnStatement &node) {
   std::shared_ptr<Value> val = nullptr;
   if (node.expression) {
+    bool oldEvaluateAsAddress = evaluateAsAddress_;
+    if (node.returnsRef) {
+      evaluateAsAddress_ = true;
+    }
     node.expression->accept(*this);
+    evaluateAsAddress_ = oldEvaluateAsAddress;
     val = valueStack_.top();
     valueStack_.pop();
   }
@@ -536,9 +551,7 @@ void BoundIRGenerator::visit(sema::BoundFunctionCall &node) {
   std::vector<std::shared_ptr<Value>> args;
   for (size_t i = 0; i < node.arguments.size(); ++i) {
     bool oldEvaluateAsAddress = evaluateAsAddress_;
-    if (i < node.argumentIsRef.size() && node.argumentIsRef[i]) {
-      evaluateAsAddress_ = true;
-    }
+    evaluateAsAddress_ = (i < node.argumentIsRef.size() && node.argumentIsRef[i]);
     node.arguments[i]->accept(*this);
     evaluateAsAddress_ = oldEvaluateAsAddress;
     args.push_back(valueStack_.top());
@@ -555,7 +568,34 @@ void BoundIRGenerator::visit(sema::BoundFunctionCall &node) {
   auto reg = createRegister(node.type);
   currentBlock_->addInstruction(
       std::make_unique<CallInst>(reg, node.symbol->linkName, args,
-                                 node.argumentIsRef, variadicPack));
+                                 node.argumentIsRef, variadicPack,
+                                 node.symbol->returnsRef));
+  valueStack_.push(reg);
+}
+
+void BoundIRGenerator::visit(sema::BoundFunctionReference &node) {
+  // Represent as a Global value pointing to the function
+  auto fnGlobal = std::make_shared<Global>(node.symbol->linkName,
+                                           node.symbol->linkName,
+                                           node.type, nullptr, true);
+  valueStack_.push(fnGlobal);
+}
+
+void BoundIRGenerator::visit(sema::BoundIndirectCall &node) {
+  node.callee->accept(*this);
+  auto calleeVal = valueStack_.top();
+  valueStack_.pop();
+
+  std::vector<std::shared_ptr<Value>> args;
+  for (auto &arg : node.arguments) {
+    arg->accept(*this);
+    args.push_back(valueStack_.top());
+    valueStack_.pop();
+  }
+
+  auto reg = createRegister(node.type);
+  currentBlock_->addInstruction(
+      std::make_unique<CallInst>(reg, calleeVal, std::move(args)));
   valueStack_.push(reg);
 }
 

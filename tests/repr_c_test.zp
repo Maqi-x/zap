@@ -1,0 +1,25 @@
+@repr("C")
+struct Point {
+    x: Int32,
+    y: Int32
+}
+
+@repr("C")
+enum Direction {
+    North,
+    South,
+    East,
+    West
+}
+
+fun main() Int {
+    var p: Point = Point{x: 10, y: 20};
+    if p.x != 10 { return 1; }
+    if p.y != 20 { return 2; }
+
+    var d: Direction = Direction.East;
+    if d != Direction.East { return 3; }
+    if Direction.North == Direction.South { return 4; }
+
+    return 0;
+}

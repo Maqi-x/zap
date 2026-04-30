@@ -28,7 +28,8 @@ enum class TypeKind {
   Record,
   Class,
   Array,
-  Enum
+  Enum,
+  FunctionPointer
 };
 
 class Type {
@@ -138,6 +139,8 @@ protected:
   std::vector<std::shared_ptr<Type>> genericArguments;
 
 public:
+  bool hasReprC = false;
+
   RecordType(std::string n, std::string codegen = "")
       : name(std::move(n)),
         codegenName(codegen.empty() ? name : std::move(codegen)) {}
@@ -206,6 +209,8 @@ private:
   std::vector<Variant> variants;
 
 public:
+  bool hasReprC = false;
+
   EnumType(std::string n, std::vector<Variant> v, std::string codegen = "")
       : name(std::move(n)),
         codegenName(codegen.empty() ? name : std::move(codegen)),
@@ -268,6 +273,27 @@ public:
   }
   std::shared_ptr<Type> getBaseType() const { return base; }
   size_t getSize() const { return size; }
+};
+
+class FunctionPointerType : public Type {
+  std::vector<std::shared_ptr<Type>> params;
+  std::shared_ptr<Type> returnType;
+
+public:
+  FunctionPointerType(std::vector<std::shared_ptr<Type>> p,
+                      std::shared_ptr<Type> r)
+      : params(std::move(p)), returnType(std::move(r)) {}
+  TypeKind getKind() const override { return TypeKind::FunctionPointer; }
+  std::string toString() const override {
+    std::string s = "*fun(";
+    for (size_t i = 0; i < params.size(); ++i) {
+      if (i) s += ", ";
+      s += params[i]->toString();
+    }
+    return s + ") " + returnType->toString();
+  }
+  const std::vector<std::shared_ptr<Type>> &getParams() const { return params; }
+  const std::shared_ptr<Type> &getReturnType() const { return returnType; }
 };
 
 } // namespace zir

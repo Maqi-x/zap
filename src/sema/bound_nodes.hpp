@@ -42,6 +42,8 @@ class BoundTryExpression;
 class BoundFallbackExpression;
 class BoundFailableHandleExpression;
 class BoundFailStatement;
+class BoundIndirectCall;
+class BoundFunctionReference;
 
 class BoundVisitor {
 public:
@@ -60,6 +62,8 @@ public:
   virtual void visit(BoundTernaryExpression &node) = 0;
   virtual void visit(BoundUnaryExpression &node) = 0;
   virtual void visit(BoundFunctionCall &node) = 0;
+  virtual void visit(BoundIndirectCall &node) = 0;
+  virtual void visit(BoundFunctionReference &node) = 0;
   virtual void visit(BoundArrayLiteral &node) = 0;
   virtual void visit(BoundIndexAccess &node) = 0;
   virtual void visit(BoundRecordDeclaration &node) = 0;
@@ -255,6 +259,37 @@ public:
   }
 };
 
+class BoundIndirectCall : public BoundExpression {
+public:
+  std::unique_ptr<BoundExpression> callee;
+  std::vector<std::unique_ptr<BoundExpression>> arguments;
+
+  BoundIndirectCall(std::unique_ptr<BoundExpression> c,
+                    std::vector<std::unique_ptr<BoundExpression>> args,
+                    std::shared_ptr<zir::Type> retType)
+      : BoundExpression(std::move(retType)), callee(std::move(c)),
+        arguments(std::move(args)) {}
+  void accept(BoundVisitor &v) override { v.visit(*this); }
+  std::unique_ptr<BoundExpression> clone() const override {
+    std::vector<std::unique_ptr<BoundExpression>> clonedArgs;
+    for (const auto &arg : arguments) clonedArgs.push_back(arg->clone());
+    return std::make_unique<BoundIndirectCall>(callee->clone(), std::move(clonedArgs), type);
+  }
+};
+
+class BoundFunctionReference : public BoundExpression {
+public:
+  std::shared_ptr<FunctionSymbol> symbol;
+
+  BoundFunctionReference(std::shared_ptr<FunctionSymbol> s,
+                         std::shared_ptr<zir::Type> fpType)
+      : BoundExpression(std::move(fpType)), symbol(std::move(s)) {}
+  void accept(BoundVisitor &v) override { v.visit(*this); }
+  std::unique_ptr<BoundExpression> clone() const override {
+    return std::make_unique<BoundFunctionReference>(symbol, type);
+  }
+};
+
 class BoundArrayLiteral : public BoundExpression {
 public:
   std::vector<std::unique_ptr<BoundExpression>> elements;
@@ -418,12 +453,13 @@ public:
 class BoundReturnStatement : public BoundStatement {
 public:
   std::unique_ptr<BoundExpression> expression;
-  explicit BoundReturnStatement(std::unique_ptr<BoundExpression> e)
-      : expression(std::move(e)) {}
+  bool returnsRef = false;
+  explicit BoundReturnStatement(std::unique_ptr<BoundExpression> e, bool ref = false)
+      : expression(std::move(e)), returnsRef(ref) {}
   void accept(BoundVisitor &v) override { v.visit(*this); }
   std::unique_ptr<BoundStatement> cloneStatement() const override {
     return std::make_unique<BoundReturnStatement>(
-        expression ? expression->clone() : nullptr);
+        expression ? expression->clone() : nullptr, returnsRef);
   }
 };
 

@@ -13,6 +13,7 @@ namespace zir
     std::string name;
     std::vector<std::shared_ptr<Type>> types;
     std::vector<std::shared_ptr<Global>> globals;
+    std::vector<std::shared_ptr<Global>> externalGlobals;
     std::vector<std::unique_ptr<Function>> functions;
     std::vector<std::unique_ptr<Function>> externalFunctions;
 
@@ -30,6 +31,11 @@ namespace zir
       globals.push_back(std::move(global));
     }
 
+    void addExternalGlobal(std::shared_ptr<Global> global)
+    {
+      externalGlobals.push_back(std::move(global));
+    }
+
     void addExternalFunction(std::unique_ptr<Function> func)
     {
       externalFunctions.push_back(std::move(func));
@@ -39,6 +45,10 @@ namespace zir
 
     const std::vector<std::shared_ptr<Global>> &getGlobals() const {
       return globals;
+    }
+
+    const std::vector<std::shared_ptr<Global>> &getExternalGlobals() const {
+      return externalGlobals;
     }
 
     const std::vector<std::unique_ptr<Function>> &getFunctions() const {

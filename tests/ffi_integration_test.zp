@@ -1,0 +1,105 @@
+// ffi_integration_test.zp
+// Tests: @repr("C") struct, ext var, ext fun, function pointers, ref return
+//
+// Program:
+//   1. Uses qsort() with a function pointer comparator to sort an array
+//   2. Uses clock_gettime() with a @repr("C") struct timespec
+//   3. Reads ext var optind
+//   4. Uses ref return to get a reference to an array element
+
+import "std/io" { println, printInt };
+
+// ── ext fun ──────────────────────────────────────────────────────────────────
+
+ext fun malloc(size: Int) *Void;
+ext fun free(ptr: *Void);
+ext fun qsort(base: *Void, nmemb: Int, size: Int, compar: *fun(*Void, *Void) Int32);
+ext fun memcpy(dst: *Void, src: *Void, n: Int) *Void;
+
+// clock_gettime(CLOCK_MONOTONIC, *timespec) — just to get a timestamp
+ext fun clock_gettime(clk_id: Int32, tp: *TimeSpec) Int32;
+
+// ── @repr("C") struct ────────────────────────────────────────────────────────
+
+@repr("C")
+struct TimeSpec {
+    tv_sec:  Int64,
+    tv_nsec: Int64
+}
+
+// ── ext var ──────────────────────────────────────────────────────────────────
+
+// optind is a standard C global (default = 1)
+ext var optind: Int32;
+
+// ── ref return ───────────────────────────────────────────────────────────────
+
+unsafe fun ref_at(arr: *Int, i: Int) ref Int {
+    return *(arr + i);
+}
+
+// ── qsort comparator (function pointer) ─────────────────────────────────────
+
+// C comparator: receives *void pointers to two elements, returns int
+fun cmp_int(a: *Void, b: *Void) Int32 {
+    unsafe {
+        var ia: Int = *(a as *Int);
+        var ib: Int = *(b as *Int);
+        if ia < ib { return -1; }
+        if ia > ib { return 1; }
+    }
+    return 0;
+}
+
+// ── main ─────────────────────────────────────────────────────────────────────
+
+fun main() Int {
+    unsafe {
+        // ── 1. qsort with function pointer ───────────────────────────────────
+        var arr: *Int = malloc(5 * 8) as *Int;
+        if arr == null { return 1; }
+
+        *(arr + 0) = 50;
+        *(arr + 1) = 10;
+        *(arr + 2) = 40;
+        *(arr + 3) = 20;
+        *(arr + 4) = 30;
+
+        var comparator: *fun(*Void, *Void) Int32 = cmp_int;
+        qsort(arr as *Void, 5, 8, comparator);
+
+        // verify sorted: 10 20 30 40 50
+        if *(arr + 0) != 10 { free(arr as *Void); return 2; }
+        if *(arr + 1) != 20 { free(arr as *Void); return 3; }
+        if *(arr + 2) != 30 { free(arr as *Void); return 4; }
+        if *(arr + 3) != 40 { free(arr as *Void); return 5; }
+        if *(arr + 4) != 50 { free(arr as *Void); return 6; }
+
+        println("qsort OK");
+
+        // ── 2. ref return — mutate element through reference ─────────────────
+        ref_at(arr, 2) = 99;
+        if *(arr + 2) != 99 { free(arr as *Void); return 7; }
+        // restore
+        ref_at(arr, 2) = 30;
+        println("ref return OK");
+
+        free(arr as *Void);
+
+        // ── 3. @repr("C") struct with clock_gettime ──────────────────────────
+        var ts: TimeSpec = TimeSpec { tv_sec: 0, tv_nsec: 0 };
+        var CLOCK_MONOTONIC: Int32 = 1;
+        var rc: Int32 = clock_gettime(CLOCK_MONOTONIC, &ts);
+        // rc == 0 means success; tv_sec >= 0
+        if rc != 0 { return 8; }
+        if ts.tv_sec < 0 { return 9; }
+        println("clock_gettime OK");
+
+        // ── 4. ext var ───────────────────────────────────────────────────────
+        // optind starts at 1 when no args are processed
+        if optind != 1 { return 10; }
+        println("ext var OK");
+    }
+
+    return 0;
+}

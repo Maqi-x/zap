@@ -14,6 +14,7 @@ public:
   std::string ownerTypeName;
   bool isDestructor = false;
   bool isCVariadic = false;
+  bool returnsRef = false;
   int vtableSlot = -1;
   std::vector<std::shared_ptr<Argument>> arguments;
   std::vector<std::unique_ptr<BasicBlock>> blocks;

@@ -115,6 +115,14 @@ void LLVMCodeGen::generate(const zir::Module &module) {
     }
   }
 
+  for (const auto &global : module.getExternalGlobals()) {
+    auto *gv = new llvm::GlobalVariable(
+        *module_, toLLVMType(*global->getValueType()), false,
+        llvm::GlobalVariable::ExternalLinkage, nullptr,
+        global->getLinkName());
+    globalValues_[global->getLinkName()] = gv;
+  }
+
   for (const auto &global : module.getGlobals()) {
     llvm::Constant *initializer = nullptr;
     if (global->getInitializer()) {
@@ -266,6 +274,8 @@ llvm::Type *LLVMCodeGen::toLLVMType(const zir::Type &ty) {
   case zir::TypeKind::NullPtr:
     return llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_));
   case zir::TypeKind::Enum:
+    if (static_cast<const zir::EnumType &>(ty).hasReprC)
+      return llvm::Type::getInt32Ty(ctx_);
     return llvm::Type::getInt64Ty(ctx_);
   case zir::TypeKind::Record: {
     const auto &rt = static_cast<const zir::RecordType &>(ty);
@@ -326,6 +336,15 @@ llvm::Type *LLVMCodeGen::toLLVMType(const zir::Type &ty) {
     const auto &at = static_cast<const zir::ArrayType &>(ty);
     return llvm::ArrayType::get(toLLVMType(*at.getBaseType()), at.getSize());
   }
+  case zir::TypeKind::FunctionPointer: {
+    const auto &ft = static_cast<const zir::FunctionPointerType &>(ty);
+    std::vector<llvm::Type *> paramTypes;
+    for (const auto &p : ft.getParams())
+      paramTypes.push_back(toLLVMType(*p));
+    auto *fnTy = llvm::FunctionType::get(toLLVMType(*ft.getReturnType()),
+                                         paramTypes, false);
+    return llvm::PointerType::getUnqual(fnTy);
+  }
   default:
     break;
   }
@@ -355,6 +374,8 @@ LLVMCodeGen::buildFunctionType(const sema::FunctionSymbol &sym,
   }
 
   llvm::Type *retTy = toLLVMType(*sym.returnType);
+  if (sym.returnsRef)
+    retTy = llvm::PointerType::getUnqual(retTy);
   return llvm::FunctionType::get(retTy, paramTypes, sym.isCVariadic);
 }
 
@@ -374,7 +395,10 @@ llvm::FunctionType *LLVMCodeGen::buildFunctionType(const zir::Function &fn) {
     }
     paramTypes.push_back(toLLVMType(*param->getType()));
   }
-  return llvm::FunctionType::get(toLLVMType(*fn.getReturnType()), paramTypes,
+  llvm::Type *retTy = toLLVMType(*fn.getReturnType());
+  if (fn.returnsRef)
+    retTy = llvm::PointerType::getUnqual(retTy);
+  return llvm::FunctionType::get(retTy, paramTypes,
                                  fn.isCVariadic);
 }
 
@@ -559,8 +583,17 @@ llvm::Value *LLVMCodeGen::lowerZIRValue(
         static_cast<const zir::AggregateConstant &>(*value));
   }
   if (value->getKind() == zir::ValueKind::Global) {
-    return globalValues_.at(
-        static_cast<const zir::Global &>(*value).getLinkName());
+    const auto &g = static_cast<const zir::Global &>(*value);
+    if (g.getValueType()->getKind() == zir::TypeKind::FunctionPointer) {
+      auto it = functionMap_.find(g.getLinkName());
+      if (it != functionMap_.end()) return it->second;
+      auto zirIt = zirFunctionMap_.find(g.getLinkName());
+      if (zirIt != zirFunctionMap_.end()) {
+        declareZIRFunction(*zirIt->second, false);
+        return functionMap_.at(g.getLinkName());
+      }
+    }
+    return globalValues_.at(g.getLinkName());
   }
 
   auto it = zirValueMap_.find(value.get());
@@ -1052,6 +1085,28 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
   case OpCode::Call: {
     const auto &callInst = static_cast<const CallInst &>(inst);
     std::vector<llvm::Value *> args;
+
+    if (callInst.isIndirect()) {
+      auto *calleePtr = lowerZIRRValue(callInst.getCalleeValue());
+      const auto &fpType = static_cast<const zir::FunctionPointerType &>(
+          *callInst.getCalleeValue()->getType());
+      std::vector<llvm::Type *> paramTypes;
+      for (const auto &p : fpType.getParams())
+        paramTypes.push_back(toLLVMType(*p));
+      auto *fnTy = llvm::FunctionType::get(toLLVMType(*fpType.getReturnType()),
+                                           paramTypes, false);
+      for (const auto &arg : callInst.getArguments())
+        args.push_back(lowerZIRRValue(arg));
+      auto *call = builder_.CreateCall(fnTy, calleePtr, args);
+      if (callInst.getResult()) {
+        zirValueMap_[callInst.getResult().get()] = call;
+        if (callInst.returnsRef()) {
+          refReturnValues_.insert(callInst.getResult().get());
+        }
+      }
+      return;
+    }
+
     auto calleeIt = functionMap_.find(callInst.getFunctionName());
     if (calleeIt == functionMap_.end()) {
       auto zirDeclIt = zirFunctionMap_.find(callInst.getFunctionName());
@@ -1304,6 +1359,9 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
     }
     if (callInst.getResult()) {
       zirValueMap_[callInst.getResult().get()] = call;
+      if (callInst.returnsRef()) {
+        refReturnValues_.insert(callInst.getResult().get());
+      }
       if (isClassType(callInst.getResult()->getType())) {
         zirOwnedClassValues_.insert(callInst.getResult().get());
       }
@@ -2362,8 +2420,7 @@ void LLVMCodeGen::visit(sema::BoundFunctionCall &node) {
       isRef = node.argumentIsRef[i];
 
     bool old = evaluateAsAddr_;
-    if (isRef)
-      evaluateAsAddr_ = true;
+    evaluateAsAddr_ = isRef; // false for value args, true for ref args
 
     node.arguments[i]->accept(*this);
     if (!isRef && i < fixedParamCount) {
@@ -2487,10 +2544,19 @@ void LLVMCodeGen::visit(sema::BoundFunctionCall &node) {
         fnRaw, llvm::PointerType::getUnqual(callee->getFunctionType()),
         "method.fn");
     lastValue_ = builder_.CreateCall(callee->getFunctionType(), fnPtr, args);
+    if (node.symbol->returnsRef && !evaluateAsAddr_) {
+      lastValue_ = builder_.CreateLoad(toLLVMType(*node.symbol->returnType),
+                                       lastValue_, "ref.load");
+    }
     return;
   }
 
   lastValue_ = builder_.CreateCall(callee, args);
+
+  if (node.symbol->returnsRef && !evaluateAsAddr_) {
+    lastValue_ = builder_.CreateLoad(toLLVMType(*node.symbol->returnType),
+                                     lastValue_, "ref.load");
+  }
 
   for (size_t i = 0; i < node.arguments.size() && i < fixedParamCount; ++i) {
     if (i < node.argumentIsRef.size() && node.argumentIsRef[i]) {
@@ -2505,6 +2571,41 @@ void LLVMCodeGen::visit(sema::BoundFunctionCall &node) {
       emitReleaseIfNeeded(args[i], strongType);
     }
   }
+}
+
+void LLVMCodeGen::visit(sema::BoundFunctionReference &node) {
+  auto it = functionMap_.find(node.symbol->linkName);
+  if (it == functionMap_.end()) {
+    // Declare it if not yet seen
+    auto zirIt = zirFunctionMap_.find(node.symbol->linkName);
+    if (zirIt != zirFunctionMap_.end()) {
+      declareZIRFunction(*zirIt->second, false);
+      it = functionMap_.find(node.symbol->linkName);
+    }
+  }
+  if (it == functionMap_.end())
+    throw std::runtime_error("Unknown function reference: " + node.symbol->linkName);
+  lastValue_ = it->second;
+}
+
+void LLVMCodeGen::visit(sema::BoundIndirectCall &node) {
+  node.callee->accept(*this);
+  auto *calleePtr = lastValue_;
+
+  const auto &fpType = static_cast<const zir::FunctionPointerType &>(*node.callee->type);
+  std::vector<llvm::Type *> paramTypes;
+  for (const auto &p : fpType.getParams())
+    paramTypes.push_back(toLLVMType(*p));
+  auto *fnTy = llvm::FunctionType::get(toLLVMType(*fpType.getReturnType()),
+                                       paramTypes, false);
+
+  std::vector<llvm::Value *> args;
+  for (auto &arg : node.arguments) {
+    arg->accept(*this);
+    args.push_back(lastValue_);
+  }
+
+  lastValue_ = builder_.CreateCall(fnTy, calleePtr, args);
 }
 
 void LLVMCodeGen::visit(sema::BoundArrayLiteral &node) {

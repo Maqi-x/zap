@@ -1,0 +1,14 @@
+fun add(a: Int, b: Int) Int {
+    return a + b;
+}
+
+fun apply(f: *fun(Int, Int) Int, x: Int, y: Int) Int {
+    return f(x, y);
+}
+
+fun main() Int {
+    var fp: *fun(Int, Int) Int = add;
+    if fp(3, 4) != 7 { return 1; }
+    if apply(add, 10, 20) != 30 { return 2; }
+    return 0;
+}

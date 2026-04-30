@@ -458,6 +458,7 @@ run_test "tests/function_overload_named_args_error.zp" 1 "Positional arguments c
 run_test "tests/attribute_noMangle_args_error.zp" 1 "noMangle does not accept arguments"
 run_test "tests/attribute_error_on_fun_error.zp" 1 "error attribute cannot be applied to function declarations"
 run_test "tests/attribute_repr_invalid_value_error.zp" 1 "repr only accepts \"C\" in MVP"
+run_runtime_test "tests/repr_c_test.zp" 0 "@repr(\"C\") struct uses unmangled name and enum uses i32"
 run_test "tests/attribute_extern_named_arg_error.zp" 1 "extern expects positional string argument"
 run_runtime_test "tests/attribute_extern_symbol_name_test.zp" 0 "extern(\"C\") keeps function symbol unmangled"
 run_runtime_test "tests/precedence_test.zp" 0 "Operator precedence (NOT vs Member access)"
@@ -494,6 +495,10 @@ run_runtime_test "tests/generic_class_test.zp" 0 "Generic classes"
 run_runtime_test "tests/generic_class_inheritance_test.zp" 0 "Generic class inheritance"
 run_test "tests/generic_class_error.zp" 1 "Generic class diagnostics"
 run_runtime_compile_args_test "tests/ext_c_varargs_test.zp" 0 "ext C varargs" --allow-unsafe
+run_runtime_compile_args_test "tests/ext_var_test.zp" 0 "ext var (external global variable)" --allow-unsafe
+run_runtime_test "tests/fun_ptr_test.zp" 0 "Function pointer types (*fun(T) R) and indirect calls"
+run_runtime_compile_args_test "tests/ffi_integration_test.zp" 0 "FFI integration: qsort, @repr(C), ext var, ref return assignment" --allow-unsafe
+run_runtime_test "tests/ref_return_test.zp" 0 "Ref return type (fun() ref T)"
 run_runtime_test "tests/std_io_printf_test.zp" 0 "std/io printf wrappers"
 run_runtime_test "tests/list_std_test.zp" 0 "std/collection List"
 run_runtime_test "tests/import_public/main.zp" 0 "Importing a public function through file namespace"

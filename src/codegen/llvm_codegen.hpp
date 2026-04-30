@@ -41,6 +41,8 @@ public:
   void visit(sema::BoundTernaryExpression &node) override;
   void visit(sema::BoundUnaryExpression &node) override;
   void visit(sema::BoundFunctionCall &node) override;
+  void visit(sema::BoundIndirectCall &node) override;
+  void visit(sema::BoundFunctionReference &node) override;
   void visit(sema::BoundArrayLiteral &node) override;
   void visit(sema::BoundIndexAccess &node) override;
   void visit(sema::BoundRecordDeclaration &node) override;
@@ -87,6 +89,7 @@ private:
       scopeClassLocals_;
   std::unique_ptr<ClassArcEmitter> arcEmitter_;
   std::unordered_map<const zir::Value *, llvm::Value *> zirValueMap_;
+  std::unordered_set<const zir::Value *> refReturnValues_;
   std::unordered_map<std::string, llvm::BasicBlock *> zirBlockMap_;
   std::unordered_map<std::string, llvm::BasicBlock *> zirBlockExitMap_;
   std::unordered_set<const zir::Value *> zirOwnedClassValues_;

@@ -22,6 +22,7 @@ public:
   bool isExtern_ = false;
   bool isStatic_ = false;
   bool isUnsafe_ = false;
+  bool returnsRef_ = false;
 
   FunDecl() noexcept(std::is_nothrow_default_constructible<std::string>::value) = default;
 

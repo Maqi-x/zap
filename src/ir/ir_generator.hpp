@@ -27,6 +27,8 @@ public:
   void visit(sema::BoundTernaryExpression &node) override;
   void visit(sema::BoundUnaryExpression &node) override;
   void visit(sema::BoundFunctionCall &node) override;
+  void visit(sema::BoundIndirectCall &node) override;
+  void visit(sema::BoundFunctionReference &node) override;
   void visit(sema::BoundArrayLiteral &node) override;
   void visit(sema::BoundIndexAccess &node) override;
   void visit(sema::BoundRecordDeclaration &node) override;

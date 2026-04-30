@@ -126,9 +126,24 @@ std::unique_ptr<RootNode> Parser::parse() {
         applyMetadata(decl.get(), std::move(attributes));
         root->addChild(std::move(decl));
       } else if (peek().type == TokenType::EXTERN) {
-        auto decl = parseExtDecl();
-        applyMetadata(decl.get(), std::move(attributes));
-        root->addChild(std::move(decl));
+        if (peek(1).type == TokenType::VAR) {
+          Token externToken = eat(TokenType::EXTERN);
+          eat(TokenType::VAR);
+          Token nameToken = eat(TokenType::ID);
+          eat(TokenType::COLON);
+          auto typeNode = parseType();
+          Token semiToken = eat(TokenType::SEMICOLON);
+          auto varDecl = _builder.makeVarDecl(nameToken.value, std::move(typeNode), nullptr);
+          varDecl->isGlobal_ = true;
+          varDecl->isExternal_ = true;
+          _builder.setSpan(varDecl.get(), SourceSpan::merge(externToken.span, semiToken.span));
+          applyMetadata(varDecl.get(), std::move(attributes));
+          root->addChild(std::move(varDecl));
+        } else {
+          auto decl = parseExtDecl();
+          applyMetadata(decl.get(), std::move(attributes));
+          root->addChild(std::move(decl));
+        }
       } else if (peek().type == TokenType::ENUM) {
         auto decl = parseEnumDecl();
         applyMetadata(decl.get(), std::move(attributes));
@@ -255,6 +270,11 @@ std::unique_ptr<FunDecl> Parser::parseFunDecl(bool isUnsafe) {
   }
 
   eat(TokenType::RPAREN);
+
+  if (peek().type == TokenType::REF) {
+    eat(TokenType::REF);
+    funDecl->returnsRef_ = true;
+  }
 
   if (peek().type != TokenType::LBRACE) {
     funDecl->returnType_ = parseType();
@@ -534,7 +554,7 @@ std::vector<GenericConstraint> Parser::parseWhereClauses() {
 bool Parser::isTypeStartToken(TokenType type) const {
   return type == TokenType::ID || type == TokenType::MULTIPLY ||
          type == TokenType::ELLIPSIS || type == TokenType::SQUARE_LBRACE ||
-         type == TokenType::WEAK;
+         type == TokenType::WEAK || type == TokenType::FUN;
 }
 
 bool Parser::isTryPostfixContext(TokenType type) const {
@@ -712,6 +732,31 @@ std::unique_ptr<TypeNode> Parser::parseType() {
 
   if (peek().type == TokenType::MULTIPLY) {
     Token starToken = eat(TokenType::MULTIPLY);
+
+    if (peek().type == TokenType::FUN) {
+      eat(TokenType::FUN);
+      eat(TokenType::LPAREN);
+      auto funPtrType = _builder.makeType("");
+      funPtrType->isFunPtr = true;
+      if (peek().type != TokenType::RPAREN) {
+        do {
+          funPtrType->funPtrParams.push_back(parseType());
+        } while (peek().type == TokenType::COMMA &&
+                 eat(TokenType::COMMA).type == TokenType::COMMA);
+      }
+      Token rparenToken = eat(TokenType::RPAREN);
+      if (peek().type != TokenType::SEMICOLON && peek().type != TokenType::COMMA &&
+          peek().type != TokenType::RPAREN && peek().type != TokenType::ASSIGN &&
+          peek().type != TokenType::RBRACE && peek().type != TokenType::SQUARE_RBRACE) {
+        funPtrType->funPtrReturn = parseType();
+      } else {
+        funPtrType->funPtrReturn = _builder.makeType("Void");
+      }
+      _builder.setSpan(funPtrType.get(),
+                       SourceSpan::merge(starToken.span, funPtrType->funPtrReturn->span));
+      return funPtrType;
+    }
+
     auto baseType = parseType();
 
     auto pointerType = _builder.makeType("");

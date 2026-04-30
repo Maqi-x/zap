@@ -1859,6 +1859,11 @@ void Binder::predeclareModuleTypes(ModuleState &module) {
                      recordDecl->name_),
           module.info->moduleName, recordDecl->visibility_, false);
       validateAndApplyTypeAttributes(*recordDecl, symbol, true);
+      if (symbol->hasReprC) {
+        auto reprType = std::make_shared<zir::RecordType>(recordDecl->name_, recordDecl->name_);
+        reprType->hasReprC = true;
+        symbol->type = reprType;
+      }
       for (const auto &genericParam : recordDecl->genericParams_) {
         if (genericParam) {
           symbol->genericParameterNames.push_back(genericParam->typeName);
@@ -1932,6 +1937,11 @@ void Binder::predeclareModuleTypes(ModuleState &module) {
       structTypeDeclarationNodes_[symbol.get()] = structDecl;
       typeDeclarationModuleIds_[symbol.get()] = module.info->moduleId;
       validateAndApplyTypeAttributes(*structDecl, symbol, true);
+      if (symbol->hasReprC) {
+        auto reprType = std::make_shared<zir::RecordType>(structDecl->name_, structDecl->name_);
+        reprType->hasReprC = true;
+        symbol->type = reprType;
+      }
       if (!module.scope->declare(structDecl->name_, symbol)) {
         error(structDecl->span,
               "Type '" + structDecl->name_ + "' already declared.");
@@ -1988,6 +1998,9 @@ void Binder::predeclareModuleTypes(ModuleState &module) {
                      enumDecl->name_),
           module.info->moduleName, enumDecl->visibility_, false);
       validateAndApplyTypeAttributes(*enumDecl, symbol, true);
+      if (symbol->hasReprC) {
+        std::static_pointer_cast<zir::EnumType>(symbol->type)->hasReprC = true;
+      }
       if (!module.scope->declare(enumDecl->name_, symbol)) {
         error(enumDecl->span,
               "Type '" + enumDecl->name_ + "' already declared.");
@@ -2242,6 +2255,7 @@ void Binder::predeclareModuleValues(ModuleState &module) {
       auto symbol = std::make_shared<FunctionSymbol>(
           funDecl->name_, std::move(params), std::move(retType), "",
           module.info->moduleName, funDecl->visibility_, funDecl->isUnsafe_);
+      symbol->returnsRef = funDecl->returnsRef_;
       for (const auto &genericParam : funDecl->genericParams_) {
         if (genericParam) {
           symbol->genericParameterNames.push_back(genericParam->typeName);
@@ -2547,12 +2561,16 @@ void Binder::predeclareModuleValues(ModuleState &module) {
               "Unknown type: " + varDecl->type_->qualifiedName());
         type = std::make_shared<zir::PrimitiveType>(zir::TypeKind::Void);
       }
+      auto linkName = varDecl->isExternal_
+          ? varDecl->name_
+          : mangleName(module.info->linkPath.empty() ? module.info->moduleId
+                                                     : module.info->linkPath,
+                       varDecl->name_);
       auto symbol = std::make_shared<VariableSymbol>(
           varDecl->name_, type, false, false,
-          mangleName(module.info->linkPath.empty() ? module.info->moduleId
-                                                   : module.info->linkPath,
-                     varDecl->name_),
+          linkName,
           module.info->moduleName, varDecl->visibility_);
+      symbol->is_external = varDecl->isExternal_;
       if (!module.scope->declare(varDecl->name_, symbol)) {
         error(varDecl->span,
               "Variable '" + varDecl->name_ + "' already declared.");
@@ -3078,9 +3096,10 @@ void Binder::visit(VarDecl &node) {
   if (!symbol) {
     symbol = std::make_shared<VariableSymbol>(
         node.name_, type, false, false,
-        node.isGlobal_ ? mangleName(currentModuleLinkPath(), node.name_)
+        node.isGlobal_ ? (node.isExternal_ ? node.name_ : mangleName(currentModuleLinkPath(), node.name_))
                        : node.name_,
         modules_[currentModuleId_].info->moduleName, node.visibility_);
+    symbol->is_external = node.isExternal_;
     if (!currentScope_->declare(node.name_, symbol)) {
       error(node.span, "Variable '" + node.name_ + "' already declared.");
     }
@@ -3190,7 +3209,8 @@ void Binder::visit(ReturnNode &node) {
     }
   }
 
-  statementStack_.push(std::make_unique<BoundReturnStatement>(std::move(expr)));
+  statementStack_.push(std::make_unique<BoundReturnStatement>(
+      std::move(expr), currentFunction_ && currentFunction_->returnsRef));
 }
 
 void Binder::visit(BinExpr &node) {
@@ -3660,6 +3680,39 @@ void Binder::visit(ConstId &node) {
   } else if (auto moduleSymbol =
                  std::dynamic_pointer_cast<ModuleSymbol>(symbol)) {
     expressionStack_.push(std::make_unique<BoundModuleReference>(moduleSymbol));
+  } else if (auto overloadSet = std::dynamic_pointer_cast<OverloadSetSymbol>(symbol)) {
+    // Function reference — resolve to a function pointer type
+    auto expected = currentExpectedExpressionType();
+    std::shared_ptr<FunctionSymbol> match;
+
+    if (expected && expected->getKind() == zir::TypeKind::FunctionPointer) {
+      const auto &fpType = static_cast<const zir::FunctionPointerType &>(*expected);
+      for (const auto &overload : overloadSet->overloads) {
+        if (overload->parameters.size() == fpType.getParams().size()) {
+          bool ok = true;
+          for (size_t i = 0; i < fpType.getParams().size(); ++i) {
+            if (!canConvert(fpType.getParams()[i], overload->parameters[i]->type)) {
+              ok = false; break;
+            }
+          }
+          if (ok) { match = overload; break; }
+        }
+      }
+    }
+    if (!match && !overloadSet->overloads.empty())
+      match = overloadSet->overloads.front();
+
+    if (match) {
+      // Build FunctionPointerType from the matched overload's signature
+      std::vector<std::shared_ptr<zir::Type>> params;
+      for (const auto &p : match->parameters)
+        params.push_back(p->type);
+      auto fpType = std::make_shared<zir::FunctionPointerType>(
+          std::move(params), match->returnType);
+      expressionStack_.push(std::make_unique<BoundFunctionReference>(match, fpType));
+      return;
+    }
+    error(node.span, "'" + node.value_ + "' is not a variable or type.");
   } else {
     error(node.span, "'" + node.value_ + "' is not a variable or type.");
   }
@@ -3677,7 +3730,9 @@ void Binder::visit(AssignNode &node) {
       dynamic_cast<BoundIndexAccess *>(target.get()) ||
       dynamic_cast<BoundMemberAccess *>(target.get()) ||
       (dynamic_cast<BoundUnaryExpression *>(target.get()) &&
-       static_cast<BoundUnaryExpression *>(target.get())->op == "*");
+       static_cast<BoundUnaryExpression *>(target.get())->op == "*") ||
+      (dynamic_cast<BoundFunctionCall *>(target.get()) &&
+       static_cast<BoundFunctionCall *>(target.get())->symbol->returnsRef);
 
   if (!isLValue) {
     error(node.span, "Target of assignment must be an l-value.");
@@ -3986,6 +4041,33 @@ void Binder::visit(FunCall &node) {
 
   std::vector<std::string> calleeParts;
   if (!node.callee_ || !extractQualifiedPath(node.callee_.get(), calleeParts)) {
+    // Try indirect call through function pointer
+    if (node.callee_) {
+      node.callee_->accept(*this);
+      if (!expressionStack_.empty()) {
+        auto calleeExpr = std::move(expressionStack_.top());
+        expressionStack_.pop();
+        if (calleeExpr->type &&
+            calleeExpr->type->getKind() == zir::TypeKind::FunctionPointer) {
+          const auto &fpType =
+              static_cast<const zir::FunctionPointerType &>(*calleeExpr->type);
+          if (node.params_.size() != fpType.getParams().size()) {
+            error(node.span, "Function pointer call argument count mismatch.");
+            return;
+          }
+          std::vector<std::unique_ptr<BoundExpression>> args;
+          for (size_t i = 0; i < node.params_.size(); ++i) {
+            auto arg = bindExpressionWithExpected(node.params_[i]->value.get(),
+                                                  fpType.getParams()[i]);
+            if (!arg) return;
+            args.push_back(std::move(arg));
+          }
+          expressionStack_.push(std::make_unique<BoundIndirectCall>(
+              std::move(calleeExpr), std::move(args), fpType.getReturnType()));
+          return;
+        }
+      }
+    }
     error(node.span, "Only direct function calls are supported.");
     return;
   }
@@ -3993,6 +4075,31 @@ void Binder::visit(FunCall &node) {
   auto symbol =
       resolveQualifiedSymbol(calleeParts, node.span, SymbolKind::Function);
   if (!symbol) {
+    // Check if it's a variable holding a function pointer
+    auto varSym = resolveQualifiedSymbol(calleeParts, node.span, SymbolKind::Variable);
+    if (varSym && varSym->getKind() == SymbolKind::Variable) {
+      auto varSymbol = std::static_pointer_cast<VariableSymbol>(varSym);
+      if (varSymbol->type &&
+          varSymbol->type->getKind() == zir::TypeKind::FunctionPointer) {
+        const auto &fpType =
+            static_cast<const zir::FunctionPointerType &>(*varSymbol->type);
+        if (node.params_.size() != fpType.getParams().size()) {
+          error(node.span, "Function pointer call argument count mismatch.");
+          return;
+        }
+        std::vector<std::unique_ptr<BoundExpression>> args;
+        for (size_t i = 0; i < node.params_.size(); ++i) {
+          auto arg = bindExpressionWithExpected(node.params_[i]->value.get(),
+                                                fpType.getParams()[i]);
+          if (!arg) return;
+          args.push_back(std::move(arg));
+        }
+        auto calleeExpr = std::make_unique<BoundVariableExpression>(varSymbol);
+        expressionStack_.push(std::make_unique<BoundIndirectCall>(
+            std::move(calleeExpr), std::move(args), fpType.getReturnType()));
+        return;
+      }
+    }
     return;
   }
 
@@ -5082,6 +5189,19 @@ std::shared_ptr<zir::Type> Binder::mapType(const TypeNode &typeNode) {
     return std::make_shared<zir::PointerType>(std::move(base));
   }
 
+  if (typeNode.isFunPtr) {
+    std::vector<std::shared_ptr<zir::Type>> params;
+    for (const auto &p : typeNode.funPtrParams) {
+      auto mapped = mapType(*p);
+      if (!mapped) return nullptr;
+      params.push_back(std::move(mapped));
+    }
+    auto ret = typeNode.funPtrReturn ? mapType(*typeNode.funPtrReturn)
+                                     : std::make_shared<zir::PrimitiveType>(zir::TypeKind::Void);
+    if (!ret) return nullptr;
+    return std::make_shared<zir::FunctionPointerType>(std::move(params), std::move(ret));
+  }
+
   std::vector<std::string> parts = typeNode.qualifiers;
   parts.push_back(typeNode.typeName);
   auto symbol = resolveQualifiedSymbol(parts, typeNode.span, SymbolKind::Type);
@@ -5145,7 +5265,9 @@ void Binder::visit(UnaryExpr &node) {
         dynamic_cast<BoundIndexAccess *>(expr.get()) ||
         dynamic_cast<BoundMemberAccess *>(expr.get()) ||
         (dynamic_cast<BoundUnaryExpression *>(expr.get()) &&
-         static_cast<BoundUnaryExpression *>(expr.get())->op == "*");
+         static_cast<BoundUnaryExpression *>(expr.get())->op == "*") ||
+        (dynamic_cast<BoundFunctionCall *>(expr.get()) &&
+         static_cast<BoundFunctionCall *>(expr.get())->symbol->returnsRef);
     if (!isLValue) {
       error(node.span, "Cannot take the address of a non-lvalue expression.");
     }

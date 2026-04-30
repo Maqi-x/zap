@@ -46,6 +46,7 @@ public:
   bool is_const = false;
   bool is_ref = false;
   bool is_variadic_pack = false;
+  bool is_external = false;
   std::shared_ptr<zir::Type> variadic_element_type = nullptr;
   std::shared_ptr<BoundExpression> constant_value = nullptr;
   VariableSymbol(std::string n, std::shared_ptr<zir::Type> t, bool isConst = false,
@@ -69,6 +70,7 @@ public:
   bool isStatic = false;
   bool isConstructor = false;
   bool isDestructor = false;
+  bool returnsRef = false;
   int vtableSlot = -1;
   std::string ownerTypeName;
 
