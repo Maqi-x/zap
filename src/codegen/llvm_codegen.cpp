@@ -72,6 +72,7 @@ bool isVariadicViewType(const std::shared_ptr<zir::Type> &type) {
                  ->getName()
                  .rfind("__zap_varargs_", 0) == 0;
 }
+
 } // namespace
 LLVMCodeGen::LLVMCodeGen()
     : builder_(ctx_), evaluateAsAddr_(false),
@@ -383,7 +384,7 @@ llvm::Type *LLVMCodeGen::toLLVMType(const zir::Type &ty) {
     structCache_[rt.getCodegenName()] = structTy;
     std::vector<llvm::Type *> fieldTypes;
     for (const auto &f : rt.getFields())
-      fieldTypes.push_back(toLLVMType(*f.type));
+      fieldTypes.push_back(toLLVMAggregateFieldType(f.type));
     structTy->setBody(fieldTypes);
     return structTy;
   }
@@ -411,7 +412,7 @@ llvm::Type *LLVMCodeGen::toLLVMType(const zir::Type &ty) {
       fieldTypes.push_back(llvm::PointerType::getUnqual(
           llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_))));
       for (const auto &f : ct.getFields()) {
-        fieldTypes.push_back(toLLVMType(*f.type));
+        fieldTypes.push_back(toLLVMAggregateFieldType(f.type));
       }
       objectTy->setBody(fieldTypes);
     }
@@ -434,6 +435,14 @@ llvm::Type *LLVMCodeGen::toLLVMType(const zir::Type &ty) {
     break;
   }
   throw std::runtime_error("Unknown ZIR type: " + ty.toString());
+}
+
+llvm::Type *
+LLVMCodeGen::toLLVMAggregateFieldType(const std::shared_ptr<zir::Type> &type) {
+  if (type && type->getKind() == zir::TypeKind::Void) {
+    return llvm::Type::getInt8Ty(ctx_);
+  }
+  return type ? toLLVMType(*type) : llvm::Type::getInt8Ty(ctx_);
 }
 
 llvm::FunctionType *
@@ -636,8 +645,7 @@ LLVMCodeGen::lowerZIRAggregateConstant(const zir::AggregateConstant &constant) {
     }
 
     if (fieldConst) {
-      auto *expectedFieldTy =
-          toLLVMType(*recordFields[static_cast<size_t>(fieldIndex)].type);
+      auto *expectedFieldTy = toLLVMAggregateFieldType(recordFields[static_cast<size_t>(fieldIndex)].type);
       if (fieldConst->getType() != expectedFieldTy) {
         auto sourceFieldType = fieldInit.value->getType();
         auto targetFieldType =
@@ -663,7 +671,8 @@ LLVMCodeGen::lowerZIRAggregateConstant(const zir::AggregateConstant &constant) {
 
   for (size_t i = 0; i < elems.size(); ++i) {
     if (!elems[i]) {
-      elems[i] = llvm::Constant::getNullValue(toLLVMType(*recordFields[i].type));
+      elems[i] =
+          llvm::Constant::getNullValue(toLLVMAggregateFieldType(recordFields[i].type));
     }
   }
 

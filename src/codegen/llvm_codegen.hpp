@@ -109,6 +109,8 @@ private:
   std::vector<std::pair<llvm::BasicBlock *, llvm::BasicBlock *>> loopBBStack_;
 
   llvm::Type *toLLVMType(const zir::Type &ty);
+  llvm::Type *
+  toLLVMAggregateFieldType(const std::shared_ptr<zir::Type> &type);
   llvm::FunctionType *buildFunctionType(const sema::FunctionSymbol &sym,
                                         bool injectMainProcessArgs = false);
   llvm::FunctionType *buildFunctionType(const zir::Function &fn);

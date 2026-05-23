@@ -37,6 +37,9 @@ std::shared_ptr<Value>
 BoundIRGenerator::emitFailableFieldLoad(const std::shared_ptr<Value> &value,
                                         int fieldIndex,
                                         const std::shared_ptr<Type> &fieldType) {
+  if (fieldType && fieldType->getKind() == TypeKind::Void) {
+    return std::make_shared<Constant>("0", fieldType);
+  }
   auto fieldAddr = createRegister(std::make_shared<PointerType>(fieldType));
   currentBlock_->addInstruction(
       std::make_unique<GetElementPtrInst>(fieldAddr, value, fieldIndex));
@@ -301,8 +304,10 @@ void BoundIRGenerator::visit(sema::BoundFailStatement &node) {
 
   auto valueAddr = createRegister(std::make_shared<PointerType>(valueType));
   currentBlock_->addInstruction(std::make_unique<GetElementPtrInst>(valueAddr, allocaReg, 1));
-  currentBlock_->addInstruction(std::make_unique<StoreInst>(
-      std::make_shared<Constant>("0", valueType), valueAddr));
+  if (valueType && valueType->getKind() != TypeKind::Void) {
+    currentBlock_->addInstruction(std::make_unique<StoreInst>(
+        std::make_shared<Constant>("0", valueType), valueAddr));
+  }
 
   auto errAddr = createRegister(std::make_shared<PointerType>(errorType));
   currentBlock_->addInstruction(std::make_unique<GetElementPtrInst>(errAddr, allocaReg, 2));
@@ -998,11 +1003,14 @@ void BoundIRGenerator::visit(sema::BoundStructLiteral &node) {
     auto val = std::move(valueStack_.top());
     valueStack_.pop();
 
-    auto fieldAddr =
-        createRegister(std::make_shared<PointerType>(fields[fieldIndex].type));
-    currentBlock_->addInstruction(
-        std::make_unique<GetElementPtrInst>(fieldAddr, allocaReg, fieldIndex));
-    currentBlock_->addInstruction(std::make_unique<StoreInst>(val, fieldAddr));
+    if (fields[fieldIndex].type &&
+        fields[fieldIndex].type->getKind() != TypeKind::Void) {
+      auto fieldAddr =
+          createRegister(std::make_shared<PointerType>(fields[fieldIndex].type));
+      currentBlock_->addInstruction(
+          std::make_unique<GetElementPtrInst>(fieldAddr, allocaReg, fieldIndex));
+      currentBlock_->addInstruction(std::make_unique<StoreInst>(val, fieldAddr));
+    }
   }
 
   auto result = createRegister(recordType);
@@ -1034,6 +1042,7 @@ void BoundIRGenerator::visit(sema::BoundTryExpression &node) {
 
   auto successValue = emitFailableValue(failableValue);
   std::string successFrom = currentBlock_->label;
+  bool resultIsVoid = node.type && node.type->getKind() == TypeKind::Void;
   currentBlock_->addInstruction(std::make_unique<BranchInst>(mergeLabel));
 
   auto failBlock = std::make_unique<BasicBlock>(failLabel);
@@ -1065,8 +1074,10 @@ void BoundIRGenerator::visit(sema::BoundTryExpression &node) {
       createRegister(std::make_shared<PointerType>(propagatedValueType));
   currentBlock_->addInstruction(
       std::make_unique<GetElementPtrInst>(valueAddr, propagatedAlloca, 1));
-  currentBlock_->addInstruction(std::make_unique<StoreInst>(
-      std::make_shared<Constant>("0", propagatedValueType), valueAddr));
+  if (propagatedValueType && propagatedValueType->getKind() != TypeKind::Void) {
+    currentBlock_->addInstruction(std::make_unique<StoreInst>(
+        std::make_shared<Constant>("0", propagatedValueType), valueAddr));
+  }
 
   auto errAddr = createRegister(std::make_shared<PointerType>(propagatedErrorType));
   currentBlock_->addInstruction(
@@ -1082,6 +1093,11 @@ void BoundIRGenerator::visit(sema::BoundTryExpression &node) {
   auto *mergeBlockPtr = mergeBlock.get();
   currentFunction_->addBlock(std::move(mergeBlock));
   currentBlock_ = mergeBlockPtr;
+
+  if (resultIsVoid) {
+    valueStack_.push(std::make_shared<Constant>("0", node.type));
+    return;
+  }
 
   auto result = createRegister(node.type);
   std::vector<std::pair<std::string, std::shared_ptr<Value>>> incoming;
@@ -1113,6 +1129,7 @@ void BoundIRGenerator::visit(sema::BoundFallbackExpression &node) {
   currentBlock_ = successBlockPtr;
   auto successValue = emitFailableValue(failableValue);
   std::string successFrom = currentBlock_->label;
+  bool resultIsVoid = node.type && node.type->getKind() == TypeKind::Void;
   currentBlock_->addInstruction(std::make_unique<BranchInst>(mergeLabel));
 
   auto fallbackBlock = std::make_unique<BasicBlock>(fallbackLabel);
@@ -1129,6 +1146,11 @@ void BoundIRGenerator::visit(sema::BoundFallbackExpression &node) {
   auto *mergeBlockPtr = mergeBlock.get();
   currentFunction_->addBlock(std::move(mergeBlock));
   currentBlock_ = mergeBlockPtr;
+
+  if (resultIsVoid) {
+    valueStack_.push(std::make_shared<Constant>("0", node.type));
+    return;
+  }
 
   auto result = createRegister(node.type);
   std::vector<std::pair<std::string, std::shared_ptr<Value>>> incoming;
@@ -1181,6 +1203,7 @@ void BoundIRGenerator::visit(sema::BoundFailableHandleExpression &node) {
     node.handler->accept(*this);
   }
 
+  bool resultIsVoid = node.type && node.type->getKind() == TypeKind::Void;
   std::shared_ptr<Value> handlerValue = nullptr;
   if (node.handler && node.handler->result) {
     handlerValue = valueStack_.top();
@@ -1203,7 +1226,13 @@ void BoundIRGenerator::visit(sema::BoundFailableHandleExpression &node) {
   currentBlock_ = mergeBlockPtr;
 
   if (!handlerReachesMerge) {
-    valueStack_.push(successValue);
+    valueStack_.push(resultIsVoid ? std::make_shared<Constant>("0", node.type)
+                                  : successValue);
+    return;
+  }
+
+  if (resultIsVoid) {
+    valueStack_.push(std::make_shared<Constant>("0", node.type));
     return;
   }
 

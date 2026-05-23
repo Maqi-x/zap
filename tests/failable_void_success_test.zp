@@ -1,0 +1,27 @@
+@error
+enum OpErr {
+  Boom,
+}
+
+fun validate(x: Int) Void!OpErr {
+  if x < 0 {
+    fail OpErr.Boom;
+    return;
+  }
+  return;
+}
+
+fun main() Int {
+  validate(1) or err {
+    return 1;
+  };
+
+  validate(-1) or err {
+    if err == OpErr.Boom {
+      return 0;
+    }
+    return 2;
+  };
+
+  return 3;
+}
