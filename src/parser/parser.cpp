@@ -1480,7 +1480,13 @@ std::unique_ptr<ExpressionNode> Parser::parsePrimaryExpression() {
     if (_allowStructLiteral && peek().type == TokenType::LESS &&
         isGenericStructLiteralStart()) {
       auto typeNode = _builder.makeType(idToken.value);
+      _builder.setSpan(typeNode.get(), idToken.span);
       typeNode->genericArgs = parseGenericTypeArguments();
+      if (!typeNode->genericArgs.empty()) {
+        _builder.setSpan(typeNode.get(),
+                         SourceSpan::merge(idToken.span,
+                                           typeNode->genericArgs.back()->span));
+      }
       return parseStructLiteral(std::move(typeNode));
     } else if (_allowStructLiteral && peek().type == TokenType::LBRACE) {
       auto typeNode = _builder.makeType(idToken.value);
@@ -1906,7 +1912,7 @@ Parser::parseStructLiteral(const std::string &type_name) {
 
 std::unique_ptr<StructLiteralNode>
 Parser::parseStructLiteral(std::unique_ptr<TypeNode> type) {
-  eat(TokenType::LBRACE);
+  Token lbrace = eat(TokenType::LBRACE);
   std::vector<StructFieldInit> fields;
 
   if (peek().type != TokenType::RBRACE) {
@@ -1925,8 +1931,16 @@ Parser::parseStructLiteral(std::unique_ptr<TypeNode> type) {
     } while (peek().type != TokenType::RBRACE);
   }
 
-  eat(TokenType::RBRACE);
-  return std::make_unique<StructLiteralNode>(std::move(type), std::move(fields));
+  Token rbrace = eat(TokenType::RBRACE);
+  auto literal =
+      std::make_unique<StructLiteralNode>(std::move(type), std::move(fields));
+  if (literal->type_) {
+    _builder.setSpan(literal.get(),
+                     SourceSpan::merge(literal->type_->span, rbrace.span));
+  } else {
+    _builder.setSpan(literal.get(), SourceSpan::merge(lbrace.span, rbrace.span));
+  }
+  return literal;
 }
 
 } // namespace zap

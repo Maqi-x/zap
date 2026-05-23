@@ -432,6 +432,7 @@ run_runtime_test "tests/struct_nested_test.zp" 0 "Nested struct member access"
 run_runtime_test "tests/struct_fn_test.zp" 0 "Structs as function parameters and return values"
 run_runtime_test "tests/struct_array_test.zp" 0 "Arrays of structs"
 run_runtime_test "tests/struct_types_test.zp" 0 "Structs with diverse field types"
+run_runtime_test "tests/struct_default_init_test.zp" 0 "Struct literals default-initialize missing fields"
 run_runtime_test "tests/class_test.zp" 0 "Heap-only classes with methods and inheritance"
 run_runtime_compile_args_test "tests/class_pointer_field_test.zp" 0 "Class pointer fields" --allow-unsafe
 run_runtime_compile_args_test "tests/class_unsafe_method_test.zp" 0 "Unsafe class methods" --allow-unsafe

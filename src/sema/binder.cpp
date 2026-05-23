@@ -5435,6 +5435,7 @@ void Binder::visit(StructLiteralNode &node) {
   auto recordType = std::static_pointer_cast<zir::RecordType>(mappedType);
   std::vector<std::pair<std::string, std::unique_ptr<BoundExpression>>>
       boundFields;
+  std::vector<std::string> missingFields;
 
   for (auto &fieldInit : node.fields_) {
     fieldInit.value->accept(*this);
@@ -5475,16 +5476,31 @@ void Binder::visit(StructLiteralNode &node) {
       }
     }
     if (!initialized) {
-      SourceSpan missingFieldSpan = node.span;
-      if (!node.fields_.empty() && node.fields_.front().value) {
-        missingFieldSpan = node.fields_.front().value->span;
-      } else if (node.type_) {
-        missingFieldSpan = node.type_->span;
-      }
-      error(missingFieldSpan, "Field '" + f.name + "' of struct '" +
-                                  node.type_->qualifiedName() +
-                                  "' is not initialized.");
+      missingFields.push_back(f.name);
+      boundFields.push_back({f.name, makeDefaultValueExpr(f.type)});
     }
+  }
+
+  if (!missingFields.empty()) {
+    std::string missingList;
+    for (size_t i = 0; i < missingFields.size(); ++i) {
+      if (i != 0) {
+        missingList += ", ";
+      }
+      missingList += "'" + missingFields[i] + "'";
+    }
+
+    SourceSpan warningSpan = node.span;
+    if (!node.fields_.empty() && node.fields_.front().value) {
+      warningSpan = node.fields_.front().value->span;
+    } else if (node.type_) {
+      warningSpan = node.type_->span;
+    }
+
+    _diag.report(warningSpan, zap::DiagnosticLevel::Warning,
+                 "Struct literal for '" + node.type_->qualifiedName() +
+                     "' is missing fields: " + missingList +
+                     ". Using default values.");
   }
 
   expressionStack_.push(
