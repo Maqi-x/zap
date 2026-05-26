@@ -720,11 +720,16 @@ std::unique_ptr<zir::Module> generateZIRModule(sema::BoundRootNode &node) {
 }
 
 bool compileSourceZIR(sema::BoundRootNode &node, std::ostream &ofoutput) {
-  auto mod = generateZIRModule(node);
-  if (mod) {
-    ofoutput << mod->toString();
-  } else {
-    driver::reportError("failed to generate ZIR");
+  try {
+    auto mod = generateZIRModule(node);
+    if (mod) {
+      ofoutput << mod->toString();
+    } else {
+      driver::reportError("failed to generate ZIR");
+      return true;
+    }
+  } catch (const std::exception &ex) {
+    driver::reportError("ZIR generation failed: ", ex.what());
     return true;
   }
   return false;
@@ -732,34 +737,44 @@ bool compileSourceZIR(sema::BoundRootNode &node, std::ostream &ofoutput) {
 
 bool compileSourceLLVMFromZIR(sema::BoundRootNode &node,
                               std::ostream &ofoutput) {
-  auto mod = generateZIRModule(node);
-  if (!mod) {
-    driver::reportError("failed to generate ZIR");
+  try {
+    auto mod = generateZIRModule(node);
+    if (!mod) {
+      driver::reportError("failed to generate ZIR");
+      return true;
+    }
+
+    codegen::LLVMCodeGen llvmGen;
+    llvmGen.generate(*mod);
+    std::string ir;
+    llvm::raw_string_ostream rs(ir);
+    llvmGen.printIR(rs);
+    ofoutput << ir;
+  } catch (const std::exception &ex) {
+    driver::reportError("LLVM text generation failed: ", ex.what());
     return true;
   }
-
-  codegen::LLVMCodeGen llvmGen;
-  llvmGen.generate(*mod);
-  std::string ir;
-  llvm::raw_string_ostream rs(ir);
-  llvmGen.printIR(rs);
-  ofoutput << ir;
   return false;
 }
 
 bool compileObjectFromZIR(sema::BoundRootNode &node,
                           const std::string &output_path,
                           int optimization_level) {
-  auto mod = generateZIRModule(node);
-  if (!mod) {
-    driver::reportError("failed to generate ZIR");
-    return true;
-  }
+  try {
+    auto mod = generateZIRModule(node);
+    if (!mod) {
+      driver::reportError("failed to generate ZIR");
+      return true;
+    }
 
-  codegen::LLVMCodeGen llvmGen;
-  llvmGen.generate(*mod);
-  if (!llvmGen.emitObjectFile(output_path, optimization_level)) {
-    driver::reportError("object file emission failed");
+    codegen::LLVMCodeGen llvmGen;
+    llvmGen.generate(*mod);
+    if (!llvmGen.emitObjectFile(output_path, optimization_level)) {
+      driver::reportError("object file emission failed");
+      return true;
+    }
+  } catch (const std::exception &ex) {
+    driver::reportError("Object generation failed: ", ex.what());
     return true;
   }
   return false;
@@ -768,16 +783,21 @@ bool compileObjectFromZIR(sema::BoundRootNode &node,
 bool compileAssemblyFromZIR(sema::BoundRootNode &node,
                             const std::string &output_path,
                             int optimization_level) {
-  auto mod = generateZIRModule(node);
-  if (!mod) {
-    driver::reportError("failed to generate ZIR");
-    return true;
-  }
+  try {
+    auto mod = generateZIRModule(node);
+    if (!mod) {
+      driver::reportError("failed to generate ZIR");
+      return true;
+    }
 
-  codegen::LLVMCodeGen llvmGen;
-  llvmGen.generate(*mod);
-  if (!llvmGen.emitAssemblyFile(output_path, optimization_level)) {
-    driver::reportError("assembly file emission failed");
+    codegen::LLVMCodeGen llvmGen;
+    llvmGen.generate(*mod);
+    if (!llvmGen.emitAssemblyFile(output_path, optimization_level)) {
+      driver::reportError("assembly file emission failed");
+      return true;
+    }
+  } catch (const std::exception &ex) {
+    driver::reportError("Assembly generation failed: ", ex.what());
     return true;
   }
   return false;

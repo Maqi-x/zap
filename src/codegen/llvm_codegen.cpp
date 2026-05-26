@@ -1,5 +1,7 @@
 #include "llvm_codegen.hpp"
 #include "class_arc_emitter.hpp"
+#include "class_layout.hpp"
+#include "../utils/string_type_utils.hpp"
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
@@ -34,28 +36,11 @@ uint64_t parseIntegerLiteral(const std::string &literal) {
 }
 
 bool isStringType(const std::shared_ptr<zir::Type> &type) {
-  if (!type) {
-    return false;
-  }
-
-  std::string full;
-  if (type->getKind() == zir::TypeKind::Record) {
-    full = static_cast<zir::RecordType *>(type.get())->getName();
-  } else if (type->getKind() == zir::TypeKind::Class) {
-    full = static_cast<zir::ClassType *>(type.get())->getName();
-  } else {
-    return false;
-  }
-
-  auto dot = full.find_last_of('.');
-  auto base = dot == std::string::npos ? full : full.substr(dot + 1);
-  return base == "String" || base == "StringView";
+  return zap::text::isStringType(type);
 }
 
 bool isStringRecordName(const std::string &full) {
-  auto dot = full.find_last_of('.');
-  auto base = dot == std::string::npos ? full : full.substr(dot + 1);
-  return base == "String" || base == "StringView";
+  return zap::text::isStringRecordName(full);
 }
 
 bool isStringLLVMStructType(llvm::Type *ty) {
@@ -905,6 +890,12 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
       if (!isBorrowedSelf) {
         zirFunctionClassLocals_.push_back({allocaInst.getAllocatedType(), alloca});
       }
+    } else if (isOwnedStringType(allocaInst.getAllocatedType())) {
+      builder_.CreateStore(
+          llvm::Constant::getNullValue(toLLVMType(*allocaInst.getAllocatedType())),
+          alloca);
+      zirFunctionStringLocals_.push_back(
+          {allocaInst.getAllocatedType(), alloca});
     }
     if (isParamSpill) {
       ++zirParamSpillIndex_;
@@ -941,6 +932,13 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
           zirOwnedClassValues_.erase(storeInst.getSource().get());
         }
       }
+    } else if (valueType && isOwnedStringType(valueType)) {
+      bool valueIsOwned =
+          zirOwnedStringValues_.count(storeInst.getSource().get()) > 0;
+      emitStoreWithStringArc(dst, src, valueType, valueIsOwned);
+      if (valueIsOwned) {
+        zirOwnedStringValues_.erase(storeInst.getSource().get());
+      }
     } else {
       builder_.CreateStore(src, dst);
     }
@@ -976,6 +974,9 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         result = emitStringConcat(lhs, rhs, binaryInst.getLhs()->getType(),
                                   binaryInst.getRhs()->getType(),
                                   binaryInst.getResult()->getType());
+        if (isOwnedStringType(binaryInst.getResult()->getType())) {
+          zirOwnedStringValues_.insert(binaryInst.getResult().get());
+        }
       } else if (lhsIsPointer || rhsIsPointer) {
         llvm::Value *pointerValue = lhsIsPointer ? lhs : rhs;
         llvm::Value *offsetValue = lhsIsPointer ? rhs : lhs;
@@ -1201,6 +1202,9 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
       if (isClassType(retType) &&
           zirOwnedClassValues_.count(returnInst.getValue().get()) == 0) {
         emitRetainIfNeeded(retValue, retType);
+      } else if (isOwnedStringType(retType) &&
+                 zirOwnedStringValues_.count(returnInst.getValue().get()) == 0) {
+        retValue = emitStringRetainIfNeeded(retValue, retType);
       }
       for (auto it = zirFunctionClassLocals_.rbegin();
            it != zirFunctionClassLocals_.rend(); ++it) {
@@ -1211,6 +1215,12 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         } else {
           emitReleaseIfNeeded(value, it->first);
         }
+      }
+      for (auto it = zirFunctionStringLocals_.rbegin();
+           it != zirFunctionStringLocals_.rend(); ++it) {
+        auto *value = builder_.CreateLoad(toLLVMType(*it->first), it->second,
+                                          "zir.str.ret.release");
+        emitStringReleaseIfNeeded(value, it->first);
       }
       builder_.CreateRet(retValue);
     } else {
@@ -1223,6 +1233,12 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         } else {
           emitReleaseIfNeeded(value, it->first);
         }
+      }
+      for (auto it = zirFunctionStringLocals_.rbegin();
+           it != zirFunctionStringLocals_.rend(); ++it) {
+        auto *value = builder_.CreateLoad(toLLVMType(*it->first), it->second,
+                                          "zir.str.ret.release");
+        emitStringReleaseIfNeeded(value, it->first);
       }
       builder_.CreateRetVoid();
     }
@@ -1493,8 +1509,9 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         auto *objectTy = structCache_.at(classType->getCodegenName() + ".obj");
         auto *selfPtr = builder_.CreateBitCast(
             args[0], llvm::PointerType::getUnqual(objectTy), "zir.method.self");
-        auto *vtableAddr = builder_.CreateStructGEP(
-            objectTy, selfPtr, 7, "zir.method.vtable.addr");
+        auto *vtableAddr =
+            builder_.CreateStructGEP(objectTy, selfPtr, kClassVTableIndex,
+                                     "zir.method.vtable.addr");
         auto *i8PtrTy =
             llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_));
         auto *vtablePtrTy = llvm::PointerType::getUnqual(i8PtrTy);
@@ -1521,6 +1538,8 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
       }
       if (isClassType(callInst.getResult()->getType())) {
         zirOwnedClassValues_.insert(callInst.getResult().get());
+      } else if (isOwnedStringType(callInst.getResult()->getType())) {
+        zirOwnedStringValues_.insert(callInst.getResult().get());
       }
     }
     return;
@@ -1554,7 +1573,8 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
       auto *objectTy = structCache_.at(classType->getCodegenName() + ".obj");
       llvm::Value *objectPtr = ptr;
       gep = builder_.CreateStructGEP(
-          objectTy, objectPtr, static_cast<unsigned>(gepInst.getIndex() + 8),
+          objectTy, objectPtr,
+          static_cast<unsigned>(gepInst.getIndex() + kClassFieldStartIndex),
           static_cast<const Register &>(*gepInst.getResult()).getRawName());
     } else {
       llvm::Value *basePtr = ptr;
@@ -1713,14 +1733,14 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         classDestroyFns_.at(classType->getName()),
         llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_)));
     builder_.CreateStore(destroyFnPtr, destroyFnAddr);
-    auto *metadataAddr =
-        builder_.CreateStructGEP(objectTy, typedPtr, 6, "metadata.addr");
+    auto *metadataAddr = builder_.CreateStructGEP(
+        objectTy, typedPtr, kClassMetadataIndex, "metadata.addr");
     auto *metadataPtr = builder_.CreateBitCast(
         classMetadataGlobals_.at(classType->getName()),
         llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_)));
     builder_.CreateStore(metadataPtr, metadataAddr);
-    auto *vtableAddr =
-        builder_.CreateStructGEP(objectTy, typedPtr, 7, "vtable.addr");
+    auto *vtableAddr = builder_.CreateStructGEP(
+        objectTy, typedPtr, kClassVTableIndex, "vtable.addr");
     auto *i8PtrTy = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_));
     auto *vtablePtrTy = llvm::PointerType::getUnqual(i8PtrTy);
     auto *vtableGlobal = classVTables_.at(classType->getName());
@@ -1733,7 +1753,7 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
 
     for (size_t i = 0; i < classType->getFields().size(); ++i) {
       auto *fieldAddr = builder_.CreateStructGEP(
-          objectTy, typedPtr, static_cast<unsigned>(i + 8));
+          objectTy, typedPtr, static_cast<unsigned>(i + kClassFieldStartIndex));
       builder_.CreateStore(
           llvm::Constant::getNullValue(
               toLLVMType(*classType->getFields()[i].type)),
@@ -1756,9 +1776,11 @@ void LLVMCodeGen::emitZIRFunction(const zir::Function &fn) {
   zirBlockMap_.clear();
   zirValueMap_.clear();
   zirOwnedClassValues_.clear();
+  zirOwnedStringValues_.clear();
   zirClassParamAllocas_.clear();
   zirPendingClassParamInitAllocas_.clear();
   zirFunctionClassLocals_.clear();
+  zirFunctionStringLocals_.clear();
   zirParamSpillIndex_ = 0;
   zirBlockExitMap_.clear();
 
@@ -1851,10 +1873,12 @@ void LLVMCodeGen::emitZIRFunction(const zir::Function &fn) {
   zirBlockMap_.clear();
   zirValueMap_.clear();
   zirOwnedClassValues_.clear();
+  zirOwnedStringValues_.clear();
   zirBlockExitMap_.clear();
   zirClassParamAllocas_.clear();
   zirPendingClassParamInitAllocas_.clear();
   zirFunctionClassLocals_.clear();
+  zirFunctionStringLocals_.clear();
 }
 
 void LLVMCodeGen::visit(sema::BoundRootNode &node) {
@@ -1934,7 +1958,9 @@ void LLVMCodeGen::visit(sema::BoundFunctionDeclaration &node) {
   currentFn_ = fn;
   localValues_.clear();
   scopeClassLocals_.clear();
+  scopeStringLocals_.clear();
   scopeClassLocals_.push_back({});
+  scopeStringLocals_.push_back({});
 
   auto *entry = llvm::BasicBlock::Create(ctx_, "entry", fn);
   builder_.SetInsertPoint(entry);
@@ -2007,6 +2033,12 @@ void LLVMCodeGen::visit(sema::BoundFunctionDeclaration &node) {
         builder_.CreateStore(&arg, alloca);
       }
     } else {
+      if (isOwnedStringType(param->type)) {
+        builder_.CreateStore(llvm::Constant::getNullValue(arg.getType()), alloca);
+        emitStoreWithStringArc(alloca, &arg, param->type, /*valueIsOwned=*/false);
+        scopeStringLocals_.back().push_back({param->type, alloca});
+        continue;
+      }
       builder_.CreateStore(&arg, alloca);
     }
   }
@@ -2026,6 +2058,14 @@ void LLVMCodeGen::visit(sema::BoundFunctionDeclaration &node) {
             emitReleaseIfNeeded(value, local->first);
         }
       }
+      for (auto it = scopeStringLocals_.rbegin();
+           it != scopeStringLocals_.rend(); ++it) {
+        for (auto local = it->rbegin(); local != it->rend(); ++local) {
+          auto *value = builder_.CreateLoad(
+              toLLVMType(*local->first), local->second, "str.fn.ret.release");
+          emitStringReleaseIfNeeded(value, local->first);
+        }
+      }
       builder_.CreateRet(lastValue_);
     } else if (fn->getReturnType()->isVoidTy()) {
       for (auto it = scopeClassLocals_.rbegin(); it != scopeClassLocals_.rend();
@@ -2039,12 +2079,21 @@ void LLVMCodeGen::visit(sema::BoundFunctionDeclaration &node) {
             emitReleaseIfNeeded(value, local->first);
         }
       }
+      for (auto it = scopeStringLocals_.rbegin();
+           it != scopeStringLocals_.rend(); ++it) {
+        for (auto local = it->rbegin(); local != it->rend(); ++local) {
+          auto *value = builder_.CreateLoad(
+              toLLVMType(*local->first), local->second, "str.fn.ret.release");
+          emitStringReleaseIfNeeded(value, local->first);
+        }
+      }
       builder_.CreateRetVoid();
     }
   }
 
   currentFn_ = nullptr;
   scopeClassLocals_.clear();
+  scopeStringLocals_.clear();
 }
 
 void LLVMCodeGen::visit(sema::BoundExternalFunctionDeclaration &node) {
@@ -2058,6 +2107,7 @@ void LLVMCodeGen::visit(sema::BoundModuleReference &node) {
 
 void LLVMCodeGen::visit(sema::BoundBlock &node) {
   scopeClassLocals_.push_back({});
+  scopeStringLocals_.push_back({});
   for (const auto &stmt : node.statements) {
     if (builder_.GetInsertBlock()->getTerminator()) {
       break;
@@ -2075,6 +2125,7 @@ void LLVMCodeGen::visit(sema::BoundBlock &node) {
     emitScopeReleases();
   }
   scopeClassLocals_.pop_back();
+  scopeStringLocals_.pop_back();
 }
 
 void LLVMCodeGen::visit(sema::BoundVariableDeclaration &node) {
@@ -2098,17 +2149,26 @@ void LLVMCodeGen::visit(sema::BoundVariableDeclaration &node) {
 
     auto *alloca = createEntryAlloca(currentFn_, node.symbol->name, ty);
     localValues_[node.symbol->name] = alloca;
-    if (isClassType(node.symbol->type)) {
+    if (isClassType(node.symbol->type) || isOwnedStringType(node.symbol->type)) {
       builder_.CreateStore(llvm::Constant::getNullValue(ty), alloca);
     }
 
     if (node.initializer) {
       node.initializer->accept(*this);
-      emitStoreWithArc(alloca, lastValue_, node.symbol->type,
-                       expressionProducesOwnedClass(node.initializer.get()));
+      if (isOwnedStringType(node.symbol->type)) {
+        emitStoreWithStringArc(alloca, lastValue_, node.symbol->type,
+                               expressionProducesOwnedString(
+                                   node.initializer.get()));
+      } else {
+        emitStoreWithArc(alloca, lastValue_, node.symbol->type,
+                         expressionProducesOwnedClass(node.initializer.get()));
+      }
     }
     if (isClassType(node.symbol->type) && !scopeClassLocals_.empty()) {
       scopeClassLocals_.back().push_back({node.symbol->type, alloca});
+    } else if (isOwnedStringType(node.symbol->type) &&
+               !scopeStringLocals_.empty()) {
+      scopeStringLocals_.back().push_back({node.symbol->type, alloca});
     }
   } else {
     llvm::Constant *initializer = nullptr;
@@ -2136,6 +2196,9 @@ void LLVMCodeGen::visit(sema::BoundReturnStatement &node) {
     if (isClassType(node.expression->type) &&
         !expressionProducesOwnedClass(node.expression.get())) {
       emitRetainIfNeeded(lastValue_, node.expression->type);
+    } else if (isOwnedStringType(node.expression->type) &&
+               !expressionProducesOwnedString(node.expression.get())) {
+      lastValue_ = emitStringRetainIfNeeded(lastValue_, node.expression->type);
     }
     for (auto it = scopeClassLocals_.rbegin(); it != scopeClassLocals_.rend();
          ++it) {
@@ -2146,6 +2209,14 @@ void LLVMCodeGen::visit(sema::BoundReturnStatement &node) {
           emitReleaseWeakIfNeeded(value, local->first);
         else
           emitReleaseIfNeeded(value, local->first);
+      }
+    }
+    for (auto it = scopeStringLocals_.rbegin(); it != scopeStringLocals_.rend();
+         ++it) {
+      for (auto local = it->rbegin(); local != it->rend(); ++local) {
+        auto *value = builder_.CreateLoad(toLLVMType(*local->first),
+                                          local->second, "str.ret.release");
+        emitStringReleaseIfNeeded(value, local->first);
       }
     }
     builder_.CreateRet(lastValue_);
@@ -2159,6 +2230,14 @@ void LLVMCodeGen::visit(sema::BoundReturnStatement &node) {
           emitReleaseWeakIfNeeded(value, local->first);
         else
           emitReleaseIfNeeded(value, local->first);
+      }
+    }
+    for (auto it = scopeStringLocals_.rbegin(); it != scopeStringLocals_.rend();
+         ++it) {
+      for (auto local = it->rbegin(); local != it->rend(); ++local) {
+        auto *value = builder_.CreateLoad(toLLVMType(*local->first),
+                                          local->second, "str.ret.release");
+        emitStringReleaseIfNeeded(value, local->first);
       }
     }
     builder_.CreateRetVoid();
@@ -2740,7 +2819,8 @@ void LLVMCodeGen::visit(sema::BoundFunctionCall &node) {
     auto *selfPtr = builder_.CreateBitCast(
         args[0], llvm::PointerType::getUnqual(objectTy), "method.self");
     auto *vtableAddr =
-        builder_.CreateStructGEP(objectTy, selfPtr, 7, "method.vtable.addr");
+        builder_.CreateStructGEP(objectTy, selfPtr, kClassVTableIndex,
+                                 "method.vtable.addr");
     auto *i8PtrTy = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_));
     auto *vtablePtrTy = llvm::PointerType::getUnqual(i8PtrTy);
     auto *vtablePtr =
@@ -2938,7 +3018,7 @@ void LLVMCodeGen::visit(sema::BoundMemberAccess &node) {
     const auto &fields = classType->getFields();
     for (size_t i = 0; i < fields.size(); ++i) {
       if (fields[i].name == node.member) {
-        fieldIndex = static_cast<int>(i) + 8;
+        fieldIndex = static_cast<int>(i + kClassFieldStartIndex);
         break;
       }
     }
@@ -2960,6 +3040,89 @@ void LLVMCodeGen::visit(sema::BoundMemberAccess &node) {
           builder_.CreateLoad(toLLVMType(*node.type), fieldAddr, node.member);
     }
     return;
+  }
+
+  if (node.left->type->getKind() == zir::TypeKind::Pointer) {
+    bool old = evaluateAsAddr_;
+    evaluateAsAddr_ = false;
+    node.left->accept(*this);
+    llvm::Value *basePtr = lastValue_;
+    evaluateAsAddr_ = old;
+
+    auto pointerType =
+        std::static_pointer_cast<zir::PointerType>(node.left->type);
+    auto baseType = pointerType->getBaseType();
+
+    // Some ABI paths pass aggregate parameters as an extra pointer wrapper.
+    // Peel one pointer level transparently for member access.
+    if (baseType->getKind() == zir::TypeKind::Pointer) {
+      auto innerPtrType = std::static_pointer_cast<zir::PointerType>(baseType);
+      auto *loaded =
+          builder_.CreateLoad(toLLVMType(*baseType), basePtr, "member.ptr.unwrap");
+      basePtr = loaded;
+      baseType = innerPtrType->getBaseType();
+    }
+
+    if (baseType->getKind() == zir::TypeKind::Record) {
+      auto recordType = std::static_pointer_cast<zir::RecordType>(baseType);
+      int fieldIndex = -1;
+      const auto &fields = recordType->getFields();
+      for (size_t i = 0; i < fields.size(); ++i) {
+        if (fields[i].name == node.member) {
+          fieldIndex = static_cast<int>(i);
+          break;
+        }
+      }
+
+      if (fieldIndex == -1) {
+        throw std::runtime_error("Field '" + node.member +
+                                 "' not found in type '" +
+                                 baseType->toString() + "'");
+      }
+
+      auto *structTy = static_cast<llvm::StructType *>(toLLVMType(*recordType));
+      llvm::Value *fieldAddr =
+          builder_.CreateStructGEP(structTy, basePtr, fieldIndex, node.member);
+
+      if (evaluateAsAddr_) {
+        lastValue_ = fieldAddr;
+      } else {
+        lastValue_ =
+            builder_.CreateLoad(toLLVMType(*node.type), fieldAddr, node.member);
+      }
+      return;
+    }
+
+    if (baseType->getKind() == zir::TypeKind::Class) {
+      auto classType = std::static_pointer_cast<zir::ClassType>(baseType);
+      int fieldIndex = -1;
+      const auto &fields = classType->getFields();
+      for (size_t i = 0; i < fields.size(); ++i) {
+        if (fields[i].name == node.member) {
+          fieldIndex = static_cast<int>(i + kClassFieldStartIndex);
+          break;
+        }
+      }
+
+      if (fieldIndex == -1) {
+        throw std::runtime_error("Field '" + node.member +
+                                 "' not found in type '" +
+                                 baseType->toString() + "'");
+      }
+
+      auto *objectStructTy =
+          structCache_.at(classType->getCodegenName() + ".obj");
+      llvm::Value *fieldAddr =
+          builder_.CreateStructGEP(objectStructTy, basePtr, fieldIndex, node.member);
+
+      if (evaluateAsAddr_) {
+        lastValue_ = fieldAddr;
+      } else {
+        lastValue_ =
+            builder_.CreateLoad(toLLVMType(*node.type), fieldAddr, node.member);
+      }
+      return;
+    }
   }
 
   llvm::Value *leftAddr = nullptr;
@@ -3106,14 +3269,14 @@ void LLVMCodeGen::visit(sema::BoundNewExpression &node) {
       classDestroyFns_.at(node.classType->getName()),
       llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_)));
   builder_.CreateStore(destroyFnPtr, destroyFnAddr);
-  auto *metadataAddr =
-      builder_.CreateStructGEP(objectTy, typedPtr, 6, "metadata.addr");
+  auto *metadataAddr = builder_.CreateStructGEP(
+      objectTy, typedPtr, kClassMetadataIndex, "metadata.addr");
   auto *metadataPtr = builder_.CreateBitCast(
       classMetadataGlobals_.at(node.classType->getName()),
       llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_)));
   builder_.CreateStore(metadataPtr, metadataAddr);
-  auto *vtableAddr =
-      builder_.CreateStructGEP(objectTy, typedPtr, 7, "vtable.addr");
+  auto *vtableAddr = builder_.CreateStructGEP(
+      objectTy, typedPtr, kClassVTableIndex, "vtable.addr");
   auto *i8PtrTy = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_));
   auto *vtablePtrTy = llvm::PointerType::getUnqual(i8PtrTy);
   auto *vtableGlobal = classVTables_.at(node.classType->getName());
@@ -3125,8 +3288,8 @@ void LLVMCodeGen::visit(sema::BoundNewExpression &node) {
                        vtableAddr);
 
   for (size_t i = 0; i < node.classType->getFields().size(); ++i) {
-    auto *fieldAddr = builder_.CreateStructGEP(objectTy, typedPtr,
-                                               static_cast<unsigned>(i + 8));
+    auto *fieldAddr = builder_.CreateStructGEP(
+        objectTy, typedPtr, static_cast<unsigned>(i + kClassFieldStartIndex));
     builder_.CreateStore(llvm::Constant::getNullValue(
                              toLLVMType(*node.classType->getFields()[i].type)),
                          fieldAddr);

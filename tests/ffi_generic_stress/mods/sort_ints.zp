@@ -1,0 +1,43 @@
+import "capi";
+import "generic_buf";
+
+fun cmp(x: *Void, y: *Void) Int32 {
+  unsafe {
+    var a: Int = *(x as *Int);
+    var b: Int = *(y as *Int);
+    if a < b { return -1; }
+    if a > b { return 1; }
+  }
+  return 0;
+}
+
+pub fun run() Int {
+  unsafe {
+    var b: generic_buf.Buf<Int> = generic_buf.alloc<Int>(8);
+    if b.ptr == null { return 11; }
+
+    *(b.ptr + 0) = 13;
+    *(b.ptr + 1) = 1;
+    *(b.ptr + 2) = 8;
+    *(b.ptr + 3) = 5;
+    *(b.ptr + 4) = 3;
+    *(b.ptr + 5) = 21;
+    *(b.ptr + 6) = 2;
+    *(b.ptr + 7) = 1;
+
+    var c: *fun(*Void, *Void) Int32 = cmp;
+    capi.qsort(b.ptr as *Void, b.len, 8, c);
+
+    if *(b.ptr + 0) != 1 { generic_buf.freeBuf<Int>(b); return 12; }
+    if *(b.ptr + 1) != 1 { generic_buf.freeBuf<Int>(b); return 13; }
+    if *(b.ptr + 2) != 2 { generic_buf.freeBuf<Int>(b); return 14; }
+    if *(b.ptr + 3) != 3 { generic_buf.freeBuf<Int>(b); return 15; }
+    if *(b.ptr + 4) != 5 { generic_buf.freeBuf<Int>(b); return 16; }
+    if *(b.ptr + 5) != 8 { generic_buf.freeBuf<Int>(b); return 17; }
+    if *(b.ptr + 6) != 13 { generic_buf.freeBuf<Int>(b); return 18; }
+    if *(b.ptr + 7) != 21 { generic_buf.freeBuf<Int>(b); return 19; }
+
+    generic_buf.freeBuf<Int>(b);
+  }
+  return 0;
+}

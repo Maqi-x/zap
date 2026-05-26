@@ -3,10 +3,63 @@ pub struct StringView {
   len: Int,
 }
 
-pub ext fun len(s: StringView) Int;
-pub ext fun at(s: StringView, i: Int) Char;
-pub ext fun slice(s: StringView, start: Int, len: Int) StringView;
-pub ext fun eq(a: StringView, b: StringView) Bool;
+ext fun zap_string_from_ptrlen(ptr: *Char, len: Int) String;
+
+pub fun len(s: StringView) Int {
+  var sv: StringView = s;
+  return sv.len;
+}
+
+pub fun at(s: StringView, i: Int) Char {
+  var sv: StringView = s;
+  if sv.ptr == null || i < 0 || i >= sv.len {
+    return '\0';
+  }
+  unsafe {
+    return *(sv.ptr + i);
+  }
+}
+
+pub fun slice(s: StringView, start: Int, len: Int) StringView {
+  var sv: StringView = s;
+  if sv.ptr == null || sv.len <= 0 || len <= 0 || start >= sv.len {
+    return StringView { ptr: null, len: 0 };
+  }
+
+  var safeStart: Int = start;
+  if safeStart < 0 {
+    safeStart = 0;
+  }
+
+  var safeLen: Int = len;
+  var available: Int = sv.len - safeStart;
+  if safeLen > available {
+    safeLen = available;
+  }
+
+  unsafe {
+    return StringView { ptr: sv.ptr + safeStart, len: safeLen };
+  }
+}
+
+pub fun eq(a: StringView, b: StringView) Bool {
+  if a.len != b.len {
+    return false;
+  }
+
+  if a.len == 0 {
+    return true;
+  }
+
+  var i: Int = 0;
+  while i < a.len {
+    if at(a, i) != at(b, i) {
+      return false;
+    }
+    i = i + 1;
+  }
+  return true;
+}
 
 pub fun stringLen(s: String) Int {
   return len(s);
@@ -25,7 +78,7 @@ pub fun view(s: String) StringView {
 }
 
 pub fun owned(v: StringView) String {
-  return v as String;
+  return zap_string_from_ptrlen(v.ptr, v.len);
 }
 
 pub class TextBuf {

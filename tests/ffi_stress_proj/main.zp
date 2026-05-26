@@ -1,0 +1,22 @@
+import "std/io" { println };
+import "mods";
+
+fun main() Int {
+  var a: Int = sort_a.run_sort_a();
+  if a != 0 {
+    return 100 + a;
+  }
+
+  var b: Int = sort_b.run_sort_b();
+  if b != 0 {
+    return 200 + b;
+  }
+
+  var t: Int = time_check.run_time_check();
+  if t != 0 {
+    return 300 + t;
+  }
+
+  println("ffi stress ok");
+  return 0;
+}

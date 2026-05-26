@@ -1,0 +1,13 @@
+import "capi";
+
+pub fun run_time_check() Int {
+  unsafe {
+    var ts: capi.TimeSpec = capi.TimeSpec { tv_sec: 0, tv_nsec: 0 };
+    var CLOCK_MONOTONIC: Int32 = 1;
+    var rc: Int32 = capi.clock_gettime(CLOCK_MONOTONIC, &ts);
+    if rc != 0 { return 21; }
+    if ts.tv_sec < 0 { return 22; }
+    if capi.optind != 1 { return 23; }
+  }
+  return 0;
+}

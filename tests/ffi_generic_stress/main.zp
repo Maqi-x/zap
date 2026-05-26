@@ -1,0 +1,19 @@
+import "std/io" { println };
+import "mods";
+
+fun main() Int {
+  var a: Int = sort_ints.run();
+  if a != 0 { return 100 + a; }
+
+  var b: Int = sort_pairs.run();
+  if b != 0 { return 200 + b; }
+
+  var d1: String = hashish.digest<Int>(42);
+  if d1 != "#42:2" { return 301; }
+
+  var d2: String = hashish.digest<Bool>(true);
+  if d2 != "#true:4" { return 302; }
+
+  println("ffi generic stress ok");
+  return 0;
+}

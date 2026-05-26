@@ -88,16 +88,21 @@ private:
   std::map<std::string, llvm::GlobalVariable *> classMetadataGlobals_;
   std::vector<std::vector<std::pair<std::shared_ptr<zir::Type>, llvm::Value *>>>
       scopeClassLocals_;
+  std::vector<std::vector<std::pair<std::shared_ptr<zir::Type>, llvm::Value *>>>
+      scopeStringLocals_;
   std::unique_ptr<ClassArcEmitter> arcEmitter_;
   std::unordered_map<const zir::Value *, llvm::Value *> zirValueMap_;
   std::unordered_set<const zir::Value *> refReturnValues_;
   std::unordered_map<std::string, llvm::BasicBlock *> zirBlockMap_;
   std::unordered_map<std::string, llvm::BasicBlock *> zirBlockExitMap_;
   std::unordered_set<const zir::Value *> zirOwnedClassValues_;
+  std::unordered_set<const zir::Value *> zirOwnedStringValues_;
   std::unordered_set<const zir::Value *> zirClassParamAllocas_;
   std::unordered_set<const zir::Value *> zirPendingClassParamInitAllocas_;
   std::vector<std::pair<std::shared_ptr<zir::Type>, llvm::Value *>>
       zirFunctionClassLocals_;
+  std::vector<std::pair<std::shared_ptr<zir::Type>, llvm::Value *>>
+      zirFunctionStringLocals_;
   const zir::Function *currentZIRFunction_ = nullptr;
   size_t zirParamSpillIndex_ = 0;
 
@@ -135,11 +140,17 @@ private:
                                       const std::string &name, llvm::Type *ty);
   bool isClassType(const std::shared_ptr<zir::Type> &type) const;
   bool isWeakClassType(const std::shared_ptr<zir::Type> &type) const;
+  bool isOwnedStringType(const std::shared_ptr<zir::Type> &type) const;
   bool expressionProducesOwnedClass(const sema::BoundExpression *expr) const;
+  bool expressionProducesOwnedString(const sema::BoundExpression *expr) const;
   void emitRetainIfNeeded(llvm::Value *value,
                           const std::shared_ptr<zir::Type> &type);
   void emitReleaseIfNeeded(llvm::Value *value,
                            const std::shared_ptr<zir::Type> &type);
+  llvm::Value *emitStringRetainIfNeeded(
+      llvm::Value *value, const std::shared_ptr<zir::Type> &type);
+  void emitStringReleaseIfNeeded(llvm::Value *value,
+                                 const std::shared_ptr<zir::Type> &type);
   void emitRetainWeakIfNeeded(llvm::Value *value,
                               const std::shared_ptr<zir::Type> &type);
   void emitReleaseWeakIfNeeded(llvm::Value *value,
@@ -151,6 +162,9 @@ private:
   void emitStoreWithArc(llvm::Value *addr, llvm::Value *value,
                         const std::shared_ptr<zir::Type> &type,
                         bool valueIsOwned);
+  void emitStoreWithStringArc(llvm::Value *addr, llvm::Value *value,
+                              const std::shared_ptr<zir::Type> &type,
+                              bool valueIsOwned);
   void emitScopeReleases();
   void ensureArcSupport(sema::BoundRootNode &root);
   void ensureClassArcSupport(const std::shared_ptr<zir::ClassType> &classType);

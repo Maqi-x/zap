@@ -40,14 +40,17 @@ Zap is a modern systems programming language focused on predictable performance,
 6. [Memory Management](memory.md)  
    ARC model, object lifetime behavior, and performance implications.
 
-7. [Generics](generics.md)  
+7. [Strings](strings.md)  
+   `String`, `StringView`, `TextBuf`, ownership/borrowing rules, and `std/string` behavior.
+
+8. [Generics](generics.md)  
    Generic functions, generic structs/classes, constraints (`where`), and compile-time `iftype`.
 
 ---
 
 ### Diagnostics & Tooling
 
-8. [Diagnostic Codes](diagnostic_codes.md)  
+9. [Diagnostic Codes](diagnostic_codes.md)  
    Full reference for parser/semantic/warning/note diagnostic codes (`Pxxxx`, `Sxxxx`, `Wxxxx`, `Nxxxx`), including examples and maintenance guidelines.
 
 ---

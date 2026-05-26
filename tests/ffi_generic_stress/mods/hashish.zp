@@ -1,0 +1,8 @@
+import "std/convert" as conv;
+import "std/string" as str;
+
+pub fun digest<T>(x: T) String {
+  var s: String = conv.toString(x);
+  // exercise String ownership + generic instantiations
+  return "#" + s + ":" + conv.toString(str.stringLen(s));
+}

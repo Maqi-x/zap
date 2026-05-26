@@ -1,4 +1,5 @@
 #include "class_arc_emitter.hpp"
+#include "class_layout.hpp"
 #include "llvm_codegen.hpp"
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/DerivedTypes.h>
@@ -6,17 +7,6 @@
 #include <llvm/IR/Type.h>
 
 namespace codegen {
-namespace {
-constexpr unsigned kStrongCountIndex = 0;
-constexpr unsigned kWeakCountIndex = 1;
-constexpr unsigned kAliveIndex = 2;
-constexpr unsigned kGcMarkIndex = 3;
-constexpr unsigned kReleaseFnIndex = 4;
-constexpr unsigned kDestroyFnIndex = 5;
-constexpr unsigned kMetadataIndex = 6;
-constexpr unsigned kVTableIndex = 7;
-constexpr unsigned kFieldStartIndex = 8;
-} // namespace
 
 ClassArcEmitter::ClassArcEmitter(LLVMCodeGen &codegen) : codegen_(codegen) {}
 
@@ -81,7 +71,7 @@ void ClassArcEmitter::emitRetainIfNeeded(
   auto *typedPtr = codegen_.builder_.CreateBitCast(
       value, llvm::PointerType::getUnqual(objectTy), "arc.retain.cast");
   auto *countAddr = codegen_.builder_.CreateStructGEP(
-      objectTy, typedPtr, kStrongCountIndex, "arc.retain.count.addr");
+      objectTy, typedPtr, kClassStrongCountIndex, "arc.retain.count.addr");
   auto *count = codegen_.builder_.CreateLoad(
       llvm::Type::getInt64Ty(codegen_.ctx_), countAddr, "arc.retain.count");
   auto *next = codegen_.builder_.CreateAdd(
@@ -118,7 +108,7 @@ void ClassArcEmitter::emitReleaseIfNeeded(
   auto *typedPtr = codegen_.builder_.CreateBitCast(
       value, llvm::PointerType::getUnqual(objectTy), "arc.release.cast");
   auto *gcMarkAddr = codegen_.builder_.CreateStructGEP(
-      objectTy, typedPtr, kGcMarkIndex, "arc.release.gcmark.addr");
+      objectTy, typedPtr, kClassGcMarkIndex, "arc.release.gcmark.addr");
   auto *gcMark = codegen_.builder_.CreateLoad(
       llvm::Type::getInt8Ty(codegen_.ctx_), gcMarkAddr, "arc.release.gcmark");
   auto *callBB = llvm::BasicBlock::Create(codegen_.ctx_, "arc.release.call",
@@ -131,7 +121,7 @@ void ClassArcEmitter::emitReleaseIfNeeded(
 
   codegen_.builder_.SetInsertPoint(callBB);
   auto *releaseAddr = codegen_.builder_.CreateStructGEP(
-      objectTy, typedPtr, kReleaseFnIndex, "arc.release.fn.addr");
+      objectTy, typedPtr, kClassReleaseFnIndex, "arc.release.fn.addr");
   auto *releaseFn = codegen_.builder_.CreateLoad(
       llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(codegen_.ctx_)),
       releaseAddr, "arc.release.fn");
@@ -176,7 +166,7 @@ void ClassArcEmitter::emitRetainWeakIfNeeded(
   auto *typedPtr = codegen_.builder_.CreateBitCast(
       value, llvm::PointerType::getUnqual(objectTy), "arc.weak.retain.cast");
   auto *countAddr = codegen_.builder_.CreateStructGEP(
-      objectTy, typedPtr, kWeakCountIndex, "arc.weak.count.addr");
+      objectTy, typedPtr, kClassWeakCountIndex, "arc.weak.count.addr");
   auto *count = codegen_.builder_.CreateLoad(
       llvm::Type::getInt64Ty(codegen_.ctx_), countAddr, "arc.weak.count");
   auto *next = codegen_.builder_.CreateAdd(
@@ -218,7 +208,7 @@ void ClassArcEmitter::emitReleaseWeakIfNeeded(
   auto *typedPtr = codegen_.builder_.CreateBitCast(
       value, llvm::PointerType::getUnqual(objectTy), "arc.weak.release.cast");
   auto *weakAddr = codegen_.builder_.CreateStructGEP(
-      objectTy, typedPtr, kWeakCountIndex, "arc.weak.release.count.addr");
+      objectTy, typedPtr, kClassWeakCountIndex, "arc.weak.release.count.addr");
   auto *weakCount =
       codegen_.builder_.CreateLoad(llvm::Type::getInt64Ty(codegen_.ctx_),
                                    weakAddr, "arc.weak.release.count");
@@ -234,7 +224,7 @@ void ClassArcEmitter::emitReleaseWeakIfNeeded(
 
   codegen_.builder_.SetInsertPoint(checkFreeBB);
   auto *strongAddr = codegen_.builder_.CreateStructGEP(
-      objectTy, typedPtr, kStrongCountIndex, "arc.weak.release.strong.addr");
+      objectTy, typedPtr, kClassStrongCountIndex, "arc.weak.release.strong.addr");
   auto *strongCount =
       codegen_.builder_.CreateLoad(llvm::Type::getInt64Ty(codegen_.ctx_),
                                    strongAddr, "arc.weak.release.strong");
@@ -289,7 +279,7 @@ ClassArcEmitter::emitWeakAlive(llvm::Value *value,
   auto *typedPtr = codegen_.builder_.CreateBitCast(
       value, llvm::PointerType::getUnqual(objectTy), "arc.weak.alive.cast");
   auto *aliveAddr = codegen_.builder_.CreateStructGEP(
-      objectTy, typedPtr, kAliveIndex, "arc.weak.alive.addr");
+      objectTy, typedPtr, kClassAliveIndex, "arc.weak.alive.addr");
   auto *aliveValue = codegen_.builder_.CreateLoad(
       llvm::Type::getInt8Ty(codegen_.ctx_), aliveAddr, "arc.weak.alive");
   auto *aliveBool = codegen_.builder_.CreateICmpNE(
@@ -343,7 +333,7 @@ ClassArcEmitter::emitWeakLock(llvm::Value *value,
   auto *typedPtr = codegen_.builder_.CreateBitCast(
       value, llvm::PointerType::getUnqual(objectTy), "arc.weak.lock.cast");
   auto *aliveAddr = codegen_.builder_.CreateStructGEP(
-      objectTy, typedPtr, kAliveIndex, "arc.weak.lock.alive.addr");
+      objectTy, typedPtr, kClassAliveIndex, "arc.weak.lock.alive.addr");
   auto *aliveValue = codegen_.builder_.CreateLoad(
       llvm::Type::getInt8Ty(codegen_.ctx_), aliveAddr, "arc.weak.lock.alive");
   auto *aliveBool = codegen_.builder_.CreateICmpNE(
@@ -495,7 +485,7 @@ void ClassArcEmitter::ensureClassArcSupport(
       }
       strongFieldOffsets.push_back(
           static_cast<uint32_t>(layout->getElementOffset(
-              static_cast<unsigned>(i + kFieldStartIndex))));
+              static_cast<unsigned>(i + kClassFieldStartIndex))));
     }
 
     auto *i32Ty = llvm::Type::getInt32Ty(codegen_.ctx_);
@@ -561,7 +551,7 @@ void ClassArcEmitter::ensureClassArcSupport(
   auto *destroyTypedObject = codegen_.builder_.CreateBitCast(
       destroyRawObject, llvm::PointerType::getUnqual(objectTy), "object");
   auto *aliveAddr = codegen_.builder_.CreateStructGEP(
-      objectTy, destroyTypedObject, kAliveIndex, "alive.addr");
+      objectTy, destroyTypedObject, kClassAliveIndex, "alive.addr");
   codegen_.builder_.CreateStore(
       llvm::ConstantInt::get(llvm::Type::getInt8Ty(codegen_.ctx_), 0),
       aliveAddr);
@@ -579,7 +569,7 @@ void ClassArcEmitter::ensureClassArcSupport(
     }
     auto *fieldAddr = codegen_.builder_.CreateStructGEP(
         objectTy, destroyTypedObject,
-        static_cast<unsigned>(i + kFieldStartIndex));
+        static_cast<unsigned>(i + kClassFieldStartIndex));
     auto *fieldValue = codegen_.builder_.CreateLoad(
         codegen_.toLLVMType(*field.type), fieldAddr, field.name);
     if (isWeakClassType(field.type)) {
@@ -590,7 +580,7 @@ void ClassArcEmitter::ensureClassArcSupport(
   }
 
   auto *weakAddr = codegen_.builder_.CreateStructGEP(
-      objectTy, destroyTypedObject, kWeakCountIndex, "weakcount.addr");
+      objectTy, destroyTypedObject, kClassWeakCountIndex, "weakcount.addr");
   auto *weakCount = codegen_.builder_.CreateLoad(
       llvm::Type::getInt64Ty(codegen_.ctx_), weakAddr, "weakcount");
   auto *isWeakZero = codegen_.builder_.CreateICmpEQ(
@@ -647,7 +637,7 @@ void ClassArcEmitter::ensureClassArcSupport(
   auto *typedObject = codegen_.builder_.CreateBitCast(
       rawObject, llvm::PointerType::getUnqual(objectTy), "object");
   auto *countAddr = codegen_.builder_.CreateStructGEP(
-      objectTy, typedObject, kStrongCountIndex, "refcount.addr");
+      objectTy, typedObject, kClassStrongCountIndex, "refcount.addr");
   auto *count = codegen_.builder_.CreateLoad(
       llvm::Type::getInt64Ty(codegen_.ctx_), countAddr, "refcount");
   auto *nextCount = codegen_.builder_.CreateSub(
@@ -661,7 +651,7 @@ void ClassArcEmitter::ensureClassArcSupport(
 
   codegen_.builder_.SetInsertPoint(destroyBB);
   auto *destroyAddr = codegen_.builder_.CreateStructGEP(
-      objectTy, typedObject, kDestroyFnIndex, "destroy.addr");
+      objectTy, typedObject, kClassDestroyFnIndex, "destroy.addr");
   auto *destroyFn = codegen_.builder_.CreateLoad(
       llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(codegen_.ctx_)),
       destroyAddr, "destroy.fn");

@@ -1,0 +1,26 @@
+import "std/string";
+
+fun makeOwned() String {
+  var base: String = "abcdef";
+  var mid: string.StringView = string.slice(string.view(base), 2, 3);
+  return string.owned(mid);
+}
+
+fun main() Int {
+  var text: string.StringView = string.view("zaplang");
+  var mid: string.StringView = string.slice(text, 1, 3);
+
+  if !string.eq(mid, string.view("apl")) {
+    return 1;
+  }
+
+  if !string.eq(string.owned(mid), "apl") {
+    return 2;
+  }
+
+  if !string.eq(makeOwned(), "cde") {
+    return 3;
+  }
+
+  return 0;
+}

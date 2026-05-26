@@ -1,0 +1,40 @@
+import "capi";
+
+fun cmp(a: *Void, b: *Void) Int32 {
+  unsafe {
+    var ia: Int = *(a as *Int);
+    var ib: Int = *(b as *Int);
+    if ia < ib { return -1; }
+    if ia > ib { return 1; }
+  }
+  return 0;
+}
+
+pub fun run_sort_b() Int {
+  unsafe {
+    var arr: *Int = capi.malloc(6 * 8) as *Int;
+    if arr == null { return 11; }
+
+    *(arr + 0) = 10;
+    *(arr + 1) = 8;
+    *(arr + 2) = 6;
+    *(arr + 3) = 4;
+    *(arr + 4) = 2;
+    *(arr + 5) = 0;
+
+    var comparator: *fun(*Void, *Void) Int32 = cmp;
+    capi.qsort(arr as *Void, 6, 8, comparator);
+
+    var i: Int = 0;
+    while i < 6 {
+      if *(arr + i) != i * 2 {
+        capi.free(arr as *Void);
+        return 12 + i;
+      }
+      i = i + 1;
+    }
+
+    capi.free(arr as *Void);
+  }
+  return 0;
+}

@@ -2,8 +2,10 @@
 #include "../ast/class_decl.hpp"
 #include "../ast/const/const_char.hpp"
 #include "../ast/record_decl.hpp"
+#include "../utils/string_type_utils.hpp"
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <functional>
 #include <limits>
 #include <sstream>
@@ -16,23 +18,86 @@ namespace {
 std::string sanitizeTypeName(const std::string &value);
 constexpr const char *kFailablePrefix = "__zap_failable_";
 
-bool isStringType(const std::shared_ptr<zir::Type> &type) {
+std::string abiTypeKey(const std::shared_ptr<zir::Type> &type) {
   if (!type) {
-    return false;
+    return "void";
   }
 
-  std::string full;
-  if (type->getKind() == zir::TypeKind::Record) {
-    full = static_cast<zir::RecordType *>(type.get())->getName();
-  } else if (type->getKind() == zir::TypeKind::Class) {
-    full = static_cast<zir::ClassType *>(type.get())->getName();
-  } else {
-    return false;
+  switch (type->getKind()) {
+  case zir::TypeKind::Void:
+    return "v";
+  case zir::TypeKind::Bool:
+    return "b1";
+  case zir::TypeKind::Char:
+    return "c8";
+  case zir::TypeKind::Int8:
+    return "i8";
+  case zir::TypeKind::Int16:
+    return "i16";
+  case zir::TypeKind::Int32:
+    return "i32";
+  case zir::TypeKind::Int64:
+    return "i64";
+  case zir::TypeKind::UInt8:
+    return "u8";
+  case zir::TypeKind::UInt16:
+    return "u16";
+  case zir::TypeKind::UInt32:
+    return "u32";
+  case zir::TypeKind::UInt64:
+    return "u64";
+  case zir::TypeKind::Int:
+    return "is";
+  case zir::TypeKind::UInt:
+    return "us";
+  case zir::TypeKind::Float:
+  case zir::TypeKind::Float32:
+    return "f32";
+  case zir::TypeKind::Float64:
+    return "f64";
+  case zir::TypeKind::NullPtr:
+    return "np";
+  case zir::TypeKind::Pointer: {
+    auto p = std::static_pointer_cast<zir::PointerType>(type);
+    return "p_" + abiTypeKey(p->getBaseType());
+  }
+  case zir::TypeKind::Array: {
+    auto a = std::static_pointer_cast<zir::ArrayType>(type);
+    return "a" + std::to_string(a->getSize()) + "_" + abiTypeKey(a->getBaseType());
+  }
+  case zir::TypeKind::FunctionPointer: {
+    auto fn = std::static_pointer_cast<zir::FunctionPointerType>(type);
+    std::string out = "fp_";
+    out += abiTypeKey(fn->getReturnType());
+    out += "_";
+    for (size_t i = 0; i < fn->getParams().size(); ++i) {
+      if (i != 0) {
+        out += "_";
+      }
+      out += abiTypeKey(fn->getParams()[i]);
+    }
+    return out;
+  }
+  case zir::TypeKind::Record: {
+    auto r = std::static_pointer_cast<zir::RecordType>(type);
+    return "r_" + sanitizeTypeName(r->getCodegenName());
+  }
+  case zir::TypeKind::Class: {
+    auto c = std::static_pointer_cast<zir::ClassType>(type);
+    return std::string(c->isWeak() ? "wc_" : "c_") +
+           sanitizeTypeName(c->getCodegenName());
+  }
+  case zir::TypeKind::Enum: {
+    auto e = std::static_pointer_cast<zir::EnumType>(type);
+    return "e_" + sanitizeTypeName(e->getCodegenName());
+  }
   }
 
-  auto dot = full.find_last_of('.');
-  auto base = dot == std::string::npos ? full : full.substr(dot + 1);
-  return base == "String" || base == "StringView";
+  return sanitizeTypeName(type->toString());
+}
+
+bool isStringType(const std::shared_ptr<zir::Type> &type) {
+  return zap::text::isStringType(type);
 }
 
 bool isFailableType(const std::shared_ptr<zir::Type> &type) {
@@ -510,19 +575,25 @@ void Binder::initializeBuiltins() {
 std::string Binder::mangleName(const std::string &modulePath,
                                const std::string &name) const {
   std::string mangled = "zap$";
-  for (char c : modulePath) {
-    if (std::isalnum(static_cast<unsigned char>(c))) {
+  auto appendEscaped = [&](char c) {
+    unsigned char uc = static_cast<unsigned char>(c);
+    if (std::isalnum(uc)) {
       mangled += c;
-    } else if (c == '/' || c == '\\' || c == '.' || c == '-') {
-      mangled += '$';
-    } else {
-      mangled += '_';
+      return;
     }
+    char buf[8];
+    std::snprintf(buf, sizeof(buf), "_%02X", static_cast<unsigned int>(uc));
+    mangled += buf;
+  };
+  for (char c : modulePath) {
+    appendEscaped(c);
   }
   if (!mangled.empty() && mangled.back() != '$') {
     mangled += '$';
   }
-  mangled += name;
+  for (char c : name) {
+    appendEscaped(c);
+  }
   return mangled;
 }
 
@@ -538,7 +609,7 @@ std::string Binder::functionSignatureKey(const FunctionSymbol &function) const {
     if (param->is_variadic_pack) {
       key += "varargs:";
     }
-    key += param->type ? param->type->toString() : "Void";
+    key += abiTypeKey(param->type);
   }
   if (function.isCVariadic) {
     if (!key.empty()) {
@@ -741,7 +812,7 @@ std::shared_ptr<FunctionSymbol> Binder::ensureGenericFunctionInstantiation(
       error(callSpan, "Missing binding for generic parameter '" + name + "'.");
       return nullptr;
     }
-    genericSuffix += sanitizeTypeName(name + "_" + it->second->toString());
+    genericSuffix += sanitizeTypeName(name + "_" + abiTypeKey(it->second));
   }
   instantiated->linkName = baseFunction->linkName + "$g$" + genericSuffix;
 
@@ -1777,10 +1848,7 @@ int Binder::conversionCost(std::shared_ptr<zir::Type> from,
     return 1000;
   }
   if (isStringType(from) && isStringType(to)) {
-    const auto &name = static_cast<zir::RecordType *>(to.get())->getName();
-    auto dot = name.find_last_of('.');
-    auto base = dot == std::string::npos ? name : name.substr(dot + 1);
-    return base == "StringView" ? 0 : 1;
+    return zap::text::isStringViewType(to) ? 0 : 1;
   }
 
   if (from->isFloatingPoint() && to->isFloatingPoint()) {
@@ -3255,10 +3323,20 @@ void Binder::visit(ConstDecl &node) {
 
 void Binder::visit(ReturnNode &node) {
   std::unique_ptr<BoundExpression> expr = nullptr;
+  bool expressionHadDiagnostic = false;
   if (node.returnValue) {
+    bool hadErrorBefore = hadError_;
     expr = bindExpressionWithExpected(
         node.returnValue.get(),
         currentFunction_ ? currentFunction_->returnType : nullptr);
+    expressionHadDiagnostic = (hadError_ != hadErrorBefore);
+    if (!expr) {
+      // The return expression already produced a diagnostic.
+      // Avoid cascading with a secondary "received Void" return-type error.
+      statementStack_.push(std::make_unique<BoundReturnStatement>(
+          nullptr, currentFunction_ && currentFunction_->returnsRef));
+      return;
+    }
   }
 
   if (currentFunction_) {
@@ -3283,6 +3361,11 @@ void Binder::visit(ReturnNode &node) {
                                      expectedType);
       }
     } else if (!canConvert(actualType, expectedType)) {
+      if (expressionHadDiagnostic) {
+        statementStack_.push(std::make_unique<BoundReturnStatement>(
+            std::move(expr), currentFunction_ && currentFunction_->returnsRef));
+        return;
+      }
       error(node.span, "Function '" + currentFunction_->name +
                            "' expects return type '" +
                            renderTypeForUser(expectedType) + "', but received '" +
@@ -3987,6 +4070,45 @@ void Binder::visit(MemberAccessNode &node) {
         expressionStack_.push(std::make_unique<BoundMemberAccess>(
             std::move(left), node.member_, field.type));
         return;
+      }
+    }
+  } else if (left->type->getKind() == zir::TypeKind::Pointer) {
+    auto ptrType = std::static_pointer_cast<zir::PointerType>(left->type);
+    auto baseType = ptrType->getBaseType();
+
+    if (baseType->getKind() == zir::TypeKind::Record) {
+      auto recordType = std::static_pointer_cast<zir::RecordType>(baseType);
+      for (const auto &field : recordType->getFields()) {
+        if (field.name == node.member_) {
+          expressionStack_.push(std::make_unique<BoundMemberAccess>(
+              std::move(left), node.member_, field.type));
+          return;
+        }
+      }
+    } else if (baseType->getKind() == zir::TypeKind::Class) {
+      auto classType = std::static_pointer_cast<zir::ClassType>(baseType);
+      if (classType->isWeak()) {
+        error(node.span, "Weak references cannot be accessed directly.");
+        return;
+      }
+      auto infoIt = classInfos_.find(classType->getName());
+      if (infoIt != classInfos_.end()) {
+        auto fieldIt = infoIt->second.fields.find(node.member_);
+        if (fieldIt != infoIt->second.fields.end()) {
+          auto fieldVis = fieldIt->second->visibility;
+          bool allowed =
+              fieldVis == Visibility::Public ||
+              (!currentClassStack_.empty() &&
+               currentClassStack_.back() == classType->getName()) ||
+              (fieldVis == Visibility::Protected && !currentClassStack_.empty());
+          if (!allowed) {
+            error(node.span, "Field '" + node.member_ + "' is not accessible.");
+            return;
+          }
+          expressionStack_.push(std::make_unique<BoundMemberAccess>(
+              std::move(left), node.member_, fieldIt->second->type));
+          return;
+        }
       }
     }
   } else if (left->type->getKind() == zir::TypeKind::Class) {

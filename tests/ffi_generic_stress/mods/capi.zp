@@ -1,0 +1,10 @@
+pub ext fun malloc(size: Int) *Void;
+pub ext fun free(ptr: *Void);
+pub ext fun qsort(base: *Void, nmemb: Int, size: Int, compar: *fun(*Void, *Void) Int32);
+pub ext fun memcpy(dst: *Void, src: *Void, n: Int) *Void;
+
+@repr("C")
+pub struct Pair32 {
+  a: Int32,
+  b: Int32
+}

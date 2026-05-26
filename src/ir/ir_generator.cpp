@@ -1,8 +1,42 @@
 #include "ir_generator.hpp"
+#include "../utils/string_type_utils.hpp"
 #include <cstdint>
 #include <iostream>
 
 namespace zir {
+namespace {
+std::string renderTypeForUser(const std::shared_ptr<Type> &type) {
+  if (!type) {
+    return "<unknown>";
+  }
+  switch (type->getKind()) {
+  case TypeKind::Pointer: {
+    auto ptr = std::static_pointer_cast<PointerType>(type);
+    return renderTypeForUser(ptr->getBaseType()) + "*";
+  }
+  case TypeKind::Record: {
+    auto rec = std::static_pointer_cast<RecordType>(type);
+    auto full = rec->getName();
+    auto dot = full.find_last_of('.');
+    return dot == std::string::npos ? full : full.substr(dot + 1);
+  }
+  case TypeKind::Class: {
+    auto cls = std::static_pointer_cast<ClassType>(type);
+    auto full = cls->getName();
+    auto dot = full.find_last_of('.');
+    return dot == std::string::npos ? full : full.substr(dot + 1);
+  }
+  case TypeKind::Enum: {
+    auto en = std::static_pointer_cast<EnumType>(type);
+    auto full = en->getName();
+    auto dot = full.find_last_of('.');
+    return dot == std::string::npos ? full : full.substr(dot + 1);
+  }
+  default:
+    return type->toString();
+  }
+}
+} // namespace
 
 bool BoundIRGenerator::isFailableType(const std::shared_ptr<Type> &type) const {
   if (!type || type->getKind() != TypeKind::Record) {
@@ -814,14 +848,6 @@ void BoundIRGenerator::visit(sema::BoundEnumDeclaration &node) {
 }
 
 void BoundIRGenerator::visit(sema::BoundMemberAccess &node) {
-  auto isStringRecord = [](const std::shared_ptr<zir::Type> &type) {
-    return type && type->getKind() == zir::TypeKind::Record &&
-           (std::static_pointer_cast<zir::RecordType>(type)->getName() ==
-                "String" ||
-            std::static_pointer_cast<zir::RecordType>(type)->getName() ==
-                "StringView");
-  };
-
   if (node.left->type->getKind() == zir::TypeKind::Enum) {
     node.left->accept(*this);
     auto left = std::move(valueStack_.top());
@@ -902,8 +928,7 @@ void BoundIRGenerator::visit(sema::BoundMemberAccess &node) {
         }
         return;
       }
-    } else if (baseType->getKind() == zir::TypeKind::Record &&
-               !isStringRecord(baseType)) {
+    } else if (baseType->getKind() == zir::TypeKind::Record) {
       auto recordType = std::static_pointer_cast<zir::RecordType>(baseType);
       int fieldIndex = -1;
       const auto &fields = recordType->getFields();
@@ -930,8 +955,7 @@ void BoundIRGenerator::visit(sema::BoundMemberAccess &node) {
         return;
       }
     }
-  } else if (left->getType()->getKind() == zir::TypeKind::Record &&
-             !isStringRecord(left->getType())) {
+  } else if (left->getType()->getKind() == zir::TypeKind::Record) {
     auto recordType =
         std::static_pointer_cast<zir::RecordType>(left->getType());
     int fieldIndex = -1;
@@ -960,8 +984,9 @@ void BoundIRGenerator::visit(sema::BoundMemberAccess &node) {
     }
   }
 
-  throw std::runtime_error("Member '" + node.member + "' not found in type '" +
-                           left->getTypeName() + "'");
+  throw std::runtime_error("IR member access failed: member '" + node.member +
+                           "' not found in type '" +
+                           renderTypeForUser(left->getType()) + "'");
 }
 
 void BoundIRGenerator::visit(sema::BoundStructLiteral &node) {
@@ -1443,8 +1468,7 @@ void BoundIRGenerator::visit(sema::BoundIndexAccess &node) {
   if (node.left->type->getKind() == zir::TypeKind::Record) {
     auto recordType =
         std::static_pointer_cast<zir::RecordType>(node.left->type);
-    if (recordType->getName() == "String" ||
-        recordType->getName() == "StringView") {
+    if (zap::text::isStringRecordName(recordType->getName())) {
       if (evaluateAsAddress_) {
         throw std::runtime_error("String index access is not assignable.");
       }

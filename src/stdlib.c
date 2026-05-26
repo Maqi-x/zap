@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <math.h>
+#include <stddef.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -12,6 +13,7 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include "runtime/arc_layout.h"
 
 typedef struct zap_arc_metadata_t {
   uint32_t strong_field_count;
@@ -28,6 +30,45 @@ typedef struct zap_arc_header_t {
   const zap_arc_metadata_t *metadata;
   void **vtable;
 } zap_arc_header_t;
+
+_Static_assert(ZAP_ARC_STRONG_COUNT_INDEX == 0,
+               "ARC ABI: strong_count index mismatch");
+_Static_assert(ZAP_ARC_WEAK_COUNT_INDEX == 1,
+               "ARC ABI: weak_count index mismatch");
+_Static_assert(ZAP_ARC_ALIVE_INDEX == 2, "ARC ABI: alive index mismatch");
+_Static_assert(ZAP_ARC_GC_MARK_INDEX == 3, "ARC ABI: gc_mark index mismatch");
+_Static_assert(ZAP_ARC_RELEASE_FN_INDEX == 4,
+               "ARC ABI: release_fn index mismatch");
+_Static_assert(ZAP_ARC_DESTROY_FN_INDEX == 5,
+               "ARC ABI: destroy_fn index mismatch");
+_Static_assert(ZAP_ARC_METADATA_INDEX == 6, "ARC ABI: metadata index mismatch");
+_Static_assert(ZAP_ARC_VTABLE_INDEX == 7, "ARC ABI: vtable index mismatch");
+_Static_assert(ZAP_ARC_FIELD_START_INDEX == 8,
+               "ARC ABI: field start index mismatch");
+
+_Static_assert(offsetof(zap_arc_header_t, strong_count) == 0,
+               "ARC ABI: strong_count offset mismatch");
+_Static_assert(offsetof(zap_arc_header_t, weak_count) >
+                   offsetof(zap_arc_header_t, strong_count),
+               "ARC ABI: weak_count must be after strong_count");
+_Static_assert(offsetof(zap_arc_header_t, alive) >
+                   offsetof(zap_arc_header_t, weak_count),
+               "ARC ABI: alive must be after weak_count");
+_Static_assert(offsetof(zap_arc_header_t, gc_mark) >
+                   offsetof(zap_arc_header_t, alive),
+               "ARC ABI: gc_mark must be after alive");
+_Static_assert(offsetof(zap_arc_header_t, release_fn) >
+                   offsetof(zap_arc_header_t, gc_mark),
+               "ARC ABI: release_fn must be after gc_mark");
+_Static_assert(offsetof(zap_arc_header_t, destroy_fn) >
+                   offsetof(zap_arc_header_t, release_fn),
+               "ARC ABI: destroy_fn must be after release_fn");
+_Static_assert(offsetof(zap_arc_header_t, metadata) >
+                   offsetof(zap_arc_header_t, destroy_fn),
+               "ARC ABI: metadata must be after destroy_fn");
+_Static_assert(offsetof(zap_arc_header_t, vtable) >
+                   offsetof(zap_arc_header_t, metadata),
+               "ARC ABI: vtable must be after metadata");
 
 static void **zap_arc_objects = NULL;
 static size_t zap_arc_object_count = 0;
@@ -235,10 +276,13 @@ void printStringPtrLen(const char *ptr, long len) {
   printf("\n");
 }
 
+static void zap_string_register_owned_ptr(const char *ptr);
+static char *zap_string_alloc_owned(size_t len);
+
 char *string_concat_ptrlen(const char *a, long a_len, const char *b,
                            long b_len) {
   long total = a_len + b_len;
-  char *out = (char *)malloc((size_t)total + 1);
+  char *out = zap_string_alloc_owned((size_t)total);
   if (!out)
     return NULL;
   if (a_len > 0)
@@ -253,6 +297,109 @@ typedef struct {
   const char *ptr;
   long len;
 } zap_string_t;
+
+typedef struct zap_string_owner_entry_t {
+  const char *ptr;
+  struct zap_string_owner_entry_t *next;
+} zap_string_owner_entry_t;
+
+static zap_string_owner_entry_t *zap_string_owners = NULL;
+static const uint64_t ZAP_STRING_HEADER_MAGIC = 0x5A41505354524E47ULL;
+
+typedef struct {
+  uint64_t magic;
+  int64_t refs;
+  int64_t len;
+} zap_string_header_t;
+
+static zap_string_owner_entry_t *zap_string_find_owner(const char *ptr) {
+  zap_string_owner_entry_t *entry = zap_string_owners;
+  while (entry) {
+    if (entry->ptr == ptr) {
+      return entry;
+    }
+    entry = entry->next;
+  }
+  return NULL;
+}
+
+static void zap_string_register_owned_ptr(const char *ptr) {
+  if (!ptr) {
+    return;
+  }
+  zap_string_owner_entry_t *existing = zap_string_find_owner(ptr);
+  if (existing) {
+    return;
+  }
+  zap_string_owner_entry_t *entry =
+      (zap_string_owner_entry_t *)malloc(sizeof(zap_string_owner_entry_t));
+  if (!entry) {
+    return;
+  }
+  entry->ptr = ptr;
+  entry->next = zap_string_owners;
+  zap_string_owners = entry;
+}
+
+static void zap_string_unregister_owned_ptr(const char *ptr) {
+  zap_string_owner_entry_t *prev = NULL;
+  zap_string_owner_entry_t *entry = zap_string_owners;
+  while (entry) {
+    if (entry->ptr == ptr) {
+      if (prev) {
+        prev->next = entry->next;
+      } else {
+        zap_string_owners = entry->next;
+      }
+      free(entry);
+      return;
+    }
+    prev = entry;
+    entry = entry->next;
+  }
+}
+
+static zap_string_header_t *zap_string_header_from_ptr(const char *ptr) {
+  if (!ptr || !zap_string_find_owner(ptr)) {
+    return NULL;
+  }
+  return (zap_string_header_t *)((char *)ptr - sizeof(zap_string_header_t));
+}
+
+static char *zap_string_alloc_owned(size_t len) {
+  zap_string_header_t *header = (zap_string_header_t *)malloc(
+      sizeof(zap_string_header_t) + len + 1);
+  if (!header) {
+    return NULL;
+  }
+  header->magic = ZAP_STRING_HEADER_MAGIC;
+  header->refs = 1;
+  header->len = (int64_t)len;
+  char *ptr = (char *)(header + 1);
+  ptr[len] = '\0';
+  zap_string_register_owned_ptr(ptr);
+  return ptr;
+}
+
+static void zap_string_retain_ptr(const char *ptr) {
+  zap_string_header_t *header = zap_string_header_from_ptr(ptr);
+  if (!header || header->magic != ZAP_STRING_HEADER_MAGIC) {
+    return;
+  }
+  header->refs += 1;
+}
+
+static void zap_string_release_ptr(const char *ptr) {
+  zap_string_header_t *header = zap_string_header_from_ptr(ptr);
+  if (!header || header->magic != ZAP_STRING_HEADER_MAGIC) {
+    return;
+  }
+  header->refs -= 1;
+  if (header->refs <= 0) {
+    zap_string_unregister_owned_ptr(ptr);
+    free(header);
+  }
+}
 
 void print(zap_string_t s) {
   if (!s.ptr || s.len <= 0) {
@@ -276,6 +423,9 @@ static zap_string_t zap_string_from_owned(char *owned) {
   if (!owned) {
     return (zap_string_t){.ptr = NULL, .len = 0};
   }
+  if (!zap_string_find_owner(owned)) {
+    zap_string_register_owned_ptr(owned);
+  }
   return (zap_string_t){.ptr = owned, .len = (long)strlen(owned)};
 }
 
@@ -284,7 +434,7 @@ zap_string_t zap_string_from_cstr(const char *cstr) {
     return (zap_string_t){.ptr = "", .len = 0};
   }
   size_t len = strlen(cstr);
-  char *out = (char *)malloc(len + 1);
+  char *out = zap_string_alloc_owned(len);
   if (!out) {
     return (zap_string_t){.ptr = NULL, .len = 0};
   }
@@ -294,6 +444,28 @@ zap_string_t zap_string_from_cstr(const char *cstr) {
   out[len] = '\0';
   return (zap_string_t){.ptr = out, .len = (long)len};
 }
+
+zap_string_t zap_string_from_ptrlen(const char *ptr, long len) {
+  if (!ptr || len <= 0) {
+    return (zap_string_t){.ptr = "", .len = 0};
+  }
+
+  char *out = zap_string_alloc_owned((size_t)len);
+  if (!out) {
+    return (zap_string_t){.ptr = NULL, .len = 0};
+  }
+
+  memcpy(out, ptr, (size_t)len);
+  out[len] = '\0';
+  return (zap_string_t){.ptr = out, .len = len};
+}
+
+zap_string_t zap_string_retain(zap_string_t s) {
+  zap_string_retain_ptr(s.ptr);
+  return s;
+}
+
+void zap_string_release(zap_string_t s) { zap_string_release_ptr(s.ptr); }
 
 static zap_string_t zap_string_from_format(const char *format, ...) {
   va_list args;
@@ -316,7 +488,9 @@ static zap_string_t zap_string_from_format(const char *format, ...) {
 
   vsnprintf(buffer, (size_t)needed + 1, format, args);
   va_end(args);
-  return zap_string_from_owned(buffer);
+  zap_string_t result = zap_string_from_cstr(buffer);
+  free(buffer);
+  return result;
 }
 
 zap_string_t zap_to_string_i64(int64_t value) {
@@ -407,7 +581,17 @@ zap_string_t getLn() {
   if (read > 0 && line[read - 1] == '\n') {
     line[--read] = '\0';
   }
-  zap_string_t result = {.ptr = line, .len = read};
+  char *owned = zap_string_alloc_owned(read);
+  if (!owned) {
+    free(line);
+    return (zap_string_t){.ptr = NULL, .len = 0};
+  }
+  if (read > 0) {
+    memcpy(owned, line, read);
+  }
+  owned[read] = '\0';
+  free(line);
+  zap_string_t result = {.ptr = owned, .len = read};
   return result;
 }
 
@@ -449,7 +633,7 @@ zap_string_t slice(zap_string_t s, long start, long length) {
     length = available;
   }
 
-  char *out = (char *)malloc((size_t)length + 1);
+  char *out = zap_string_alloc_owned((size_t)length);
   if (!out) {
     return (zap_string_t){.ptr = NULL, .len = 0};
   }
@@ -509,8 +693,18 @@ zap_string_t cwd() {
   if (!dir) {
     return (zap_string_t){.ptr = "", .len = 0};
   }
-
-  return (zap_string_t){.ptr = dir, .len = (long)strlen(dir)};
+  size_t dir_len = strlen(dir);
+  char *owned = zap_string_alloc_owned(dir_len);
+  if (!owned) {
+    free(dir);
+    return (zap_string_t){.ptr = NULL, .len = 0};
+  }
+  if (dir_len > 0) {
+    memcpy(owned, dir, dir_len);
+  }
+  owned[dir_len] = '\0';
+  free(dir);
+  return (zap_string_t){.ptr = owned, .len = (long)dir_len};
 }
 
 static int zap_stat_path(zap_string_t path, struct stat *st) {
@@ -689,7 +883,7 @@ zap_string_t readFile(zap_string_t path) {
     return (zap_string_t){.ptr = "", .len = 0};
   }
 
-  char *content = (char *)malloc((size_t)size + 1);
+  char *content = zap_string_alloc_owned((size_t)size);
   if (!content) {
     fclose(file);
     return (zap_string_t){.ptr = "", .len = 0};
@@ -698,7 +892,7 @@ zap_string_t readFile(zap_string_t path) {
   size_t read = fread(content, 1, (size_t)size, file);
   fclose(file);
   if (read != (size_t)size) {
-    free(content);
+    zap_string_release_ptr(content);
     return (zap_string_t){.ptr = "", .len = 0};
   }
 
@@ -731,7 +925,7 @@ long writeFile(zap_string_t path, zap_string_t content) {
 }
 
 static zap_string_t zap_copy_string_range(const char *start, size_t len) {
-  char *out = (char *)malloc(len + 1);
+  char *out = zap_string_alloc_owned(len);
   if (!out) {
     return (zap_string_t){.ptr = "", .len = 0};
   }
@@ -914,7 +1108,7 @@ zap_string_t netRecv(long fd, long maxLen) {
   }
 
   size_t cap = (size_t)maxLen;
-  char *buf = (char *)malloc(cap + 1);
+  char *buf = zap_string_alloc_owned(cap);
   if (!buf) {
     zap_net_last_error = ENOMEM;
     return (zap_string_t){.ptr = "", .len = 0};
@@ -923,7 +1117,7 @@ zap_string_t netRecv(long fd, long maxLen) {
   ssize_t n = recv((int)fd, buf, cap, 0);
   if (n < 0) {
     zap_net_last_error = errno;
-    free(buf);
+    zap_string_release_ptr(buf);
     return (zap_string_t){.ptr = "", .len = 0};
   }
 

@@ -1,0 +1,22 @@
+import "capi";
+
+pub struct Buf<T> {
+  ptr: *T,
+  len: Int,
+}
+
+pub fun alloc<T>(n: Int) Buf<T> {
+  unsafe {
+    var bytes: Int = n * 8;
+    var p: *T = capi.malloc(bytes) as *T;
+    return Buf<T> { ptr: p, len: n };
+  }
+}
+
+pub fun freeBuf<T>(b: Buf<T>) {
+  unsafe {
+    if b.ptr != null {
+      capi.free(b.ptr as *Void);
+    }
+  }
+}

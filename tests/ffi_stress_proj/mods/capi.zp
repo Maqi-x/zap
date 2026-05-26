@@ -1,0 +1,11 @@
+@repr("C")
+pub struct TimeSpec {
+  tv_sec: Int64,
+  tv_nsec: Int64
+}
+
+pub ext fun malloc(size: Int) *Void;
+pub ext fun free(ptr: *Void);
+pub ext fun qsort(base: *Void, nmemb: Int, size: Int, compar: *fun(*Void, *Void) Int32);
+pub ext fun clock_gettime(clk_id: Int32, tp: *TimeSpec) Int32;
+pub ext var optind: Int32;

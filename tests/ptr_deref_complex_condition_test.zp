@@ -1,0 +1,18 @@
+struct Node {
+  value: Int,
+  next: *Node
+}
+
+unsafe fun is_ok(head: *Node) Bool {
+  return (*head).value == 7 && ((*head).next == null || (*head).value > 0);
+}
+
+fun main() Int {
+  unsafe {
+    var n: Node = Node { value: 7, next: null };
+    if is_ok(&n) && ((*(&n)).value == 7) {
+      return 0;
+    }
+    return 1;
+  }
+}
