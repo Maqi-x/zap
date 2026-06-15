@@ -1671,12 +1671,15 @@ void Binder::visit(ArrayLiteralNode &node) {
   std::vector<std::unique_ptr<BoundExpression>> elements;
   std::shared_ptr<zir::Type> elementType = nullptr;
 
-  for (const auto &el : node.elements_) {
-    el->accept(*this);
-    if (!expressionStack_.empty()) {
-      auto boundEl = std::move(expressionStack_.top());
-      expressionStack_.pop();
+  auto expectedType = currentExpectedExpressionType();
+  if (expectedType && expectedType->getKind() == zir::TypeKind::Array) {
+    elementType =
+        std::static_pointer_cast<zir::ArrayType>(expectedType)->getBaseType();
+  }
 
+  for (const auto &el : node.elements_) {
+    auto boundEl = bindExpressionWithExpected(el.get(), elementType);
+    if (boundEl) {
       if (!elementType) {
         elementType = boundEl->type;
       } else if (!canConvert(boundEl->type, elementType)) {
