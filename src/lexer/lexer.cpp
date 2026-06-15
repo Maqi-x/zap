@@ -2,9 +2,53 @@
 #include <cctype>
 #include <cstdlib>
 #include <stdexcept>
+#include <unordered_map>
+
+static const std::unordered_map<std::string, TokenType> KEYWORDS = {
+    {"if", TokenType::IF},
+    {"else", TokenType::ELSE},
+    {"while", TokenType::WHILE},
+    {"for", TokenType::FOR},
+    {"return", TokenType::RETURN},
+    {"ret", TokenType::RETURN},
+    {"fail", TokenType::FAIL},
+    {"or", TokenType::OR},
+    {"true", TokenType::BOOL},
+    {"false", TokenType::BOOL},
+    {"fun", TokenType::FUN},
+    {"import", TokenType::IMPORT},
+    {"match", TokenType::MATCH},
+    {"var", TokenType::VAR},
+    {"ext", TokenType::EXTERN},
+    {"module", TokenType::MODULE},
+    {"pub", TokenType::PUB},
+    {"priv", TokenType::PRIV},
+    {"record", TokenType::RECORD},
+    {"impl", TokenType::IMPL},
+    {"static", TokenType::STATIC},
+    {"enum", TokenType::ENUM},
+    {"struct", TokenType::STRUCT},
+    {"break", TokenType::BREAK},
+    {"continue", TokenType::CONTINUE},
+    {"global", TokenType::GLOBAL},
+    {"const", TokenType::CONST},
+    {"unsafe", TokenType::UNSAFE},
+    {"asm", TokenType::ASM},
+    {"null", TokenType::NULL_LITERAL},
+    {"alias", TokenType::ALIAS},
+    {"ref", TokenType::REF},
+    {"as", TokenType::AS},
+    {"where", TokenType::WHERE},
+    {"iftype", TokenType::IFTYPE},
+    {"class", TokenType::CLASS},
+    {"prot", TokenType::PROT},
+    {"new", TokenType::NEW},
+    {"weak", TokenType::WEAK},
+};
 
 std::vector<Token> Lexer::tokenize(const std::string &input) {
   std::vector<Token> tokens;
+  tokens.reserve(input.size() / 4);
   _pos = 0;
   _line = 1;
   _column = 1;
@@ -333,7 +377,6 @@ std::vector<Token> Lexer::tokenize(const std::string &input) {
         continue;
       }
     } else if (std::isdigit(_cur)) {
-      std::string numStr;
       bool isFloat = false;
 
       if (_cur == '0' && (Peek2() == 'x' || Peek2() == 'X' || Peek2() == 'b' ||
@@ -359,20 +402,20 @@ std::vector<Token> Lexer::tokenize(const std::string &input) {
         else if (prefix == 'o' || prefix == 'O')
           base = 8;
 
-        numStr += _input[_pos++];
-        _column++;
-        numStr += _input[_pos++];
-        _column++;
+        // consume "0x" / "0b" / "0o" prefix
+        _pos += 2;
+        _column += 2;
 
-        std::string numericPart;
         size_t digitsStart = _pos;
+        std::string numericPart;
+        numericPart.reserve(16);
 
         while (!isAtEnd() && isValidDigit(_input[_pos])) {
           if (_input[_pos] != '_') {
             numericPart += _input[_pos];
           }
-          numStr += _input[_pos++];
-          _column++;
+          ++_pos;
+          ++_column;
         }
 
         if (_pos == digitsStart || numericPart.empty()) {
@@ -382,7 +425,9 @@ std::vector<Token> Lexer::tokenize(const std::string &input) {
           return tokens;
         }
 
-        std::string parsed = "0";
+        std::string parsed;
+        parsed.reserve(numericPart.size() + 3);
+        parsed += '0';
         parsed += prefix;
         parsed += numericPart;
 
@@ -395,129 +440,61 @@ std::vector<Token> Lexer::tokenize(const std::string &input) {
           return tokens;
         }
 
-        size_t len = numStr.length();
-        tokens.emplace_back(TokenType::INTEGER, parsed, startLine, startColumn,
-                            startPos, len);
+        size_t len = _pos - startPos;
+        tokens.emplace_back(TokenType::INTEGER, std::move(parsed), startLine,
+                            startColumn, startPos, len);
         continue;
       }
 
+      // decimal / float: scan forward, strip underscores
+      std::string numStr;
+      numStr.reserve(20);
       while (!isAtEnd() &&
              (std::isdigit(_input[_pos]) || _input[_pos] == '_')) {
         if (_input[_pos] != '_') {
           numStr += _input[_pos];
         }
-        _pos++;
-        _column++;
+        ++_pos;
+        ++_column;
       }
       if (!isAtEnd() && _input[_pos] == '.') {
         isFloat = true;
         numStr += _input[_pos++];
-        _column++;
+        ++_column;
         while (!isAtEnd() &&
                (std::isdigit(_input[_pos]) || _input[_pos] == '_')) {
           if (_input[_pos] != '_') {
             numStr += _input[_pos];
           }
-          _pos++;
-          _column++;
+          ++_pos;
+          ++_column;
         }
       }
       size_t len = numStr.length();
       if (isFloat) {
-        tokens.emplace_back(TokenType::FLOAT, numStr, startLine, startColumn,
-                            startPos, len);
+        tokens.emplace_back(TokenType::FLOAT, std::move(numStr), startLine,
+                            startColumn, startPos, len);
       } else {
-        tokens.emplace_back(TokenType::INTEGER, numStr, startLine, startColumn,
-                            startPos, len);
+        tokens.emplace_back(TokenType::INTEGER, std::move(numStr), startLine,
+                            startColumn, startPos, len);
       }
       continue;
     } else if (std::isalpha(_cur) || _cur == '_') {
-      std::string identStr;
+      // scan to end of identifier, then construct string once
+      size_t identStart = _pos;
       while (!isAtEnd() &&
              (std::isalnum(_input[_pos]) || _input[_pos] == '_')) {
-        identStr += _input[_pos++];
-        _column++;
+        ++_pos;
+        ++_column;
       }
-      size_t len = identStr.length();
+      std::string identStr(_input.data() + identStart, _pos - identStart);
+      size_t len = identStr.size();
 
-      TokenType type = TokenType::ID;
-      if (identStr == "if")
-        type = TokenType::IF;
-      else if (identStr == "else")
-        type = TokenType::ELSE;
-      else if (identStr == "while")
-        type = TokenType::WHILE;
-      else if (identStr == "for")
-        type = TokenType::FOR;
-      else if (identStr == "return" || identStr == "ret")
-        type = TokenType::RETURN;
-      else if (identStr == "fail")
-        type = TokenType::FAIL;
-      else if (identStr == "or")
-        type = TokenType::OR;
-      else if (identStr == "true" || identStr == "false")
-        type = TokenType::BOOL;
-      else if (identStr == "fun")
-        type = TokenType::FUN;
-      else if (identStr == "import")
-        type = TokenType::IMPORT;
-      else if (identStr == "match")
-        type = TokenType::MATCH;
-      else if (identStr == "var")
-        type = TokenType::VAR;
-      else if (identStr == "ext")
-        type = TokenType::EXTERN;
-      else if (identStr == "module")
-        type = TokenType::MODULE;
-      else if (identStr == "pub")
-        type = TokenType::PUB;
-      else if (identStr == "priv")
-        type = TokenType::PRIV;
-      else if (identStr == "record")
-        type = TokenType::RECORD;
-      else if (identStr == "impl")
-        type = TokenType::IMPL;
-      else if (identStr == "static")
-        type = TokenType::STATIC;
-      else if (identStr == "enum")
-        type = TokenType::ENUM;
-      else if (identStr == "struct")
-        type = TokenType::STRUCT;
-      else if (identStr == "break")
-        type = TokenType::BREAK;
-      else if (identStr == "continue")
-        type = TokenType::CONTINUE;
-      else if (identStr == "global")
-        type = TokenType::GLOBAL;
-      else if (identStr == "const")
-        type = TokenType::CONST;
-      else if (identStr == "unsafe")
-        type = TokenType::UNSAFE;
-      else if (identStr == "asm")
-        type = TokenType::ASM;
-      else if (identStr == "null")
-        type = TokenType::NULL_LITERAL;
-      else if (identStr == "alias")
-        type = TokenType::ALIAS;
-      else if (identStr == "ref")
-        type = TokenType::REF;
-      else if (identStr == "as")
-        type = TokenType::AS;
-      else if (identStr == "where")
-        type = TokenType::WHERE;
-      else if (identStr == "iftype")
-        type = TokenType::IFTYPE;
-      else if (identStr == "class")
-        type = TokenType::CLASS;
-      else if (identStr == "prot")
-        type = TokenType::PROT;
-      else if (identStr == "new")
-        type = TokenType::NEW;
-      else if (identStr == "weak")
-        type = TokenType::WEAK;
+      auto it = KEYWORDS.find(identStr);
+      TokenType type = (it != KEYWORDS.end()) ? it->second : TokenType::ID;
 
-      tokens.emplace_back(type, identStr, startLine, startColumn, startPos,
-                          len);
+      tokens.emplace_back(type, std::move(identStr), startLine, startColumn,
+                          startPos, len);
       continue;
     } else if (std::isspace(_cur)) {
       if (_cur == '\n') {
@@ -530,16 +507,17 @@ std::vector<Token> Lexer::tokenize(const std::string &input) {
       continue;
     } else if (_cur == '"') {
       std::string strVal;
+      strVal.reserve(64);
       size_t strStart = _pos;
       ++_pos;
-      _column++;
+      ++_column;
 
       while (!isAtEnd() && _input[_pos] != '"') {
         if (_input[_pos] == '\n') {
           ++_line;
           _column = 1;
         } else {
-          _column++;
+          ++_column;
         }
 
         if (_input[_pos] == '\\') {
@@ -581,10 +559,10 @@ std::vector<Token> Lexer::tokenize(const std::string &input) {
 
       if (!isAtEnd() && _input[_pos] == '"') {
         ++_pos;
-        _column++;
+        ++_column;
         size_t len = _pos - strStart;
-        tokens.emplace_back(TokenType::STRING, strVal, startLine, startColumn,
-                            startPos, len);
+        tokens.emplace_back(TokenType::STRING, std::move(strVal), startLine,
+                            startColumn, startPos, len);
         continue;
       } else {
         _diag.report(
@@ -593,16 +571,15 @@ std::vector<Token> Lexer::tokenize(const std::string &input) {
         return tokens;
       }
     } else if (_cur == '\'') {
-      // char literal
-      std::string charVal;
       size_t charStart = _pos;
       ++_pos;
-      _column++;
+      ++_column;
       if (isAtEnd()) {
         _diag.report(SourceSpan(startLine, startColumn, charStart, 1),
                      zap::DiagnosticLevel::Error, "Unterminated char literal");
         return tokens;
       }
+      char ch;
       if (_input[_pos] == '\\') {
         ++_pos;
         if (isAtEnd()) {
@@ -613,48 +590,48 @@ std::vector<Token> Lexer::tokenize(const std::string &input) {
         }
         switch (_input[_pos]) {
         case 'n':
-          charVal += '\n';
+          ch = '\n';
           break;
         case 't':
-          charVal += '\t';
+          ch = '\t';
           break;
         case 'r':
-          charVal += '\r';
+          ch = '\r';
           break;
         case '\\':
-          charVal += '\\';
+          ch = '\\';
           break;
         case '\'':
-          charVal += '\'';
+          ch = '\'';
           break;
         case '0':
-          charVal += '\0';
+          ch = '\0';
           break;
         default:
-          charVal += _input[_pos];
+          ch = _input[_pos];
           break;
         }
       } else {
-        charVal += _input[_pos];
+        ch = _input[_pos];
       }
       ++_pos;
-      _column++;
+      ++_column;
       if (isAtEnd() || _input[_pos] != '\'') {
         _diag.report(SourceSpan(startLine, startColumn, charStart, 1),
                      zap::DiagnosticLevel::Error, "Unterminated char literal");
         return tokens;
       }
       ++_pos;
-      _column++;
-      tokens.emplace_back(TokenType::CHAR, charVal, startLine, startColumn,
-                          startPos, 3);
+      ++_column;
+      tokens.emplace_back(TokenType::CHAR, std::string(1, ch), startLine,
+                          startColumn, startPos, 3);
       continue;
     } else {
       _diag.report(SourceSpan(startLine, startColumn, _pos, 1),
                    zap::DiagnosticLevel::Error,
-                   "Unexpected character '" + std::string(1, _cur) + "'");
-      _pos++;
-      _column++;
+                   std::string("Unexpected character '") + _cur + "'");
+      ++_pos;
+      ++_column;
     }
   }
   return tokens;
