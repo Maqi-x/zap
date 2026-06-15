@@ -35,18 +35,26 @@ std::string compoundAssignOp(TokenType type) {
   }
 }
 
-std::string qualifiedNameFromExpression(const ExpressionNode *expr) {
+void qualifiedNameFromExpressionImpl(const ExpressionNode *expr,
+                                     std::string &out) {
   if (auto id = dynamic_cast<const ConstId *>(expr)) {
-    return id->value_;
+    out += id->value_;
+    return;
   }
   if (auto member = dynamic_cast<const MemberAccessNode *>(expr)) {
-    auto base = qualifiedNameFromExpression(member->left_.get());
-    if (base.empty()) {
-      return "";
-    }
-    return base + "." + member->member_;
+    qualifiedNameFromExpressionImpl(member->left_.get(), out);
+    if (out.empty())
+      return;
+    out += '.';
+    out += member->member_;
   }
-  return "";
+}
+
+std::string qualifiedNameFromExpression(const ExpressionNode *expr) {
+  std::string result;
+  result.reserve(32);
+  qualifiedNameFromExpressionImpl(expr, result);
+  return result;
 }
 } // namespace
 
