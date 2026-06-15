@@ -576,27 +576,28 @@ void Binder::visit(AssignNode &node) {
   auto target = std::move(expressionStack_.top());
   expressionStack_.pop();
 
-  bool isLValue =
-      dynamic_cast<BoundVariableExpression *>(target.get()) ||
-      dynamic_cast<BoundIndexAccess *>(target.get()) ||
-      dynamic_cast<BoundMemberAccess *>(target.get()) ||
-      (dynamic_cast<BoundUnaryExpression *>(target.get()) &&
-       static_cast<BoundUnaryExpression *>(target.get())->op == "*") ||
-      (dynamic_cast<BoundFunctionCall *>(target.get()) &&
-       static_cast<BoundFunctionCall *>(target.get())->symbol->returnsRef);
+  auto *targetAsVar = dynamic_cast<BoundVariableExpression *>(target.get());
+  auto *targetAsIndex = dynamic_cast<BoundIndexAccess *>(target.get());
+  auto *targetAsMember = dynamic_cast<BoundMemberAccess *>(target.get());
+  auto *targetAsUnary = dynamic_cast<BoundUnaryExpression *>(target.get());
+  auto *targetAsCall = dynamic_cast<BoundFunctionCall *>(target.get());
+
+  bool isLValue = targetAsVar || targetAsIndex || targetAsMember ||
+                  (targetAsUnary && targetAsUnary->op == "*") ||
+                  (targetAsCall && targetAsCall->symbol->returnsRef);
 
   if (!isLValue) {
     error(node.span, "Target of assignment must be an l-value.");
     return;
   }
 
-  if (auto varExpr = dynamic_cast<BoundVariableExpression *>(target.get())) {
+  if (auto varExpr = targetAsVar) {
     if (varExpr->symbol->is_const) {
       error(node.span,
             "Cannot assign to constant '" + varExpr->symbol->name + "'.");
       return;
     }
-  } else if (auto indexExpr = dynamic_cast<BoundIndexAccess *>(target.get())) {
+  } else if (auto indexExpr = targetAsIndex) {
     if (isStringType(indexExpr->left->type)) {
       error(node.span, "Cannot assign through String index access.");
       return;
@@ -1620,14 +1621,14 @@ void Binder::visit(UnaryExpr &node) {
 
   auto type = expr->type;
   if (node.op_ == "&") {
-    bool isLValue =
-        dynamic_cast<BoundVariableExpression *>(expr.get()) ||
-        dynamic_cast<BoundIndexAccess *>(expr.get()) ||
-        dynamic_cast<BoundMemberAccess *>(expr.get()) ||
-        (dynamic_cast<BoundUnaryExpression *>(expr.get()) &&
-         static_cast<BoundUnaryExpression *>(expr.get())->op == "*") ||
-        (dynamic_cast<BoundFunctionCall *>(expr.get()) &&
-         static_cast<BoundFunctionCall *>(expr.get())->symbol->returnsRef);
+    auto *exprAsVar = dynamic_cast<BoundVariableExpression *>(expr.get());
+    auto *exprAsIndex = dynamic_cast<BoundIndexAccess *>(expr.get());
+    auto *exprAsMember = dynamic_cast<BoundMemberAccess *>(expr.get());
+    auto *exprAsUnary = dynamic_cast<BoundUnaryExpression *>(expr.get());
+    auto *exprAsCall = dynamic_cast<BoundFunctionCall *>(expr.get());
+    bool isLValue = exprAsVar || exprAsIndex || exprAsMember ||
+                    (exprAsUnary && exprAsUnary->op == "*") ||
+                    (exprAsCall && exprAsCall->symbol->returnsRef);
     if (!isLValue) {
       error(node.span, "Cannot take the address of a non-lvalue expression.");
     }
