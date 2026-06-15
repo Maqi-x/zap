@@ -3,7 +3,7 @@
 ## Zap v0.3.0
 - [ ] tagged unions
 - [ ] traits
-- [ ] type inference
+- [x] type inference
 - [x] new faster cycle collector
 - [x] ARC upgrade
 - [ ] package registery
