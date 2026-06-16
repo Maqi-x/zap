@@ -6,7 +6,7 @@
 - [x] type inference
 - [x] new faster cycle collector
 - [x] ARC upgrade
-- [ ] package registery
+- [ ] package registry
 - [ ] stdlib cleanup
 - [ ] first ZIR optimalizations
 - [x] inline asm
