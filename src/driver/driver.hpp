@@ -3,6 +3,7 @@
 #include "utils/stream.hpp"
 #include <filesystem>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace zap {
@@ -75,6 +76,10 @@ public:
   bool is_implicit_output() const noexcept { return implicit_output; }
   bool emits_llvm_text() const noexcept { return emit_llvm_text; }
   bool emits_zir() const noexcept { return emit_zir_text; }
+  const std::unordered_map<std::string, std::string> &
+  get_import_map() const noexcept {
+    return import_map;
+  }
   bool emits_text_output() const noexcept {
     return emit_llvm_text || emit_zir_text || out_type == output_type::ASM;
   }
@@ -193,6 +198,8 @@ private:
   uint8_t optimization_level = 0; ///< Optimization level (0-3).
   std::vector<std::string>
       linker_args; ///< Extra linker arguments (e.g. -lSDL2, -L/path).
+  std::unordered_map<std::string, std::string>
+      import_map; ///< Import path aliases (@alias -> path).
   std::filesystem::path executable_path; ///< Path to the running executable.
 
   /// @brief Used internally by the compile() function.

@@ -1,0 +1,16 @@
+pub fun clamp(n: Int, lo: Int, hi: Int) Int {
+    if n < lo {
+        return lo;
+    }
+    if n > hi {
+        return hi;
+    }
+    return n;
+}
+
+pub fun abs(n: Int) Int {
+    if n < 0 {
+        return 0 - n;
+    }
+    return n;
+}

@@ -1,0 +1,13 @@
+pub struct Product {
+    name: String,
+    price: Int,
+    stock: Int,
+}
+
+pub fun makeProduct(name: String, price: Int, stock: Int) Product {
+    return Product{ name: name, price: price, stock: stock };
+}
+
+pub fun isAvailable(p: Product) Bool {
+    return p.stock > 0;
+}

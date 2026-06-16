@@ -1,0 +1,21 @@
+import "@models/product" { Product, makeProduct, isAvailable };
+import "@services/cart" { calcTotal, canAdd };
+import "@utils/math" { abs };
+import "std/io" { print, printInt, printBool };
+
+fun main() Int {
+    var shoe = makeProduct("Sneaker", 120, 5);
+
+    print(shoe.name);
+    printInt(shoe.price);
+    printBool(isAvailable(shoe));
+
+    printBool(canAdd(shoe, 3));
+    printInt(calcTotal(shoe, 3));
+
+    printInt(calcTotal(shoe, 99));
+
+    printInt(abs(0 - 42));
+
+    return 0;
+}

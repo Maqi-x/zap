@@ -1,0 +1,14 @@
+import "@models/product" { Product, isAvailable };
+import "@utils/math" { clamp };
+
+pub fun calcTotal(p: Product, qty: Int) Int {
+    var clamped = clamp(qty, 0, p.stock);
+    return p.price * clamped;
+}
+
+pub fun canAdd(p: Product, qty: Int) Bool {
+    if !isAvailable(p) {
+        return false;
+    }
+    return qty > 0;
+}

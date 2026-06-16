@@ -225,15 +225,32 @@ void injectImplicitPreludeImportIfNeeded(sema::ModuleInfo &module,
                                std::move(import));
 }
 
-bool resolveImportTargets(const std::filesystem::path &modulePath,
-                          const ImportNode &importNode,
-                          std::vector<std::filesystem::path> &targets) {
+bool resolveImportTargets(
+    const std::filesystem::path &modulePath, const ImportNode &importNode,
+    std::vector<std::filesystem::path> &targets,
+    const std::unordered_map<std::string, std::string> &importMap) {
   std::filesystem::path resolvedPath;
-  if (importNode.path.rfind("std/", 0) == 0) {
-    resolvedPath = stdlibRootPath(g_executable_path) /
-                   importNode.path.substr(std::string("std/").size());
-  } else {
-    resolvedPath = modulePath.parent_path() / importNode.path;
+  const std::string &importPath = importNode.path;
+
+  bool resolvedViaMap = false;
+  for (const auto &[alias, target] : importMap) {
+    if (importPath.rfind(alias, 0) == 0) {
+      std::string rest = importPath.substr(alias.size());
+      if (!rest.empty() && rest[0] == '/')
+        rest = rest.substr(1);
+      resolvedPath = std::filesystem::path(target) / rest;
+      resolvedViaMap = true;
+      break;
+    }
+  }
+
+  if (!resolvedViaMap) {
+    if (importPath.rfind("std/", 0) == 0) {
+      resolvedPath = stdlibRootPath(g_executable_path) /
+                     importPath.substr(std::string("std/").size());
+    } else {
+      resolvedPath = modulePath.parent_path() / importPath;
+    }
   }
   resolvedPath = resolvedPath.lexically_normal();
 
@@ -277,7 +294,8 @@ bool resolveImportTargets(const std::filesystem::path &modulePath,
 bool loadModuleGraph(
     const std::filesystem::path &entryPath,
     std::map<std::string, std::unique_ptr<sema::ModuleInfo>> &modules,
-    std::set<std::string> &visiting, bool incStdlib) {
+    std::set<std::string> &visiting, bool incStdlib,
+    const std::unordered_map<std::string, std::string> &importMap) {
   auto canonicalPath = std::filesystem::weakly_canonical(entryPath);
   auto moduleId = canonicalPath.string();
 
@@ -333,7 +351,8 @@ bool loadModuleGraph(
     }
 
     std::vector<std::filesystem::path> importTargets;
-    if (resolveImportTargets(canonicalPath, *importNode, importTargets)) {
+    if (resolveImportTargets(canonicalPath, *importNode, importTargets,
+                             importMap)) {
       return true;
     }
 
@@ -346,7 +365,7 @@ bool loadModuleGraph(
 
   for (const auto &import : module->imports) {
     for (const auto &targetId : import.targetModuleIds) {
-      if (loadModuleGraph(targetId, modules, visiting, incStdlib)) {
+      if (loadModuleGraph(targetId, modules, visiting, incStdlib, importMap)) {
         return true;
       }
     }
@@ -370,7 +389,7 @@ bool compileLoadedModules(driver &drv, const std::filesystem::path &entryPath) {
   std::map<std::string, std::unique_ptr<sema::ModuleInfo>> moduleMap;
   std::set<std::string> visiting;
   if (loadModuleGraph(entryPath, moduleMap, visiting,
-                      drv.inc_stdlib && drv.inc_prelude)) {
+                      drv.inc_stdlib && drv.inc_prelude, drv.import_map)) {
     return true;
   }
 
@@ -652,6 +671,22 @@ bool driver::parseArgs(int argc, char **argv) {
     val += arg->optional;
 
     linker_args.emplace_back(std::move(val));
+  }
+
+  for (const ArgVal *arg : args.getAll(ArgTypes::ImportMap)) {
+    std::string_view entry = arg->optional;
+    auto eq = entry.find('=');
+    if (eq == std::string_view::npos) {
+      reportError("--import-map requires format @alias=path, got: ", entry);
+      err = true;
+      continue;
+    }
+    import_map[std::string(entry.substr(0, eq))] =
+        std::string(entry.substr(eq + 1));
+  }
+
+  if (err) {
+    return false;
   }
 
   if (emit_s) {
