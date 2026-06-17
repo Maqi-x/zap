@@ -1,3 +1,4 @@
+#include "driver/args/argparse.hpp"
 #include "lexer/lexer.hpp"
 #include "lsp.hpp"
 #include "parser/parser.hpp"
@@ -197,27 +198,27 @@ bool readSourceFile(const std::filesystem::path &path, std::string &content) {
   return true;
 }
 
-struct LspFlags {
-  bool allowUnsafe = true;
-};
-
-LspFlags readFlagsFromFile(const std::filesystem::path &path) {
-  LspFlags flags;
+zap::args::CmdlineArgs readFlagsFromFile(const std::filesystem::path &path) {
+  zap::args::CmdlineArgs args;
   std::ifstream file(path);
   if (!file) {
-    return flags;
+    return args;
   }
 
-  std::string line;
-  while (std::getline(file, line)) {
-    if (line == "--allow-unsafe") {
-      flags.allowUnsafe = true;
-    }
+  std::vector<std::string> argv;
+  argv.push_back(
+      "zapc"); // TODO: this is pretty ugly but works. Consider refactoring
+               // argument parser to not parse the program path from argv[0].
+  std::string word;
+  while (file >> word) {
+    argv.push_back(word);
   }
-  return flags;
+
+  zap::args::parse(argv, args);
+  return args;
 }
 
-LspFlags findAndReadFlags(std::filesystem::path startPath) {
+zap::args::CmdlineArgs findAndReadFlags(std::filesystem::path startPath) {
   if (std::filesystem::is_regular_file(startPath)) {
     startPath = startPath.parent_path();
   }
@@ -263,13 +264,33 @@ void injectImplicitPreludeImportIfNeeded(sema::ModuleInfo &module) {
 
 bool resolveImportTargets(const std::filesystem::path &modulePath,
                           const ImportNode &importNode,
-                          std::vector<std::filesystem::path> &targets) {
+                          std::vector<std::filesystem::path> &targets,
+                          const zap::args::ImportMap &importMap) {
   std::filesystem::path resolvedPath;
-  if (importNode.path.rfind("std/", 0) == 0) {
-    resolvedPath =
-        stdlibRootPath() / importNode.path.substr(std::string("std/").size());
-  } else {
-    resolvedPath = modulePath.parent_path() / importNode.path;
+  const std::string &importPath = importNode.path;
+
+  // TODO: duplicated logic (see driver.cpp:236 resolveImportTargets)
+  //       this probably should be refactored into
+  //       a shared utility function.
+  bool resolvedViaMap = false;
+  for (const auto &[alias, target] : importMap) {
+    if (importPath.rfind(alias, 0) == 0) {
+      std::string rest = importPath.substr(alias.size());
+      if (!rest.empty() && rest[0] == '/')
+        rest = rest.substr(1);
+      resolvedPath = std::filesystem::path(target) / rest;
+      resolvedViaMap = true;
+      break;
+    }
+  }
+
+  if (!resolvedViaMap) {
+    if (importPath.rfind("std/", 0) == 0) {
+      resolvedPath =
+          stdlibRootPath() / importPath.substr(std::string("std/").size());
+    } else {
+      resolvedPath = modulePath.parent_path() / importPath;
+    }
   }
   resolvedPath = resolvedPath.lexically_normal();
 
@@ -1855,7 +1876,8 @@ class Workspace {
       const std::filesystem::path &modulePath,
       std::map<std::string, std::unique_ptr<sema::ModuleInfo>> &modules,
       std::set<std::string> &visiting, AnalysisResult &result,
-      const std::string &entryUri, bool allowEntryErrors = false) const {
+      const std::string &entryUri, const zap::args::ImportMap &importMap,
+      bool allowEntryErrors = false) const {
     std::filesystem::path canonicalPath =
         std::filesystem::weakly_canonical(modulePath);
     std::string moduleId = canonicalPath.string();
@@ -1924,7 +1946,8 @@ class Workspace {
       }
 
       std::vector<std::filesystem::path> importTargets;
-      if (!resolveImportTargets(canonicalPath, *importNode, importTargets)) {
+      if (!resolveImportTargets(canonicalPath, *importNode, importTargets,
+                                importMap)) {
         continue;
       }
 
@@ -1938,7 +1961,7 @@ class Workspace {
     for (const auto &import : module->imports) {
       for (const auto &targetId : import.targetModuleIds) {
         if (!loadModuleGraph(targetId, modules, visiting, result, entryUri,
-                             allowEntryErrors)) {
+                             importMap, allowEntryErrors)) {
           visiting.erase(moduleId);
           return false;
         }
@@ -2010,10 +2033,13 @@ public:
       return std::nullopt;
     }
 
+    auto flags = findAndReadFlags(docIt->second.path);
+
     ProjectState state;
     std::set<std::string> visiting;
     if (!loadModuleGraph(docIt->second.path, state.moduleMap, visiting,
-                         state.analysis, uri, allowEntryErrors)) {
+                         state.analysis, uri, flags.importMap,
+                         allowEntryErrors)) {
       if (state.analysis.diagnosticsByUri.find(uri) ==
           state.analysis.diagnosticsByUri.end()) {
         state.analysis.diagnosticsByUri[uri] = {};
@@ -2039,10 +2065,12 @@ public:
       return result;
     }
 
+    auto flags = findAndReadFlags(docIt->second.path);
+
     std::map<std::string, std::unique_ptr<sema::ModuleInfo>> moduleMap;
     std::set<std::string> visiting;
     if (!loadModuleGraph(docIt->second.path, moduleMap, visiting, result, uri,
-                         false)) {
+                         flags.importMap, false)) {
       if (result.diagnosticsByUri.find(uri) == result.diagnosticsByUri.end()) {
         result.diagnosticsByUri[uri] = {};
       }
@@ -2072,9 +2100,7 @@ public:
       modules.push_back(std::move(*modulePtr));
     }
 
-    auto flags = findAndReadFlags(docIt->second.path);
-
-    sema::Binder binder(diagnostics, flags.allowUnsafe);
+    sema::Binder binder(diagnostics);
     auto boundAst = binder.bind(modules);
     (void)boundAst;
 
