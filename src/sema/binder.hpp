@@ -4,6 +4,7 @@
 #include "../utils/diagnostics.hpp"
 #include "bound_nodes.hpp"
 #include "module_info.hpp"
+#include "semantic_info.hpp"
 #include "symbol_table.hpp"
 #include <map>
 #include <memory>
@@ -62,9 +63,11 @@ deriveValueExpressionFromIf(const BoundIfStatement &stmt);
 
 class Binder : public Visitor {
 public:
-  Binder(zap::DiagnosticEngine &diag, bool allowUnsafe = true);
+  Binder(zap::DiagnosticEngine &diag, bool allowUnsafe = true,
+         SemanticInfo *semanticInfo = nullptr);
   std::unique_ptr<BoundRootNode> bind(RootNode &root);
   std::unique_ptr<BoundRootNode> bind(std::vector<ModuleInfo> &modules);
+  std::unique_ptr<BoundRootNode> bind(std::vector<ModuleInfo *> modules);
 
   void visit(RootNode &node) override;
   void visit(ImportNode &node) override;
@@ -113,6 +116,7 @@ public:
 
 private:
   zap::DiagnosticEngine &_diag;
+  SemanticInfo *semanticInfo_ = nullptr;
   std::shared_ptr<SymbolTable> currentScope_;
   std::shared_ptr<SymbolTable> builtinScope_;
   std::unique_ptr<BoundRootNode> boundRoot_;

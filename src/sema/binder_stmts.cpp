@@ -476,6 +476,10 @@ void Binder::visit(ForInNode &node) {
   if (!currentScope_->declare(node.itemName_, itemSymbol)) {
     error(node.span, "Variable '" + node.itemName_ + "' already declared.");
   }
+  if (semanticInfo_) {
+    semanticInfo_->recordSymbol(&node, itemSymbol);
+    semanticInfo_->recordType(&node, itemSymbol->type);
+  }
 
   std::shared_ptr<VariableSymbol> indexUserSymbol = nullptr;
   if (!node.indexName_.empty()) {

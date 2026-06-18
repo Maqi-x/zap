@@ -191,187 +191,206 @@ void collectFunctionLocals(const FunDecl *fun, size_t offset,
   collectFromBody(fun->body_.get(), offset, uri, symbols);
 }
 
-const TypeNode *findTypeInExpression(const ExpressionNode *expr, size_t offset,
-                                     std::string_view name);
+VisibleSymbolInfo findInfoInExpression(const ExpressionNode *expr,
+                                       size_t offset, std::string_view name);
 
-const TypeNode *findTypeInBody(const BodyNode *body, size_t offset,
-                               std::string_view name);
+VisibleSymbolInfo findInfoInBody(const BodyNode *body, size_t offset,
+                                 std::string_view name);
 
-const TypeNode *findTypeInStatement(const Node *node, size_t offset,
-                                    std::string_view name) {
+VisibleSymbolInfo findInfoInStatement(const Node *node, size_t offset,
+                                      std::string_view name) {
   if (!node || !startsBefore(node->span, offset)) {
-    return nullptr;
+    return {};
   }
 
   if (auto var = dynamic_cast<const VarDecl *>(node)) {
     if (var->name_ == name && var->span.offset <= offset) {
-      return var->type_.get();
+      return {var, var->type_.get()};
     }
-    return findTypeInExpression(var->initializer_.get(), offset, name);
+    return findInfoInExpression(var->initializer_.get(), offset, name);
   }
   if (auto cnst = dynamic_cast<const ConstDecl *>(node)) {
     if (cnst->name_ == name && cnst->span.offset <= offset) {
-      return cnst->type_.get();
+      return {cnst, cnst->type_.get()};
     }
-    return findTypeInExpression(cnst->initializer_.get(), offset, name);
+    return findInfoInExpression(cnst->initializer_.get(), offset, name);
   }
   if (auto body = dynamic_cast<const BodyNode *>(node)) {
-    return findTypeInBody(body, offset, name);
+    return findInfoInBody(body, offset, name);
   }
   if (auto ifNode = dynamic_cast<const IfNode *>(node)) {
     if (!containsOffset(ifNode->span, offset)) {
-      return nullptr;
+      return {};
     }
     if (auto found =
-            findTypeInExpression(ifNode->condition_.get(), offset, name)) {
+            findInfoInExpression(ifNode->condition_.get(), offset, name);
+        found.node || found.typeNode) {
       return found;
     }
     if (ifNode->thenBody_ && startsBefore(ifNode->thenBody_->span, offset)) {
-      return findTypeInBody(ifNode->thenBody_.get(), offset, name);
+      return findInfoInBody(ifNode->thenBody_.get(), offset, name);
     }
     if (ifNode->elseBody_ && startsBefore(ifNode->elseBody_->span, offset)) {
-      return findTypeInBody(ifNode->elseBody_.get(), offset, name);
+      return findInfoInBody(ifNode->elseBody_.get(), offset, name);
     }
-    return nullptr;
+    return {};
   }
   if (auto ifType = dynamic_cast<const IfTypeNode *>(node)) {
     if (!containsOffset(ifType->span, offset)) {
-      return nullptr;
+      return {};
     }
     if (ifType->parameterName_ == name && ifType->matchType_ &&
         ifType->matchType_->span.offset <= offset) {
-      return ifType->matchType_.get();
+      return {ifType, ifType->matchType_.get()};
     }
     if (ifType->thenBody_ && startsBefore(ifType->thenBody_->span, offset)) {
-      return findTypeInBody(ifType->thenBody_.get(), offset, name);
+      return findInfoInBody(ifType->thenBody_.get(), offset, name);
     }
     if (ifType->elseBody_ && startsBefore(ifType->elseBody_->span, offset)) {
-      return findTypeInBody(ifType->elseBody_.get(), offset, name);
+      return findInfoInBody(ifType->elseBody_.get(), offset, name);
     }
-    return nullptr;
+    return {};
   }
   if (auto whileNode = dynamic_cast<const WhileNode *>(node)) {
     if (!containsOffset(whileNode->span, offset)) {
-      return nullptr;
+      return {};
     }
     if (auto found =
-            findTypeInExpression(whileNode->condition_.get(), offset, name)) {
+            findInfoInExpression(whileNode->condition_.get(), offset, name);
+        found.node || found.typeNode) {
       return found;
     }
     if (whileNode->body_ && startsBefore(whileNode->body_->span, offset)) {
-      return findTypeInBody(whileNode->body_.get(), offset, name);
+      return findInfoInBody(whileNode->body_.get(), offset, name);
     }
-    return nullptr;
+    return {};
   }
   if (auto forNode = dynamic_cast<const ForNode *>(node)) {
     if (!containsOffset(forNode->span, offset)) {
-      return nullptr;
+      return {};
     }
     if (auto found =
-            findTypeInStatement(forNode->initializer_.get(), offset, name)) {
+            findInfoInStatement(forNode->initializer_.get(), offset, name);
+        found.node || found.typeNode) {
       return found;
     }
     if (auto found =
-            findTypeInExpression(forNode->condition_.get(), offset, name)) {
+            findInfoInExpression(forNode->condition_.get(), offset, name);
+        found.node || found.typeNode) {
       return found;
     }
     if (auto found =
-            findTypeInStatement(forNode->increment_.get(), offset, name)) {
+            findInfoInStatement(forNode->increment_.get(), offset, name);
+        found.node || found.typeNode) {
       return found;
     }
     if (forNode->body_ && startsBefore(forNode->body_->span, offset)) {
-      return findTypeInBody(forNode->body_.get(), offset, name);
+      return findInfoInBody(forNode->body_.get(), offset, name);
     }
-    return nullptr;
+    return {};
   }
   if (auto forIn = dynamic_cast<const ForInNode *>(node)) {
     if (!containsOffset(forIn->span, offset)) {
-      return nullptr;
+      return {};
     }
-    return findTypeInExpression(forIn->iterable_.get(), offset, name);
+    if (forIn->itemName_ == name && forIn->body_ &&
+        startsBefore(forIn->body_->span, offset)) {
+      return {forIn, nullptr};
+    }
+    return findInfoInExpression(forIn->iterable_.get(), offset, name);
   }
   if (auto unsafeBlock = dynamic_cast<const UnsafeBlockNode *>(node)) {
-    return findTypeInBody(unsafeBlock, offset, name);
+    return findInfoInBody(unsafeBlock, offset, name);
   }
   if (auto assign = dynamic_cast<const AssignNode *>(node)) {
-    if (auto found =
-            findTypeInExpression(assign->target_.get(), offset, name)) {
+    if (auto found = findInfoInExpression(assign->target_.get(), offset, name);
+        found.node || found.typeNode) {
       return found;
     }
-    return findTypeInExpression(assign->expr_.get(), offset, name);
+    return findInfoInExpression(assign->expr_.get(), offset, name);
   }
   if (auto call = dynamic_cast<const FunCall *>(node)) {
-    return findTypeInExpression(call, offset, name);
+    return findInfoInExpression(call, offset, name);
   }
   if (auto ret = dynamic_cast<const ReturnNode *>(node)) {
-    return findTypeInExpression(ret->returnValue.get(), offset, name);
+    return findInfoInExpression(ret->returnValue.get(), offset, name);
   }
   if (auto fail = dynamic_cast<const FailNode *>(node)) {
-    return findTypeInExpression(fail->errorValue_.get(), offset, name);
+    return findInfoInExpression(fail->errorValue_.get(), offset, name);
   }
-  return nullptr;
+  return {};
 }
 
-const TypeNode *findTypeInExpression(const ExpressionNode *expr, size_t offset,
-                                     std::string_view name) {
+VisibleSymbolInfo findInfoInExpression(const ExpressionNode *expr,
+                                       size_t offset, std::string_view name) {
   if (!expr || !containsOffset(expr->span, offset)) {
-    return nullptr;
+    return {};
   }
   if (auto body = dynamic_cast<const BodyNode *>(expr)) {
-    return findTypeInBody(body, offset, name);
+    return findInfoInBody(body, offset, name);
   }
   if (auto fallback = dynamic_cast<const FallbackExpr *>(expr)) {
     if (auto found =
-            findTypeInExpression(fallback->expression_.get(), offset, name)) {
+            findInfoInExpression(fallback->expression_.get(), offset, name);
+        found.node || found.typeNode) {
       return found;
     }
-    return findTypeInExpression(fallback->fallback_.get(), offset, name);
+    return findInfoInExpression(fallback->fallback_.get(), offset, name);
   }
   if (auto handled = dynamic_cast<const FailableHandleExpr *>(expr)) {
     if (auto found =
-            findTypeInExpression(handled->expression_.get(), offset, name)) {
+            findInfoInExpression(handled->expression_.get(), offset, name);
+        found.node || found.typeNode) {
       return found;
     }
-    if (handled->handler_ && startsBefore(handled->handler_->span, offset)) {
-      return findTypeInBody(handled->handler_.get(), offset, name);
+    if (handled->errorName_ == name && handled->handler_ &&
+        startsBefore(handled->handler_->span, offset)) {
+      return {handled, nullptr};
     }
-    return nullptr;
+    if (handled->handler_ && startsBefore(handled->handler_->span, offset)) {
+      return findInfoInBody(handled->handler_.get(), offset, name);
+    }
+    return {};
   }
   if (auto tryExpr = dynamic_cast<const TryExpr *>(expr)) {
-    return findTypeInExpression(tryExpr->expression_.get(), offset, name);
+    return findInfoInExpression(tryExpr->expression_.get(), offset, name);
   }
   if (auto call = dynamic_cast<const FunCall *>(expr)) {
-    if (auto found = findTypeInExpression(call->callee_.get(), offset, name)) {
+    if (auto found = findInfoInExpression(call->callee_.get(), offset, name);
+        found.node || found.typeNode) {
       return found;
     }
     for (const auto &arg : call->params_) {
       if (arg) {
-        if (auto found = findTypeInExpression(arg->value.get(), offset, name)) {
+        if (auto found = findInfoInExpression(arg->value.get(), offset, name);
+            found.node || found.typeNode) {
           return found;
         }
       }
     }
   }
-  return nullptr;
+  return {};
 }
 
-const TypeNode *findTypeInBody(const BodyNode *body, size_t offset,
-                               std::string_view name) {
+VisibleSymbolInfo findInfoInBody(const BodyNode *body, size_t offset,
+                                 std::string_view name) {
   if (!body) {
-    return nullptr;
+    return {};
   }
 
-  const TypeNode *found = nullptr;
+  VisibleSymbolInfo found;
   for (const auto &statement : body->statements) {
     if (!statement || statement->span.offset > offset) {
       break;
     }
-    if (auto current = findTypeInStatement(statement.get(), offset, name)) {
+    if (auto current = findInfoInStatement(statement.get(), offset, name);
+        current.node || current.typeNode) {
       found = current;
     }
   }
   if (body->result && body->result->span.offset <= offset) {
-    if (auto current = findTypeInExpression(body->result.get(), offset, name)) {
+    if (auto current = findInfoInExpression(body->result.get(), offset, name);
+        current.node || current.typeNode) {
       found = current;
     }
   }
@@ -407,21 +426,21 @@ std::vector<LspSymbol> collectLocalSymbols(const RootNode &root, size_t offset,
   return symbols;
 }
 
-const TypeNode *findVisibleTypeNode(const RootNode &root, size_t offset,
-                                    std::string_view name) {
+VisibleSymbolInfo findVisibleSymbolInfo(const RootNode &root, size_t offset,
+                                        std::string_view name) {
   for (const auto &child : root.children) {
     if (!child) {
       continue;
     }
     if (auto var = dynamic_cast<const VarDecl *>(child.get())) {
       if (var->name_ == name && var->span.offset <= offset) {
-        return var->type_.get();
+        return {var, var->type_.get()};
       }
       continue;
     }
     if (auto cnst = dynamic_cast<const ConstDecl *>(child.get())) {
       if (cnst->name_ == name && cnst->span.offset <= offset) {
-        return cnst->type_.get();
+        return {cnst, cnst->type_.get()};
       }
       continue;
     }
@@ -431,15 +450,15 @@ const TypeNode *findVisibleTypeNode(const RootNode &root, size_t offset,
     if (auto fun = dynamic_cast<const FunDecl *>(child.get())) {
       for (const auto &param : fun->params_) {
         if (param && param->name == name && param->span.offset <= offset) {
-          return param->type.get();
+          return {param.get(), param->type.get()};
         }
       }
-      return findTypeInBody(fun->body_.get(), offset, name);
+      return findInfoInBody(fun->body_.get(), offset, name);
     }
     if (auto cls = dynamic_cast<const ClassDecl *>(child.get())) {
       for (const auto &field : cls->fields_) {
         if (field && field->name == name && field->span.offset <= offset) {
-          return field->type.get();
+          return {field.get(), field->type.get()};
         }
       }
       for (const auto &method : cls->methods_) {
@@ -448,14 +467,19 @@ const TypeNode *findVisibleTypeNode(const RootNode &root, size_t offset,
         }
         for (const auto &param : method->params_) {
           if (param && param->name == name && param->span.offset <= offset) {
-            return param->type.get();
+            return {param.get(), param->type.get()};
           }
         }
-        return findTypeInBody(method->body_.get(), offset, name);
+        return findInfoInBody(method->body_.get(), offset, name);
       }
     }
   }
-  return nullptr;
+  return {};
+}
+
+const TypeNode *findVisibleTypeNode(const RootNode &root, size_t offset,
+                                    std::string_view name) {
+  return findVisibleSymbolInfo(root, offset, name).typeNode;
 }
 
 } // namespace zap::lsp

@@ -413,8 +413,10 @@ deriveValueExpressionFromBlock(const BoundBlock &block) {
   return nullptr;
 }
 
-Binder::Binder(zap::DiagnosticEngine &diag, bool allowUnsafe)
-    : _diag(diag), allowUnsafe_(allowUnsafe), hadError_(false) {}
+Binder::Binder(zap::DiagnosticEngine &diag, bool allowUnsafe,
+               SemanticInfo *semanticInfo)
+    : _diag(diag), semanticInfo_(semanticInfo), allowUnsafe_(allowUnsafe),
+      hadError_(false) {}
 
 std::unique_ptr<BoundRootNode> Binder::bind(RootNode &root) {
   (void)root;
@@ -425,6 +427,15 @@ std::unique_ptr<BoundRootNode> Binder::bind(RootNode &root) {
 }
 
 std::unique_ptr<BoundRootNode> Binder::bind(std::vector<ModuleInfo> &modules) {
+  std::vector<ModuleInfo *> modulePtrs;
+  modulePtrs.reserve(modules.size());
+  for (auto &module : modules) {
+    modulePtrs.push_back(&module);
+  }
+  return bind(std::move(modulePtrs));
+}
+
+std::unique_ptr<BoundRootNode> Binder::bind(std::vector<ModuleInfo *> modules) {
   hadError_ = false;
   boundRoot_ = std::make_unique<BoundRootNode>();
   modules_.clear();
@@ -452,13 +463,16 @@ std::unique_ptr<BoundRootNode> Binder::bind(std::vector<ModuleInfo> &modules) {
 
   initializeBuiltins();
 
-  for (auto &module : modules) {
+  for (auto *module : modules) {
+    if (!module) {
+      continue;
+    }
     ModuleState state;
-    state.info = &module;
+    state.info = module;
     state.scope = std::make_shared<SymbolTable>(builtinScope_);
     state.symbol =
-        std::make_shared<ModuleSymbol>(module.moduleName, module.moduleId);
-    modules_[module.moduleId] = state;
+        std::make_shared<ModuleSymbol>(module->moduleName, module->moduleId);
+    modules_[module->moduleId] = state;
   }
 
   for (auto &[_, module] : modules_) {

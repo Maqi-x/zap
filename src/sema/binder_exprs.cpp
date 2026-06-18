@@ -477,6 +477,10 @@ void Binder::visit(FailableHandleExpr &node) {
     error(node.span, "Handler variable '" + node.errorName_ +
                          "' is already declared in this scope.");
   }
+  if (semanticInfo_) {
+    semanticInfo_->recordSymbol(&node, errorSymbol);
+    semanticInfo_->recordType(&node, errorType);
+  }
 
   auto handler = bindBody(node.handler_.get(), false);
   popScope();
@@ -517,8 +521,16 @@ void Binder::visit(ConstId &node) {
   }
 
   if (auto varSymbol = std::dynamic_pointer_cast<VariableSymbol>(symbol)) {
+    if (semanticInfo_) {
+      semanticInfo_->recordSymbol(&node, varSymbol);
+      semanticInfo_->recordType(&node, varSymbol->type);
+    }
     expressionStack_.push(std::make_unique<BoundVariableExpression>(varSymbol));
   } else if (auto typeSymbol = std::dynamic_pointer_cast<TypeSymbol>(symbol)) {
+    if (semanticInfo_) {
+      semanticInfo_->recordSymbol(&node, typeSymbol);
+      semanticInfo_->recordType(&node, typeSymbol->type);
+    }
     expressionStack_.push(std::make_unique<BoundLiteral>("", typeSymbol->type));
   } else if (auto moduleSymbol =
                  std::dynamic_pointer_cast<ModuleSymbol>(symbol)) {
@@ -1604,6 +1616,9 @@ void Binder::visit(NewExpr &node) {
 
   expressionStack_.push(std::make_unique<BoundNewExpression>(
       concreteType, ctor, std::move(args), std::move(argRefs)));
+  if (semanticInfo_) {
+    semanticInfo_->recordType(&node, concreteType);
+  }
 }
 
 void Binder::visit(ConstBool &node) {

@@ -161,7 +161,27 @@ fun main() Int {
                 "inc" in labels
             ), "member completion missing for local class variable in nested block"
 
-        request(proc, "shutdown", None, 5)
+            inferred_member_source = """class Counter {
+    pub fun inc(step: Int) Int {
+        return step;
+    }
+}
+
+fun main() Int {
+    var counter = new Counter();
+    counter.inc(1);
+    return 0;
+}
+"""
+            inferred_uri = open_document(
+                proc, temp / "inferred_member.zp", inferred_member_source
+            )
+            labels = completion_labels(proc, inferred_uri, 8, 12, 5)
+            assert (
+                "inc" in labels
+            ), "member completion missing for inferred local class variable"
+
+        request(proc, "shutdown", None, 6)
         notify(proc, "exit", {})
         proc.wait(timeout=5)
     finally:

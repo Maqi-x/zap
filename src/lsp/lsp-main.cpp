@@ -6,6 +6,7 @@
 #include "parser/parser.hpp"
 #include "sema/binder.hpp"
 #include "sema/module_info.hpp"
+#include "sema/semantic_info.hpp"
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -174,6 +175,7 @@ struct AnalysisResult {
 struct ProjectState {
   std::map<std::string, std::unique_ptr<sema::ModuleInfo>> moduleMap;
   std::unordered_map<std::string, std::string> uriByModuleId;
+  sema::SemanticInfo semanticInfo;
   AnalysisResult analysis;
 };
 
@@ -709,6 +711,25 @@ resolveClassTypeNameFromTypeNode(const ProjectState &project,
   return qualified;
 }
 
+std::optional<std::string>
+resolveClassTypeNameFromSemanticType(const ProjectState &project,
+                                     const sema::ModuleInfo &module,
+                                     const std::shared_ptr<zir::Type> &type) {
+  if (!type || type->getKind() != zir::TypeKind::Class) {
+    return std::nullopt;
+  }
+  auto classType = std::static_pointer_cast<zir::ClassType>(type);
+  std::string name = classType->getName();
+  if (isClassTypeName(project, module, name)) {
+    return name;
+  }
+  auto [_, localName] = splitQualifiedName(name);
+  if (!localName.empty() && isClassTypeName(project, module, localName)) {
+    return localName;
+  }
+  return std::nullopt;
+}
+
 const ClassDecl *enclosingClassAtOffset(const RootNode &root, size_t offset) {
   for (const auto &child : root.children) {
     auto cls = dynamic_cast<const ClassDecl *>(child.get());
@@ -729,8 +750,15 @@ resolveVariableClassType(const ProjectState &project,
       return cls->name_;
     }
   }
-  if (const TypeNode *type = findVisibleTypeNode(*module.root, offset, name)) {
-    return resolveClassTypeNameFromTypeNode(project, module, type);
+  auto visible = findVisibleSymbolInfo(*module.root, offset, name);
+  if (visible.node) {
+    if (auto type = resolveClassTypeNameFromSemanticType(
+            project, module, project.semanticInfo.typeFor(visible.node))) {
+      return type;
+    }
+  }
+  if (visible.typeNode) {
+    return resolveClassTypeNameFromTypeNode(project, module, visible.typeNode);
   }
   return std::nullopt;
 }
@@ -1665,6 +1693,28 @@ public:
       } else {
         state.uriByModuleId[moduleId] = pathToUri(moduleId);
       }
+    }
+
+    auto entrySource = sourceForPath(docIt->second.path);
+    if (entrySource) {
+      auto entryId =
+          std::filesystem::weakly_canonical(docIt->second.path).string();
+      auto entryModuleIt = state.moduleMap.find(entryId);
+      if (entryModuleIt != state.moduleMap.end()) {
+        entryModuleIt->second->isEntry = true;
+      }
+
+      zap::DiagnosticEngine diagnostics(*entrySource,
+                                        docIt->second.path.string());
+      std::vector<sema::ModuleInfo *> modules;
+      modules.reserve(state.moduleMap.size());
+      for (auto &[_, modulePtr] : state.moduleMap) {
+        modules.push_back(modulePtr.get());
+      }
+
+      sema::Binder binder(diagnostics, true, &state.semanticInfo);
+      auto boundAst = binder.bind(std::move(modules));
+      (void)boundAst;
     }
     return state;
   }

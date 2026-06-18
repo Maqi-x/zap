@@ -898,9 +898,14 @@ void Binder::visit(FunDecl &node) {
     ++unsafeDepth_;
   }
 
-  for (const auto &param : symbol->parameters) {
+  for (size_t i = 0; i < symbol->parameters.size(); ++i) {
+    const auto &param = symbol->parameters[i];
     if (!currentScope_->declare(param->name, param)) {
       error(node.span, "Parameter '" + param->name + "' already declared.");
+    }
+    if (semanticInfo_ && i < node.params_.size() && node.params_[i]) {
+      semanticInfo_->recordSymbol(node.params_[i].get(), param);
+      semanticInfo_->recordType(node.params_[i].get(), param->type);
     }
   }
 
@@ -1086,6 +1091,10 @@ void Binder::visit(VarDecl &node) {
     symbol->type = type;
   }
   symbol->is_ref = isRef;
+  if (semanticInfo_) {
+    semanticInfo_->recordSymbol(&node, symbol);
+    semanticInfo_->recordType(&node, symbol->type);
+  }
 
   auto boundDecl = std::make_unique<BoundVariableDeclaration>(
       symbol, std::move(initializer));
@@ -1163,6 +1172,10 @@ void Binder::visit(ConstDecl &node) {
   if (initializer) {
     symbol->constant_value =
         std::shared_ptr<BoundExpression>(initializer->clone());
+  }
+  if (semanticInfo_) {
+    semanticInfo_->recordSymbol(&node, symbol);
+    semanticInfo_->recordType(&node, symbol->type);
   }
 
   auto boundDecl = std::make_unique<BoundVariableDeclaration>(
