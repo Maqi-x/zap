@@ -139,7 +139,29 @@ def main():
             assert "step" in labels, "method parameter missing from completion"
             assert "value" in labels, "class field missing from method completion"
 
-        request(proc, "shutdown", None, 4)
+            nested_member_source = """class Counter {
+    pub fun inc(step: Int) Int {
+        return step;
+    }
+}
+
+fun main() Int {
+    if true {
+        var counter: Counter = new Counter();
+        counter.
+    }
+    return 0;
+}
+"""
+            nested_uri = open_document(
+                proc, temp / "nested_member.zp", nested_member_source
+            )
+            labels = completion_labels(proc, nested_uri, 9, 16, 4)
+            assert (
+                "inc" in labels
+            ), "member completion missing for local class variable in nested block"
+
+        request(proc, "shutdown", None, 5)
         notify(proc, "exit", {})
         proc.wait(timeout=5)
     finally:

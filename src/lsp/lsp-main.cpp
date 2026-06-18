@@ -720,87 +720,6 @@ const ClassDecl *enclosingClassAtOffset(const RootNode &root, size_t offset) {
   return nullptr;
 }
 
-std::optional<std::string> lookupTypeInBody(const ProjectState &project,
-                                            const sema::ModuleInfo &module,
-                                            const BodyNode *body, size_t offset,
-                                            std::string_view name);
-
-std::optional<std::string> lookupTypeInNode(const ProjectState &project,
-                                            const sema::ModuleInfo &module,
-                                            const Node *node, size_t offset,
-                                            std::string_view name) {
-  if (!node) {
-    return std::nullopt;
-  }
-  if (auto var = dynamic_cast<const VarDecl *>(node)) {
-    if (var->name_ == name && var->span.offset <= offset) {
-      return resolveClassTypeNameFromTypeNode(project, module,
-                                              var->type_.get());
-    }
-    return std::nullopt;
-  }
-  if (auto cnst = dynamic_cast<const ConstDecl *>(node)) {
-    if (cnst->name_ == name && cnst->span.offset <= offset) {
-      return resolveClassTypeNameFromTypeNode(project, module,
-                                              cnst->type_.get());
-    }
-    return std::nullopt;
-  }
-  if (auto body = dynamic_cast<const BodyNode *>(node)) {
-    return lookupTypeInBody(project, module, body, offset, name);
-  }
-  if (auto ifNode = dynamic_cast<const IfNode *>(node)) {
-    if (!containsOffset(ifNode->span, offset)) {
-      return std::nullopt;
-    }
-    if (ifNode->thenBody_) {
-      if (auto found = lookupTypeInBody(
-              project, module, ifNode->thenBody_.get(), offset, name)) {
-        return found;
-      }
-    }
-    if (ifNode->elseBody_) {
-      if (auto found = lookupTypeInBody(
-              project, module, ifNode->elseBody_.get(), offset, name)) {
-        return found;
-      }
-    }
-    return std::nullopt;
-  }
-  if (auto whileNode = dynamic_cast<const WhileNode *>(node)) {
-    if (containsOffset(whileNode->span, offset) && whileNode->body_) {
-      return lookupTypeInBody(project, module, whileNode->body_.get(), offset,
-                              name);
-    }
-  }
-  return std::nullopt;
-}
-
-std::optional<std::string> lookupTypeInBody(const ProjectState &project,
-                                            const sema::ModuleInfo &module,
-                                            const BodyNode *body, size_t offset,
-                                            std::string_view name) {
-  if (!body) {
-    return std::nullopt;
-  }
-  for (const auto &statement : body->statements) {
-    if (!statement || statement->span.offset > offset) {
-      break;
-    }
-    if (auto found =
-            lookupTypeInNode(project, module, statement.get(), offset, name)) {
-      return found;
-    }
-  }
-  if (body->result && body->result->span.offset <= offset) {
-    if (auto found = lookupTypeInNode(project, module, body->result.get(),
-                                      offset, name)) {
-      return found;
-    }
-  }
-  return std::nullopt;
-}
-
 std::optional<std::string>
 resolveVariableClassType(const ProjectState &project,
                          const sema::ModuleInfo &module, size_t offset,
@@ -810,58 +729,9 @@ resolveVariableClassType(const ProjectState &project,
       return cls->name_;
     }
   }
-
-  for (const auto &child : module.root->children) {
-    if (auto var = dynamic_cast<const VarDecl *>(child.get())) {
-      if (var->name_ == name) {
-        return resolveClassTypeNameFromTypeNode(project, module,
-                                                var->type_.get());
-      }
-    }
-    if (auto cnst = dynamic_cast<const ConstDecl *>(child.get())) {
-      if (cnst->name_ == name) {
-        return resolveClassTypeNameFromTypeNode(project, module,
-                                                cnst->type_.get());
-      }
-    }
-    if (auto fun = dynamic_cast<const FunDecl *>(child.get())) {
-      if (!containsOffset(fun->span, offset)) {
-        continue;
-      }
-      for (const auto &param : fun->params_) {
-        if (param && param->name == name) {
-          return resolveClassTypeNameFromTypeNode(project, module,
-                                                  param->type.get());
-        }
-      }
-      return lookupTypeInBody(project, module, fun->body_.get(), offset, name);
-    }
-    if (auto cls = dynamic_cast<const ClassDecl *>(child.get())) {
-      if (!containsOffset(cls->span, offset)) {
-        continue;
-      }
-      for (const auto &field : cls->fields_) {
-        if (field && field->name == name) {
-          return resolveClassTypeNameFromTypeNode(project, module,
-                                                  field->type.get());
-        }
-      }
-      for (const auto &method : cls->methods_) {
-        if (!method || !containsOffset(method->span, offset)) {
-          continue;
-        }
-        for (const auto &param : method->params_) {
-          if (param && param->name == name) {
-            return resolveClassTypeNameFromTypeNode(project, module,
-                                                    param->type.get());
-          }
-        }
-        return lookupTypeInBody(project, module, method->body_.get(), offset,
-                                name);
-      }
-    }
+  if (const TypeNode *type = findVisibleTypeNode(*module.root, offset, name)) {
+    return resolveClassTypeNameFromTypeNode(project, module, type);
   }
-
   return std::nullopt;
 }
 
