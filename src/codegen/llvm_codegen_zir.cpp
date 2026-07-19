@@ -158,18 +158,22 @@ LLVMCodeGen::lowerZIRValue(const std::shared_ptr<zir::Value> &value) {
     return lowerZIRArrayConstant(
         static_cast<const zir::ArrayConstant &>(*value));
   }
+  if (value->getKind() == zir::ValueKind::FunctionReference) {
+    const auto &reference =
+        static_cast<const zir::FunctionReference &>(*value);
+    auto it = functionMap_.find(reference.getLinkName());
+    if (it != functionMap_.end())
+      return it->second;
+    auto zirIt = zirFunctionMap_.find(reference.getLinkName());
+    if (zirIt != zirFunctionMap_.end()) {
+      declareZIRFunction(*zirIt->second, false);
+      return functionMap_.at(reference.getLinkName());
+    }
+    throw std::runtime_error("unknown ZIR function reference: " +
+                             reference.getLinkName());
+  }
   if (value->getKind() == zir::ValueKind::Global) {
     const auto &g = static_cast<const zir::Global &>(*value);
-    if (g.getValueType()->getKind() == zir::TypeKind::FunctionPointer) {
-      auto it = functionMap_.find(g.getLinkName());
-      if (it != functionMap_.end())
-        return it->second;
-      auto zirIt = zirFunctionMap_.find(g.getLinkName());
-      if (zirIt != zirFunctionMap_.end()) {
-        declareZIRFunction(*zirIt->second, false);
-        return functionMap_.at(g.getLinkName());
-      }
-    }
     return globalValues_.at(g.getLinkName());
   }
 

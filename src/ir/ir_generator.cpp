@@ -36,6 +36,15 @@ std::string renderTypeForUser(const std::shared_ptr<Type> &type) {
     return type->toString();
   }
 }
+
+bool isTerminated(const BasicBlock *block) {
+  if (!block || block->instructions.empty()) {
+    return false;
+  }
+  const auto opcode = block->instructions.back()->getOpCode();
+  return opcode == OpCode::Ret || opcode == OpCode::Br ||
+         opcode == OpCode::CondBr;
+}
 } // namespace
 
 std::shared_ptr<Value> BoundIRGenerator::lowerConstantExpression(
@@ -222,9 +231,7 @@ void BoundIRGenerator::visit(sema::BoundFunctionDeclaration &node) {
     node.body->accept(*this);
   }
 
-  if (currentBlock_ &&
-      (currentBlock_->instructions.empty() ||
-       currentBlock_->instructions.back()->getOpCode() != OpCode::Ret)) {
+  if (currentBlock_ && !isTerminated(currentBlock_)) {
     if (symbol->returnType->getKind() == TypeKind::Void) {
       currentBlock_->addInstruction(std::make_unique<ReturnInst>());
     } else {
@@ -263,6 +270,9 @@ void BoundIRGenerator::visit(sema::BoundExternalFunctionDeclaration &node) {
 void BoundIRGenerator::visit(sema::BoundBlock &node) {
   std::vector<std::shared_ptr<sema::VariableSymbol>> blockClassLocals;
   for (const auto &stmt : node.statements) {
+    if (isTerminated(currentBlock_)) {
+      break;
+    }
     stmt->accept(*this);
     if (currentFunction_) {
       if (auto *varDecl =
@@ -278,11 +288,7 @@ void BoundIRGenerator::visit(sema::BoundBlock &node) {
     node.result->accept(*this);
   }
 
-  if (currentFunction_ && currentBlock_ &&
-      (currentBlock_->instructions.empty() ||
-       (currentBlock_->instructions.back()->getOpCode() != OpCode::Ret &&
-        currentBlock_->instructions.back()->getOpCode() != OpCode::Br &&
-        currentBlock_->instructions.back()->getOpCode() != OpCode::CondBr))) {
+  if (currentFunction_ && currentBlock_ && !isTerminated(currentBlock_)) {
     for (auto it = blockClassLocals.rbegin(); it != blockClassLocals.rend();
          ++it) {
       auto symbolIt = symbolMap_.find(*it);
@@ -728,10 +734,10 @@ void BoundIRGenerator::visit(sema::BoundFunctionCall &node) {
 }
 
 void BoundIRGenerator::visit(sema::BoundFunctionReference &node) {
-  // Represent as a Global value pointing to the function
-  auto fnGlobal = std::make_shared<Global>(
-      node.symbol->linkName, node.symbol->linkName, node.type, nullptr, true);
-  valueStack_.push(fnGlobal);
+  auto functionType =
+      std::static_pointer_cast<FunctionPointerType>(node.type);
+  valueStack_.push(std::make_shared<FunctionReference>(
+      node.symbol->linkName, std::move(functionType)));
 }
 
 void BoundIRGenerator::visit(sema::BoundIndirectCall &node) {
@@ -1384,9 +1390,7 @@ void BoundIRGenerator::visit(sema::BoundFailableHandleExpression &node) {
     handlerValue = std::make_shared<Constant>("0", node.type);
   }
 
-  bool handlerReachesMerge =
-      currentBlock_->instructions.empty() ||
-      currentBlock_->instructions.back()->getOpCode() != OpCode::Ret;
+  bool handlerReachesMerge = !isTerminated(currentBlock_);
   std::string handlerFrom = currentBlock_->label;
   if (handlerReachesMerge) {
     currentBlock_->addInstruction(std::make_unique<BranchInst>(mergeLabel));
@@ -1448,8 +1452,7 @@ void BoundIRGenerator::visit(sema::BoundIfStatement &node) {
 
   std::string actualThenLabel = currentBlock_->label;
 
-  if (currentBlock_->instructions.empty() ||
-      currentBlock_->instructions.back()->getOpCode() != OpCode::Ret) {
+  if (!isTerminated(currentBlock_)) {
     currentBlock_->addInstruction(std::make_unique<BranchInst>(mergeLabel));
   }
 
@@ -1463,8 +1466,7 @@ void BoundIRGenerator::visit(sema::BoundIfStatement &node) {
 
     actualElseLabel = currentBlock_->label;
 
-    if (currentBlock_->instructions.empty() ||
-        currentBlock_->instructions.back()->getOpCode() != OpCode::Ret) {
+    if (!isTerminated(currentBlock_)) {
       currentBlock_->addInstruction(std::make_unique<BranchInst>(mergeLabel));
     }
   }
@@ -1500,8 +1502,7 @@ void BoundIRGenerator::visit(sema::BoundWhileStatement &node) {
   loopLabelStack_.push_back({condLabel, endLabel});
   node.body->accept(*this);
   loopLabelStack_.pop_back();
-  if (currentBlock_->instructions.empty() ||
-      currentBlock_->instructions.back()->getOpCode() != OpCode::Ret) {
+  if (!isTerminated(currentBlock_)) {
     currentBlock_->addInstruction(std::make_unique<BranchInst>(condLabel));
   }
 
@@ -1552,8 +1553,7 @@ void BoundIRGenerator::visit(sema::BoundForStatement &node) {
     node.body->accept(*this);
   }
   loopLabelStack_.pop_back();
-  if (currentBlock_->instructions.empty() ||
-      currentBlock_->instructions.back()->getOpCode() != OpCode::Ret) {
+  if (!isTerminated(currentBlock_)) {
     currentBlock_->addInstruction(std::make_unique<BranchInst>(stepLabel));
   }
 
@@ -1564,8 +1564,7 @@ void BoundIRGenerator::visit(sema::BoundForStatement &node) {
   if (node.increment) {
     node.increment->accept(*this);
   }
-  if (currentBlock_->instructions.empty() ||
-      currentBlock_->instructions.back()->getOpCode() != OpCode::Ret) {
+  if (!isTerminated(currentBlock_)) {
     currentBlock_->addInstruction(std::make_unique<BranchInst>(condLabel));
   }
 
@@ -1658,7 +1657,8 @@ void BoundIRGenerator::visit(sema::BoundIndexAccess &node) {
       auto elemType = std::static_pointer_cast<zir::PointerType>(
                           recordType->getFields()[0].type)
                           ->getBaseType();
-      auto dataAddr = createRegister(recordType->getFields()[0].type);
+      auto dataAddr = createRegister(
+          std::make_shared<PointerType>(recordType->getFields()[0].type));
       currentBlock_->addInstruction(
           std::make_unique<GetElementPtrInst>(dataAddr, sliceAddr, 0));
 

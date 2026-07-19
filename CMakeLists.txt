@@ -40,6 +40,14 @@ set(SOURCES
     src/utils/stream.cpp
 )
 
+add_library(zap_zir_verifier STATIC
+    src/ir/zir_verifier.cpp
+    src/ir/zir_verifier_function.cpp
+    src/ir/zir_verifier_types.cpp
+)
+target_include_directories(zap_zir_verifier PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_options(zap_zir_verifier PRIVATE -Wall -Wextra)
+
 add_executable(zapc ${SOURCES})
 
 target_include_directories(zapc PRIVATE "${CMAKE_SOURCE_DIR}/src" ${LLVM_INCLUDE_DIRS})
@@ -76,12 +84,21 @@ else()
 endif()
 
 target_link_libraries(zapc PRIVATE ${llvm_libs})
+target_link_libraries(zapc PRIVATE zap_zir_verifier)
 target_compile_definitions(zapc PRIVATE ${LLVM_DEFINITIONS})
 target_compile_definitions(zapc PRIVATE ZAPC_STDLIB_PATH="${CMAKE_BINARY_DIR}/stdlib.o")
 target_compile_definitions(zapc PRIVATE ZAPC_CORE_DIR="${CMAKE_SOURCE_DIR}/core")
 target_compile_definitions(zapc PRIVATE ZAPC_STDLIB_DIR="${CMAKE_SOURCE_DIR}/std")
 
 include(cmake/doxygen.cmake)
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(zap-zir-verifier-tests tests/cpp/zir_verifier_test.cpp)
+    target_link_libraries(zap-zir-verifier-tests PRIVATE zap_zir_verifier)
+    target_compile_options(zap-zir-verifier-tests PRIVATE -Wall -Wextra)
+    add_test(NAME zir-verifier COMMAND zap-zir-verifier-tests)
+endif()
 
 option(INCLUDE_LSP "Should the LSP binary be compiled" ON)
 if(INCLUDE_LSP)

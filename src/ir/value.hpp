@@ -14,6 +14,7 @@ enum class ValueKind {
   ArrayConstant,
   GlobalAddress,
   Argument,
+  FunctionReference,
   Global
 };
 
@@ -131,6 +132,20 @@ public:
   const std::shared_ptr<Type> &getVariadicElementType() const {
     return variadicElementType_;
   }
+};
+
+class FunctionReference : public Value {
+  std::string linkName;
+  std::shared_ptr<FunctionPointerType> type;
+
+public:
+  FunctionReference(std::string name, std::shared_ptr<FunctionPointerType> type)
+      : linkName(std::move(name)), type(std::move(type)) {}
+
+  ValueKind getKind() const override { return ValueKind::FunctionReference; }
+  std::string getName() const override { return "@" + linkName; }
+  std::shared_ptr<Type> getType() const override { return type; }
+  const std::string &getLinkName() const { return linkName; }
 };
 
 class Global : public Value {

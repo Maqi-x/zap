@@ -1048,6 +1048,8 @@ void Binder::visit(ArrayLiteralNode &node) {
         error(el->span, "Array elements must have the same type. Expected '" +
                             renderTypeForUser(elementType) + "', but got '" +
                             renderTypeForUser(boundEl->type) + "'");
+      } else {
+        boundEl = wrapInCast(std::move(boundEl), elementType);
       }
       elements.push_back(std::move(boundEl));
     }

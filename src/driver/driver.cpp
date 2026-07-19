@@ -4,6 +4,7 @@
 #include "driver/process.hpp"
 #include "frontend/module_loader.hpp"
 #include "ir/ir_generator.hpp"
+#include "ir/zir_verifier.hpp"
 #include "lexer/lexer.hpp"
 #include "parser/parser.hpp"
 #include "sema/binder.hpp"
@@ -386,7 +387,16 @@ bool driver::verifySources() {
 
 std::unique_ptr<zir::Module> generateZIRModule(sema::BoundRootNode &node) {
   zir::BoundIRGenerator irGen;
-  return irGen.generate(node);
+  auto module = irGen.generate(node);
+  if (!module) {
+    return nullptr;
+  }
+  auto verification = zir::ZirVerifier().verify(*module);
+  if (!verification) {
+    throw std::runtime_error("ZIR verification failed:\n" +
+                             verification.format());
+  }
+  return module;
 }
 
 bool compileSourceZIR(sema::BoundRootNode &node, std::ostream &ofoutput) {
