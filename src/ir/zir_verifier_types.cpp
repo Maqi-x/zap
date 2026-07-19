@@ -2,74 +2,10 @@
 
 namespace zir::verifier_detail {
 
-bool sameType(const std::shared_ptr<Type> &lhs,
-              const std::shared_ptr<Type> &rhs) {
-  if (lhs == rhs) {
-    return true;
-  }
-  if (!lhs || !rhs || lhs->getKind() != rhs->getKind() ||
-      lhs->getIntrinsicKind() != rhs->getIntrinsicKind()) {
-    return false;
-  }
-  if (lhs->getIntrinsicKind() != IntrinsicTypeKind::None) {
-    return true;
-  }
-
-  switch (lhs->getKind()) {
-  case TypeKind::Pointer: {
-    const auto &lhsPointer = static_cast<const PointerType &>(*lhs);
-    const auto &rhsPointer = static_cast<const PointerType &>(*rhs);
-    return sameType(lhsPointer.getBaseType(), rhsPointer.getBaseType());
-  }
-  case TypeKind::Array: {
-    const auto &lhsArray = static_cast<const ArrayType &>(*lhs);
-    const auto &rhsArray = static_cast<const ArrayType &>(*rhs);
-    return lhsArray.getSize() == rhsArray.getSize() &&
-           sameType(lhsArray.getBaseType(), rhsArray.getBaseType());
-  }
-  case TypeKind::Record: {
-    const auto &lhsRecord = static_cast<const RecordType &>(*lhs);
-    const auto &rhsRecord = static_cast<const RecordType &>(*rhs);
-    return lhsRecord.getCodegenName() == rhsRecord.getCodegenName();
-  }
-  case TypeKind::Class: {
-    const auto &lhsClass = static_cast<const ClassType &>(*lhs);
-    const auto &rhsClass = static_cast<const ClassType &>(*rhs);
-    return lhsClass.getCodegenName() == rhsClass.getCodegenName() &&
-           lhsClass.isWeak() == rhsClass.isWeak();
-  }
-  case TypeKind::Enum: {
-    const auto &lhsEnum = static_cast<const EnumType &>(*lhs);
-    const auto &rhsEnum = static_cast<const EnumType &>(*rhs);
-    return lhsEnum.getCodegenName() == rhsEnum.getCodegenName();
-  }
-  case TypeKind::TaggedUnion: {
-    const auto &lhsUnion = static_cast<const TaggedUnionType &>(*lhs);
-    const auto &rhsUnion = static_cast<const TaggedUnionType &>(*rhs);
-    return lhsUnion.getCodegenName() == rhsUnion.getCodegenName();
-  }
-  case TypeKind::FunctionPointer: {
-    const auto &lhsFunction = static_cast<const FunctionPointerType &>(*lhs);
-    const auto &rhsFunction = static_cast<const FunctionPointerType &>(*rhs);
-    if (!sameType(lhsFunction.getReturnType(), rhsFunction.getReturnType()) ||
-        lhsFunction.getParams().size() != rhsFunction.getParams().size()) {
-      return false;
-    }
-    for (size_t i = 0; i < lhsFunction.getParams().size(); ++i) {
-      if (!sameType(lhsFunction.getParams()[i], rhsFunction.getParams()[i])) {
-        return false;
-      }
-    }
-    return true;
-  }
-  default:
-    return true;
-  }
-}
-
 bool isAssignable(const std::shared_ptr<Type> &actual,
-                  const std::shared_ptr<Type> &expected) {
-  if (sameType(actual, expected)) {
+                  const std::shared_ptr<Type> &expected,
+                  TypeInterner &typeInterner) {
+  if (typeInterner.same(actual, expected)) {
     return true;
   }
   if (!actual || !expected) {

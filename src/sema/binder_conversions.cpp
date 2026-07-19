@@ -72,7 +72,7 @@ int Binder::conversionCost(std::shared_ptr<zir::Type> from,
   if (!from || !to) {
     return 1000;
   }
-  if (from->toString() == to->toString()) {
+  if (typeInterner_.same(from, to)) {
     return 0;
   }
   if (isNullType(from) && isPointerType(to)) {
@@ -186,7 +186,7 @@ bool Binder::canConvert(std::shared_ptr<zir::Type> from,
                         std::shared_ptr<zir::Type> to) const {
   if (!from || !to)
     return false;
-  if (from->getKind() == to->getKind() && from->toString() == to->toString())
+  if (typeInterner_.same(from, to))
     return true;
 
   auto key = std::make_pair(from.get(), to.get());
@@ -223,8 +223,8 @@ bool Binder::canConvert(std::shared_ptr<zir::Type> from,
         viewType->getFields()[0].type->getKind() == zir::TypeKind::Pointer) {
       auto dataType = std::static_pointer_cast<zir::PointerType>(
           viewType->getFields()[0].type);
-      return cached = (arrayType->getBaseType()->toString() ==
-                       dataType->getBaseType()->toString());
+      return cached = typeInterner_.same(arrayType->getBaseType(),
+                                         dataType->getBaseType());
     }
   }
   if (isFailableType(from) && isFailableType(to)) {
@@ -246,7 +246,7 @@ bool Binder::canConvert(std::shared_ptr<zir::Type> from,
 std::shared_ptr<zir::Type>
 Binder::getPromotedType(std::shared_ptr<zir::Type> t1,
                         std::shared_ptr<zir::Type> t2) {
-  if (t1->toString() == t2->toString())
+  if (typeInterner_.same(t1, t2))
     return t1;
 
   if (t1->isFloatingPoint() || t2->isFloatingPoint()) {
@@ -356,8 +356,7 @@ Binder::wrapInCast(std::unique_ptr<BoundExpression> expr,
                    std::shared_ptr<zir::Type> targetType) {
   if (!expr || !targetType)
     return expr;
-  if (expr->type->getKind() == targetType->getKind() &&
-      expr->type->toString() == targetType->toString()) {
+  if (typeInterner_.same(expr->type, targetType)) {
     return expr;
   }
   if (isNullType(expr->type) && isPointerType(targetType)) {

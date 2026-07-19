@@ -564,7 +564,7 @@ void Binder::visit(FunCall &node) {
 
         if (argIsRef) {
           auto varExpr = dynamic_cast<BoundVariableExpression *>(arg.get());
-          if (!varExpr || arg->type->toString() != expectedType->toString()) {
+          if (!varExpr || !typeInterner_.same(arg->type, expectedType)) {
             failed = true;
             failureReason = "ref argument for parameter '" + parameter->name +
                             "' must exactly match type '" +
@@ -658,8 +658,7 @@ void Binder::visit(FunCall &node) {
     }
 
     if (expectedReturnType) {
-      if (funcSymbol->returnType->toString() ==
-          expectedReturnType->toString()) {
+      if (typeInterner_.same(funcSymbol->returnType, expectedReturnType)) {
         match.returnCost = 0;
         match.notes.push_back("return: exact match");
       } else if (canConvert(funcSymbol->returnType, expectedReturnType)) {

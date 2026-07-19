@@ -12,14 +12,15 @@ using verifier_detail::instructionResult;
 using verifier_detail::isAssignable;
 using verifier_detail::isStringType;
 using verifier_detail::isTerminator;
-using verifier_detail::sameType;
 using verifier_detail::typeName;
 
 class FunctionVerifier {
 public:
   FunctionVerifier(const Module &module, const Function &function,
-                   std::vector<VerificationError> &errors)
-      : module_(module), function_(function), errors_(errors) {}
+                   std::vector<VerificationError> &errors,
+                   TypeInterner &typeInterner)
+      : module_(module), function_(function), errors_(errors),
+        typeInterner_(typeInterner) {}
 
   void verify() {
     verifySignature();
@@ -44,6 +45,7 @@ private:
   const Module &module_;
   const Function &function_;
   std::vector<VerificationError> &errors_;
+  TypeInterner &typeInterner_;
   std::unordered_map<std::string, const BasicBlock *> blocks_;
   std::unordered_map<const BasicBlock *, std::vector<const BasicBlock *>>
       predecessors_;
@@ -264,7 +266,7 @@ private:
                       const std::shared_ptr<Type> &expected,
                       const BasicBlock &block, size_t index,
                       const std::string &context) {
-    if (!sameType(actual, expected)) {
+    if (!typeInterner_.same(actual, expected)) {
       error(VerificationErrorCode::TypeMismatch, &block, index,
             context + ": expected " + typeName(expected) + ", got " +
                 typeName(actual));
@@ -275,7 +277,7 @@ private:
                         const std::shared_ptr<Type> &expected,
                         const BasicBlock &block, size_t index,
                         const std::string &context) {
-    if (!isAssignable(actual, expected)) {
+    if (!isAssignable(actual, expected, typeInterner_)) {
       error(VerificationErrorCode::TypeMismatch, &block, index,
             context + ": expected " + typeName(expected) + ", got " +
                 typeName(actual));
@@ -309,8 +311,8 @@ private:
       }
       auto pointer = std::dynamic_pointer_cast<PointerType>(
           alloca.getResult()->getType());
-      if (!pointer || !sameType(pointer->getBaseType(),
-                                alloca.getAllocatedType())) {
+      if (!pointer || !typeInterner_.same(pointer->getBaseType(),
+                                          alloca.getAllocatedType())) {
         error(VerificationErrorCode::TypeMismatch, &block, index,
               "alloca result must point to the allocated type");
       }
@@ -683,8 +685,8 @@ private:
 
 void verifier_detail::verifyDefinedFunction(
     const Module &module, const Function &function,
-    std::vector<VerificationError> &errors) {
-  FunctionVerifier(module, function, errors).verify();
+    std::vector<VerificationError> &errors, TypeInterner &typeInterner) {
+  FunctionVerifier(module, function, errors, typeInterner).verify();
 }
 
 } // namespace zir

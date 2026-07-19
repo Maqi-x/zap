@@ -569,7 +569,7 @@ Binder::buildGenericBindings(
           bindings[normalizedParamName] = argType;
           return true;
         }
-        return it->second->toString() == argType->toString();
+        return typeInterner_.same(it->second, argType);
       }
       return true;
     }
@@ -613,7 +613,7 @@ Binder::buildGenericBindings(
           bindings[normalizedParamName] = argType;
           return true;
         }
-        return it->second->toString() == argType->toString();
+        return typeInterner_.same(it->second, argType);
       }
       return true;
     }

@@ -39,6 +39,10 @@ set(SOURCES
     src/utils/stream.cpp
 )
 
+add_library(zap_type_system STATIC src/ir/type_identity.cpp)
+target_include_directories(zap_type_system PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_options(zap_type_system PRIVATE -Wall -Wextra)
+
 add_library(zap_zir_verifier STATIC
     src/ir/zir_verifier.cpp
     src/ir/zir_verifier_function.cpp
@@ -46,6 +50,7 @@ add_library(zap_zir_verifier STATIC
 )
 target_include_directories(zap_zir_verifier PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_options(zap_zir_verifier PRIVATE -Wall -Wextra)
+target_link_libraries(zap_zir_verifier PUBLIC zap_type_system)
 
 add_executable(zapc ${SOURCES})
 
@@ -83,6 +88,7 @@ else()
 endif()
 
 target_link_libraries(zapc PRIVATE ${llvm_libs})
+target_link_libraries(zapc PRIVATE zap_type_system)
 target_link_libraries(zapc PRIVATE zap_zir_verifier)
 target_compile_definitions(zapc PRIVATE ${LLVM_DEFINITIONS})
 target_compile_definitions(zapc PRIVATE ZAPC_STDLIB_PATH="${CMAKE_BINARY_DIR}/stdlib.o")
@@ -93,6 +99,11 @@ include(cmake/doxygen.cmake)
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(zap-type-identity-tests tests/cpp/type_identity_test.cpp)
+    target_link_libraries(zap-type-identity-tests PRIVATE zap_type_system)
+    target_compile_options(zap-type-identity-tests PRIVATE -Wall -Wextra)
+    add_test(NAME type-identity COMMAND zap-type-identity-tests)
+
     add_executable(zap-zir-verifier-tests tests/cpp/zir_verifier_test.cpp)
     target_link_libraries(zap-zir-verifier-tests PRIVATE zap_zir_verifier)
     target_compile_options(zap-zir-verifier-tests PRIVATE -Wall -Wextra)

@@ -27,6 +27,7 @@ set(LSP_SOURCES
 )
 
 add_executable(zap-lsp ${LSP_SOURCES})
+target_link_libraries(zap-lsp PRIVATE zap_type_system)
 
 target_include_directories(zap-lsp PRIVATE "${CMAKE_SOURCE_DIR}/src")
 target_compile_options(zap-lsp PRIVATE -Wall -Wextra)

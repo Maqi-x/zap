@@ -1,6 +1,7 @@
 #pragma once
 #include "../ast/nodes.hpp"
 #include "../ast/visitor.hpp"
+#include "../ir/type_identity.hpp"
 #include "../utils/diagnostics.hpp"
 #include "bound_nodes.hpp"
 #include "module_info.hpp"
@@ -123,6 +124,7 @@ private:
   std::stack<std::unique_ptr<BoundStatement>> statementStack_;
   std::unique_ptr<BoundBlock> currentBlock_;
   std::vector<std::shared_ptr<zir::Type>> expectedExpressionTypes_;
+  mutable zir::TypeInterner typeInterner_;
 
   int loopDepth_ = 0;
   size_t syntheticLoopCounter_ = 0;

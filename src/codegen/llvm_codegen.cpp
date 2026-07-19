@@ -449,13 +449,20 @@ llvm::Type *LLVMCodeGen::toLLVMType(const zir::Type &ty) {
   }
   case zir::TypeKind::Record: {
     const auto &rt = static_cast<const zir::RecordType &>(ty);
-    auto it = structCache_.find(rt.getCodegenName());
+    std::string cacheKey = rt.getCodegenName();
+    if (zir::isIntrinsicStringType(rt)) {
+      cacheKey = rt.getIntrinsicKind() == zir::IntrinsicTypeKind::String
+                     ? "zap.intrinsic.String"
+                     : "zap.intrinsic.StringView";
+    }
+
+    auto it = structCache_.find(cacheKey);
     if (it != structCache_.end())
       return it->second;
 
     if (zir::isIntrinsicStringType(rt)) {
-      auto *structTy = llvm::StructType::create(ctx_, rt.getCodegenName());
-      structCache_[rt.getCodegenName()] = structTy;
+      auto *structTy = llvm::StructType::create(ctx_, cacheKey);
+      structCache_[cacheKey] = structTy;
       std::vector<llvm::Type *> fieldTypes;
       fieldTypes.push_back(
           llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_)));
@@ -465,7 +472,7 @@ llvm::Type *LLVMCodeGen::toLLVMType(const zir::Type &ty) {
     }
 
     auto *structTy = llvm::StructType::create(ctx_, rt.getCodegenName());
-    structCache_[rt.getCodegenName()] = structTy;
+    structCache_[cacheKey] = structTy;
     std::vector<llvm::Type *> fieldTypes;
     for (const auto &f : rt.getFields())
       fieldTypes.push_back(toLLVMAggregateFieldType(f.type));

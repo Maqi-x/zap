@@ -28,6 +28,7 @@ VerificationResult ZirVerifier::verify(const Module &module) const {
   VerificationResult result;
   std::vector<VerificationError> errors;
   std::unordered_set<std::string> symbols;
+  TypeInterner typeInterner;
   auto registerFunction = [&](const std::unique_ptr<Function> &function,
                               bool external) {
     if (!function) {
@@ -48,7 +49,8 @@ VerificationResult ZirVerifier::verify(const Module &module) const {
       }
       return;
     }
-    verifier_detail::verifyDefinedFunction(module, *function, errors);
+    verifier_detail::verifyDefinedFunction(module, *function, errors,
+                                           typeInterner);
   };
 
   for (const auto &function : module.getExternalFunctions()) {

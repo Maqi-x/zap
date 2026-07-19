@@ -306,7 +306,7 @@ bool sameFunctionSignature(const FunctionSymbol &lhs,
       return false;
     }
     if (!left->type || !right->type ||
-        left->type->toString() != right->type->toString()) {
+        !zir::sameType(left->type, right->type)) {
       return false;
     }
   }
@@ -350,7 +350,7 @@ deriveValueExpressionFromIf(const BoundIfStatement &stmt) {
     return nullptr;
   }
 
-  if (thenExpr->type->toString() != elseExpr->type->toString()) {
+  if (!zir::sameType(thenExpr->type, elseExpr->type)) {
     return nullptr;
   }
   auto resultType = thenExpr->type;
@@ -698,7 +698,7 @@ bool sameMethodDispatchSignature(const FunctionSymbol &lhs,
     const auto &right = rhs.parameters[i + rhsOffset];
     if (left->is_ref != right->is_ref ||
         left->is_variadic_pack != right->is_variadic_pack || !left->type ||
-        !right->type || left->type->toString() != right->type->toString()) {
+        !right->type || !zir::sameType(left->type, right->type)) {
       return false;
     }
   }

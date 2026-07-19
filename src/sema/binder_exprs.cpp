@@ -123,7 +123,7 @@ Binder::buildBinaryExpression(std::unique_ptr<BoundExpression> left,
       resultType = leftType;
     } else if (op == "-" && isPointerType(leftType) &&
                isPointerType(rightType)) {
-      if (leftType->toString() != rightType->toString()) {
+      if (!typeInterner_.same(leftType, rightType)) {
         error(SourceSpan::merge(leftSpan, rightSpan),
               "Pointer subtraction requires operands of the same type.");
       }
@@ -406,7 +406,7 @@ void Binder::visit(TryExpr &node) {
 
   auto currentErrorType = failableErrorType(currentFunction_->returnType);
   if (!currentErrorType || !errorType ||
-      currentErrorType->toString() != errorType->toString()) {
+      !typeInterner_.same(currentErrorType, errorType)) {
     error(node.span, "Cannot propagate error type '" +
                          renderTypeForUser(errorType) +
                          "' into function error type '" +
