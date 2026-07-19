@@ -20,7 +20,8 @@ set(SOURCES
     src/sema/binder.cpp
     src/sema/binder_calls.cpp
     src/sema/binder_conversions.cpp
-    src/sema/binder_decls.cpp
+    src/sema/binder_declaration_binding.cpp
+    src/sema/binder_module_predeclare.cpp
     src/sema/binder_stmts.cpp
     src/sema/binder_exprs.cpp
     src/sema/binder_generic_functions.cpp
