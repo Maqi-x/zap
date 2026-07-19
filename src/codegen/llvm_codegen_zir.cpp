@@ -14,13 +14,6 @@ namespace {
 bool isStringType(const std::shared_ptr<zir::Type> &type) {
   return zir::isIntrinsicStringType(type);
 }
-
-bool hasStringAbi(llvm::Type *type) {
-  auto *record = llvm::dyn_cast_or_null<llvm::StructType>(type);
-  return record && record->getNumElements() == 2 &&
-         record->getElementType(0)->isPointerTy() &&
-         record->getElementType(1)->isIntegerTy(64);
-}
 } // namespace
 
 void LLVMCodeGen::generate(const zir::Module &module) {
@@ -787,8 +780,7 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         auto argumentType = callInst.getArguments()[i]
                                 ? callInst.getArguments()[i]->getType()
                                 : nullptr;
-        if (isStringType(argumentType) &&
-            (isStringType(calleeParamType) || hasStringAbi(paramTy))) {
+        if (isStringType(argumentType) && isStringType(calleeParamType)) {
           auto *ptr = builder_.CreateExtractValue(arg, {0}, "zir.call.str.ptr");
           auto *len = builder_.CreateExtractValue(arg, {1}, "zir.call.str.len");
           llvm::Value *converted = llvm::UndefValue::get(paramTy);

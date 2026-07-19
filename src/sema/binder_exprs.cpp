@@ -791,6 +791,7 @@ void Binder::visit(IndexAccessNode &node) {
   }
 
   std::shared_ptr<zir::Type> elementType;
+  std::shared_ptr<FunctionSymbol> stringIndexFunction;
   if (left->type->getKind() == zir::TypeKind::Array) {
     auto arrayType = std::static_pointer_cast<zir::ArrayType>(left->type);
     elementType = arrayType->getBaseType();
@@ -804,11 +805,22 @@ void Binder::visit(IndexAccessNode &node) {
     elementType = std::static_pointer_cast<zir::PointerType>(fields[0].type)
                       ->getBaseType();
   } else {
+    if (!stringIndexFunction_) {
+      error(node.span,
+            "String indexing requires the core.at(StringView, Int) helper.");
+      return;
+    }
+    left = wrapInCast(std::move(left),
+                      stringIndexFunction_->parameters[0]->type);
+    index = wrapInCast(std::move(index),
+                       stringIndexFunction_->parameters[1]->type);
+    stringIndexFunction = stringIndexFunction_;
     elementType = std::make_shared<zir::PrimitiveType>(zir::TypeKind::Char);
   }
 
   expressionStack_.push(std::make_unique<BoundIndexAccess>(
-      std::move(left), std::move(index), elementType));
+      std::move(left), std::move(index), elementType,
+      std::move(stringIndexFunction)));
 }
 
 void Binder::visit(MemberAccessNode &node) {

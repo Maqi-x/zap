@@ -1654,9 +1654,13 @@ void BoundIRGenerator::visit(sema::BoundIndexAccess &node) {
       auto indexValue = valueStack_.top();
       valueStack_.pop();
 
+      if (!node.stringIndexFunction) {
+        throw std::runtime_error(
+            "String index access is missing its resolved core helper.");
+      }
       auto result = createRegister(node.type);
       currentBlock_->addInstruction(std::make_unique<CallInst>(
-          result, "at",
+          result, node.stringIndexFunction->linkName,
           std::vector<std::shared_ptr<Value>>{stringValue, indexValue}));
       valueStack_.push(result);
       return;

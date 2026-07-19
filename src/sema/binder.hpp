@@ -135,6 +135,7 @@ private:
   void popScope();
 
   std::shared_ptr<FunctionSymbol> currentFunction_ = nullptr;
+  std::shared_ptr<FunctionSymbol> stringIndexFunction_ = nullptr;
   std::string currentModuleId_;
 
   struct ModuleState {

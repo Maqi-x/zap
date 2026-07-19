@@ -1,6 +1,7 @@
 #include "../ast/class_decl.hpp"
 #include "../ast/const/const_char.hpp"
 #include "../ast/record_decl.hpp"
+#include "../ir/string_type.hpp"
 #include "binder.hpp"
 #include <algorithm>
 #include <cctype>
@@ -555,6 +556,14 @@ void Binder::predeclareModuleValues(ModuleState &module) {
         continue;
       }
       declaredFunctionSymbols_[funDecl] = symbol;
+      if (module.info->linkPath == "core" && symbol->name == "at" &&
+          symbol->parameters.size() == 2 && symbol->returnType &&
+          zir::isIntrinsicStringViewType(symbol->parameters[0]->type) &&
+          symbol->parameters[1]->type &&
+          symbol->parameters[1]->type->getKind() == zir::TypeKind::Int &&
+          symbol->returnType->getKind() == zir::TypeKind::Char) {
+        stringIndexFunction_ = symbol;
+      }
       module.symbol->members[funDecl->name_] = overloads;
       if (funDecl->visibility_ == Visibility::Public) {
         auto exportIt = module.symbol->exports.find(funDecl->name_);
