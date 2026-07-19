@@ -25,6 +25,100 @@ bool LLVMCodeGen::isOwnedStringType(
          !zir::isIntrinsicStringViewType(type);
 }
 
+bool LLVMCodeGen::containsManagedValues(
+    const std::shared_ptr<zir::Type> &type) const {
+  if (!type) {
+    return false;
+  }
+  if (isOwnedStringType(type) || isClassType(type)) {
+    return true;
+  }
+  if (type->getKind() == zir::TypeKind::Record) {
+    const auto &record = static_cast<const zir::RecordType &>(*type);
+    for (const auto &field : record.getFields()) {
+      if (containsManagedValues(field.type)) {
+        return true;
+      }
+    }
+  } else if (type->getKind() == zir::TypeKind::Array) {
+    const auto &array = static_cast<const zir::ArrayType &>(*type);
+    return containsManagedValues(array.getBaseType());
+  }
+  return false;
+}
+
+void LLVMCodeGen::emitManagedRetain(
+    llvm::Value *value, const std::shared_ptr<zir::Type> &type) {
+  if (!value || !type) {
+    return;
+  }
+  if (isOwnedStringType(type)) {
+    (void)emitStringRetainIfNeeded(value, type);
+    return;
+  }
+  if (isClassType(type)) {
+    emitRetainIfNeeded(value, type);
+    return;
+  }
+  if (type->getKind() == zir::TypeKind::Record) {
+    const auto &record = static_cast<const zir::RecordType &>(*type);
+    for (size_t i = 0; i < record.getFields().size(); ++i) {
+      const auto &field = record.getFields()[i];
+      if (containsManagedValues(field.type)) {
+        emitManagedRetain(
+            builder_.CreateExtractValue(value, {static_cast<unsigned>(i)}),
+            field.type);
+      }
+    }
+  } else if (type->getKind() == zir::TypeKind::Array) {
+    const auto &array = static_cast<const zir::ArrayType &>(*type);
+    if (!containsManagedValues(array.getBaseType())) {
+      return;
+    }
+    for (size_t i = 0; i < array.getSize(); ++i) {
+      emitManagedRetain(builder_.CreateExtractValue(
+                            value, {static_cast<unsigned>(i)}),
+                        array.getBaseType());
+    }
+  }
+}
+
+void LLVMCodeGen::emitManagedRelease(
+    llvm::Value *value, const std::shared_ptr<zir::Type> &type) {
+  if (!value || !type) {
+    return;
+  }
+  if (isOwnedStringType(type)) {
+    emitStringReleaseIfNeeded(value, type);
+    return;
+  }
+  if (isClassType(type)) {
+    emitReleaseIfNeeded(value, type);
+    return;
+  }
+  if (type->getKind() == zir::TypeKind::Record) {
+    const auto &record = static_cast<const zir::RecordType &>(*type);
+    for (size_t i = record.getFields().size(); i > 0; --i) {
+      const auto &field = record.getFields()[i - 1];
+      if (containsManagedValues(field.type)) {
+        emitManagedRelease(builder_.CreateExtractValue(
+                               value, {static_cast<unsigned>(i - 1)}),
+                           field.type);
+      }
+    }
+  } else if (type->getKind() == zir::TypeKind::Array) {
+    const auto &array = static_cast<const zir::ArrayType &>(*type);
+    if (!containsManagedValues(array.getBaseType())) {
+      return;
+    }
+    for (size_t i = array.getSize(); i > 0; --i) {
+      emitManagedRelease(builder_.CreateExtractValue(
+                             value, {static_cast<unsigned>(i - 1)}),
+                         array.getBaseType());
+    }
+  }
+}
+
 bool LLVMCodeGen::expressionProducesOwnedClass(
     const sema::BoundExpression *expr) const {
   return arcEmitter_->expressionProducesOwnedClass(expr);

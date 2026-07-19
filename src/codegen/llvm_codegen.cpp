@@ -566,6 +566,34 @@ llvm::AllocaInst *LLVMCodeGen::createEntryAlloca(llvm::Function *fn,
   return entry.CreateAlloca(ty, nullptr, name);
 }
 
+llvm::Value *LLVMCodeGen::emitStringConversion(
+    llvm::Value *source, const std::shared_ptr<zir::Type> &sourceType,
+    const std::shared_ptr<zir::Type> &targetType,
+    const llvm::Twine &namePrefix) {
+  auto *targetLLVMType = toLLVMType(*targetType);
+  auto *ptr = builder_.CreateExtractValue(source, {0}, namePrefix + ".ptr");
+  auto *len = builder_.CreateExtractValue(source, {1}, namePrefix + ".len");
+
+  if (zir::isIntrinsicStringViewType(sourceType) &&
+      isOwnedStringType(targetType)) {
+    auto *functionType = llvm::FunctionType::get(
+        targetLLVMType, {ptr->getType(), len->getType()}, /*isVarArg=*/false);
+    auto callee =
+        module_->getOrInsertFunction("zap_string_from_ptrlen", functionType);
+    return builder_.CreateCall(functionType, callee.getCallee(), {ptr, len},
+                               namePrefix + ".owned");
+  }
+
+  if (source->getType() == targetLLVMType) {
+    return source;
+  }
+
+  llvm::Value *result = llvm::UndefValue::get(targetLLVMType);
+  result =
+      builder_.CreateInsertValue(result, ptr, {0}, namePrefix + ".ptr.i");
+  return builder_.CreateInsertValue(result, len, {1}, namePrefix + ".len.i");
+}
+
 llvm::Value *
 LLVMCodeGen::emitStringConcat(llvm::Value *lhs, llvm::Value *rhs,
                               const std::shared_ptr<zir::Type> &lhsType,

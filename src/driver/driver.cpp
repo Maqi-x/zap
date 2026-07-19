@@ -15,6 +15,7 @@
 #include <cerrno>
 #include <cstring>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <map>
 #include <set>
@@ -35,6 +36,23 @@ bool compileAssemblyFromZIR(sema::BoundRootNode &node,
                             int optimization_level,
                             const std::string &targetTriple, bool freestanding);
 namespace {
+
+std::filesystem::path executableObjectPath(
+    const std::filesystem::path &executablePath,
+    const std::filesystem::path &sourcePath) {
+  std::error_code ec;
+  auto normalizedSource = std::filesystem::absolute(sourcePath, ec);
+  if (ec) {
+    normalizedSource = sourcePath.lexically_normal();
+  }
+
+  auto objectPath = executablePath;
+  objectPath += "." +
+                std::to_string(std::hash<std::string>{}(
+                    normalizedSource.generic_string())) +
+                ".o";
+  return objectPath;
+}
 
 bool emitRequestedTextOutputs(driver &drv, sema::BoundRootNode &node,
                               const std::filesystem::path &base_output_path) {
@@ -238,7 +256,7 @@ bool compileLoadedModules(driver &drv, const std::filesystem::path &entryPath) {
     std::filesystem::path out_path;
 
     if (drv.get_output_type() == args::OutputType::EXEC) {
-      out_path = entryPath.string() + ".o";
+      out_path = executableObjectPath(drv.get_output(), entryPath);
       drv.cleanups.emplace_back(out_path);
     } else if (drv.get_output_type() == args::OutputType::OBJECT) {
       if (drv.is_implicit_output()) {
@@ -493,7 +511,7 @@ bool driver::compileSourceFile(const std::string &source,
     std::filesystem::path out_path;
 
     if (cmdArgs.output.type == args::OutputType::EXEC) {
-      out_path = source_name + ".o";
+      out_path = executableObjectPath(cmdArgs.output.path, source_name);
       cleanups.emplace_back(out_path);
     } else if (cmdArgs.output.type == args::OutputType::OBJECT) {
       if (cmdArgs.output.implicit) {

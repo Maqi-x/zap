@@ -46,16 +46,8 @@ void LLVMCodeGen::visit(sema::BoundCast &node) {
   auto *destTy = toLLVMType(*node.type);
 
   if (isStringType(node.expression->type) && isStringType(node.type)) {
-    if (srcTy == destTy) {
-      lastValue_ = src;
-      return;
-    }
-    auto *ptr = builder_.CreateExtractValue(src, {0}, "str.cast.ptr");
-    auto *len = builder_.CreateExtractValue(src, {1}, "str.cast.len");
-    llvm::Value *result = llvm::UndefValue::get(destTy);
-    result = builder_.CreateInsertValue(result, ptr, {0}, "str.cast.ptr.i");
-    result = builder_.CreateInsertValue(result, len, {1}, "str.cast.len.i");
-    lastValue_ = result;
+    lastValue_ = emitStringConversion(src, node.expression->type, node.type,
+                                      "str.cast");
     return;
   }
 
@@ -167,7 +159,8 @@ void LLVMCodeGen::visit(sema::BoundLiteral &node) {
     const auto &rt = static_cast<const zir::RecordType &>(*node.type);
     if (zir::isIntrinsicStringType(rt)) {
       std::string gname;
-      auto *ptrConst = getOrCreateGlobalString(node.value, gname);
+      auto *ptrConst = getOrCreateGlobalString(
+          node.value, gname, !zir::isIntrinsicStringViewType(rt));
       auto *lenConst =
           llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx_),
                                  static_cast<uint64_t>(node.value.size()));

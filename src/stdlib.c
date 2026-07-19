@@ -1,4 +1,5 @@
 #include "runtime/arc_layout.h"
+#include "runtime/string_layout.h"
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -14,6 +15,17 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+_Static_assert(offsetof(zap_string_header_t, refs) == 0,
+               "String ABI: refs offset mismatch");
+_Static_assert(offsetof(zap_string_header_t, len) == sizeof(int64_t),
+               "String ABI: len offset mismatch");
+_Static_assert(sizeof(zap_string_header_t) == 2 * sizeof(int64_t),
+               "String ABI: unexpected header padding");
+_Static_assert(offsetof(zap_string_t, ptr) == 0,
+               "String ABI: ptr offset mismatch");
+_Static_assert(offsetof(zap_string_t, len) == sizeof(const char *),
+               "String ABI: value len offset mismatch");
 
 typedef struct zap_arc_metadata_t {
   uint32_t strong_field_count;
@@ -444,13 +456,15 @@ void printChar(char v) {
   putchar('\n');
 }
 
-static void zap_string_register_owned_ptr(const char *ptr);
 static char *zap_string_alloc_owned(size_t len);
 
 char *string_concat_ptrlen(const char *a, long a_len, const char *b,
                            long b_len) {
-  long total = a_len + b_len;
-  char *out = zap_string_alloc_owned((size_t)total);
+  if (a_len < 0 || b_len < 0 || (size_t)a_len > SIZE_MAX - (size_t)b_len) {
+    return NULL;
+  }
+  size_t total = (size_t)a_len + (size_t)b_len;
+  char *out = zap_string_alloc_owned(total);
   if (!out)
     return NULL;
   if (a_len > 0)
@@ -461,74 +475,8 @@ char *string_concat_ptrlen(const char *a, long a_len, const char *b,
   return out;
 }
 
-typedef struct {
-  const char *ptr;
-  long len;
-} zap_string_t;
-
-typedef struct zap_string_owner_entry_t {
-  const char *ptr;
-  struct zap_string_owner_entry_t *next;
-} zap_string_owner_entry_t;
-
-static zap_string_owner_entry_t *zap_string_owners = NULL;
-static const uint64_t ZAP_STRING_HEADER_MAGIC = 0x5A41505354524E47ULL;
-
-typedef struct {
-  uint64_t magic;
-  int64_t refs;
-  int64_t len;
-} zap_string_header_t;
-
-static zap_string_owner_entry_t *zap_string_find_owner(const char *ptr) {
-  zap_string_owner_entry_t *entry = zap_string_owners;
-  while (entry) {
-    if (entry->ptr == ptr) {
-      return entry;
-    }
-    entry = entry->next;
-  }
-  return NULL;
-}
-
-static void zap_string_register_owned_ptr(const char *ptr) {
-  if (!ptr) {
-    return;
-  }
-  zap_string_owner_entry_t *existing = zap_string_find_owner(ptr);
-  if (existing) {
-    return;
-  }
-  zap_string_owner_entry_t *entry =
-      (zap_string_owner_entry_t *)malloc(sizeof(zap_string_owner_entry_t));
-  if (!entry) {
-    return;
-  }
-  entry->ptr = ptr;
-  entry->next = zap_string_owners;
-  zap_string_owners = entry;
-}
-
-static void zap_string_unregister_owned_ptr(const char *ptr) {
-  zap_string_owner_entry_t *prev = NULL;
-  zap_string_owner_entry_t *entry = zap_string_owners;
-  while (entry) {
-    if (entry->ptr == ptr) {
-      if (prev) {
-        prev->next = entry->next;
-      } else {
-        zap_string_owners = entry->next;
-      }
-      free(entry);
-      return;
-    }
-    prev = entry;
-    entry = entry->next;
-  }
-}
-
 static zap_string_header_t *zap_string_header_from_ptr(const char *ptr) {
-  if (!ptr || !zap_string_find_owner(ptr)) {
+  if (!ptr) {
     return NULL;
   }
   return (zap_string_header_t *)((char *)ptr - sizeof(zap_string_header_t));
@@ -540,18 +488,16 @@ static char *zap_string_alloc_owned(size_t len) {
   if (!header) {
     return NULL;
   }
-  header->magic = ZAP_STRING_HEADER_MAGIC;
   header->refs = 1;
   header->len = (int64_t)len;
   char *ptr = (char *)(header + 1);
   ptr[len] = '\0';
-  zap_string_register_owned_ptr(ptr);
   return ptr;
 }
 
 static void zap_string_retain_ptr(const char *ptr) {
   zap_string_header_t *header = zap_string_header_from_ptr(ptr);
-  if (!header || header->magic != ZAP_STRING_HEADER_MAGIC) {
+  if (!header || header->refs == ZAP_STRING_IMMORTAL_REFCOUNT) {
     return;
   }
   header->refs += 1;
@@ -559,12 +505,11 @@ static void zap_string_retain_ptr(const char *ptr) {
 
 static void zap_string_release_ptr(const char *ptr) {
   zap_string_header_t *header = zap_string_header_from_ptr(ptr);
-  if (!header || header->magic != ZAP_STRING_HEADER_MAGIC) {
+  if (!header || header->refs == ZAP_STRING_IMMORTAL_REFCOUNT) {
     return;
   }
   header->refs -= 1;
   if (header->refs <= 0) {
-    zap_string_unregister_owned_ptr(ptr);
     free(header);
   }
 }
@@ -587,21 +532,14 @@ static char *zap_string_to_cstr(zap_string_t s) {
   return out;
 }
 
-static zap_string_t zap_string_from_owned(char *owned) {
-  if (!owned) {
-    return (zap_string_t){.ptr = NULL, .len = 0};
-  }
-  if (!zap_string_find_owner(owned)) {
-    zap_string_register_owned_ptr(owned);
-  }
-  return (zap_string_t){.ptr = owned, .len = (long)strlen(owned)};
-}
-
 zap_string_t zap_string_from_cstr(const char *cstr) {
   if (!cstr) {
-    return (zap_string_t){.ptr = "", .len = 0};
+    return (zap_string_t){.ptr = NULL, .len = 0};
   }
   size_t len = strlen(cstr);
+  if (len == 0) {
+    return (zap_string_t){.ptr = NULL, .len = 0};
+  }
   char *out = zap_string_alloc_owned(len);
   if (!out) {
     return (zap_string_t){.ptr = NULL, .len = 0};
@@ -615,7 +553,7 @@ zap_string_t zap_string_from_cstr(const char *cstr) {
 
 zap_string_t zap_string_from_ptrlen(const char *ptr, long len) {
   if (!ptr || len <= 0) {
-    return (zap_string_t){.ptr = "", .len = 0};
+    return (zap_string_t){.ptr = NULL, .len = 0};
   }
 
   char *out = zap_string_alloc_owned((size_t)len);
@@ -763,11 +701,11 @@ long argc() { return zap_process_argc; }
 zap_string_t argv(long i) {
   if (i < 0 || i >= zap_process_argc || !zap_process_argv ||
       !zap_process_argv[i]) {
-    return (zap_string_t){.ptr = "", .len = 0};
+    return (zap_string_t){.ptr = NULL, .len = 0};
   }
 
   const char *arg = zap_process_argv[i];
-  return (zap_string_t){.ptr = arg, .len = (long)strlen(arg)};
+  return zap_string_from_cstr(arg);
 }
 
 long len(zap_string_t s) { return s.len; }
@@ -781,7 +719,7 @@ char at(zap_string_t s, long i) {
 
 zap_string_t slice(zap_string_t s, long start, long length) {
   if (!s.ptr || s.len <= 0 || length <= 0 || start >= s.len) {
-    return (zap_string_t){.ptr = "", .len = 0};
+    return (zap_string_t){.ptr = NULL, .len = 0};
   }
 
   if (start < 0) {
@@ -854,7 +792,7 @@ long exec(zap_string_t cmd) {
 zap_string_t cwd() {
   char *dir = getcwd(NULL, 0);
   if (!dir) {
-    return (zap_string_t){.ptr = "", .len = 0};
+    return (zap_string_t){.ptr = NULL, .len = 0};
   }
   size_t dir_len = strlen(dir);
   char *owned = zap_string_alloc_owned(dir_len);
@@ -1021,40 +959,40 @@ zap_string_t zap_fs_read_file(zap_string_t path) {
   char *buffer = zap_copy_path(path);
   if (!buffer) {
     zap_fs_last_error_code = ENOMEM;
-    return (zap_string_t){.ptr = "", .len = 0};
+    return (zap_string_t){.ptr = NULL, .len = 0};
   }
 
   FILE *file = fopen(buffer, "rb");
   free(buffer);
   if (!file) {
     zap_fs_last_error_code = errno;
-    return (zap_string_t){.ptr = "", .len = 0};
+    return (zap_string_t){.ptr = NULL, .len = 0};
   }
 
   if (fseek(file, 0, SEEK_END) != 0) {
     zap_fs_last_error_code = errno;
     fclose(file);
-    return (zap_string_t){.ptr = "", .len = 0};
+    return (zap_string_t){.ptr = NULL, .len = 0};
   }
 
   long size = ftell(file);
   if (size < 0) {
     zap_fs_last_error_code = errno;
     fclose(file);
-    return (zap_string_t){.ptr = "", .len = 0};
+    return (zap_string_t){.ptr = NULL, .len = 0};
   }
 
   if (fseek(file, 0, SEEK_SET) != 0) {
     zap_fs_last_error_code = errno;
     fclose(file);
-    return (zap_string_t){.ptr = "", .len = 0};
+    return (zap_string_t){.ptr = NULL, .len = 0};
   }
 
   char *content = zap_string_alloc_owned((size_t)size);
   if (!content) {
     zap_fs_last_error_code = ENOMEM;
     fclose(file);
-    return (zap_string_t){.ptr = "", .len = 0};
+    return (zap_string_t){.ptr = NULL, .len = 0};
   }
 
   size_t read = fread(content, 1, (size_t)size, file);
@@ -1062,7 +1000,7 @@ zap_string_t zap_fs_read_file(zap_string_t path) {
   if (read != (size_t)size) {
     zap_fs_last_error_code = EIO;
     zap_string_release_ptr(content);
-    return (zap_string_t){.ptr = "", .len = 0};
+    return (zap_string_t){.ptr = NULL, .len = 0};
   }
 
   content[size] = '\0';
@@ -1263,14 +1201,14 @@ long netSend(long fd, zap_string_t data) {
 zap_string_t netRecv(long fd, long maxLen) {
   if (fd < 0 || maxLen <= 0) {
     zap_net_last_error = EINVAL;
-    return (zap_string_t){.ptr = "", .len = 0};
+    return (zap_string_t){.ptr = NULL, .len = 0};
   }
 
   size_t cap = (size_t)maxLen;
   char *buf = zap_string_alloc_owned(cap);
   if (!buf) {
     zap_net_last_error = ENOMEM;
-    return (zap_string_t){.ptr = "", .len = 0};
+    return (zap_string_t){.ptr = NULL, .len = 0};
   }
 
   ssize_t n;
@@ -1280,7 +1218,7 @@ zap_string_t netRecv(long fd, long maxLen) {
   if (n < 0) {
     zap_net_last_error = errno;
     zap_string_release_ptr(buf);
-    return (zap_string_t){.ptr = "", .len = 0};
+    return (zap_string_t){.ptr = NULL, .len = 0};
   }
 
   buf[n] = '\0';
@@ -1291,13 +1229,13 @@ zap_string_t netRecv(long fd, long maxLen) {
 zap_string_t netResolve(zap_string_t host) {
   if (!host.ptr || host.len == 0) {
     zap_net_last_error = EINVAL;
-    return (zap_string_t){.ptr = "", .len = 0};
+    return (zap_string_t){.ptr = NULL, .len = 0};
   }
 
   char *host_buf = zap_copy_path(host);
   if (!host_buf) {
     zap_net_last_error = ENOMEM;
-    return (zap_string_t){.ptr = "", .len = 0};
+    return (zap_string_t){.ptr = NULL, .len = 0};
   }
 
   struct addrinfo hints;
@@ -1314,7 +1252,7 @@ zap_string_t netResolve(zap_string_t host) {
     } else {
       zap_net_last_error = EINVAL;
     }
-    return (zap_string_t){.ptr = "", .len = 0};
+    return (zap_string_t){.ptr = NULL, .len = 0};
   }
 
   char ipbuf[INET6_ADDRSTRLEN];
@@ -1340,7 +1278,7 @@ zap_string_t netResolve(zap_string_t host) {
 
   if (ipbuf[0] == '\0') {
     zap_net_last_error = EADDRNOTAVAIL;
-    return (zap_string_t){.ptr = "", .len = 0};
+    return (zap_string_t){.ptr = NULL, .len = 0};
   }
 
   zap_net_last_error = 0;

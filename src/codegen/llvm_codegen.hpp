@@ -106,19 +106,23 @@ private:
   std::unordered_map<std::string, llvm::BasicBlock *> zirBlockExitMap_;
   std::unordered_set<const zir::Value *> zirOwnedClassValues_;
   std::unordered_set<const zir::Value *> zirOwnedStringValues_;
+  std::unordered_set<const zir::Value *> zirOwnedAggregateValues_;
   std::unordered_set<const zir::Value *> zirClassParamAllocas_;
   std::unordered_set<const zir::Value *> zirPendingClassParamInitAllocas_;
   std::vector<std::pair<std::shared_ptr<zir::Type>, llvm::Value *>>
       zirFunctionClassLocals_;
   std::vector<std::pair<std::shared_ptr<zir::Type>, llvm::Value *>>
       zirFunctionStringLocals_;
+  std::vector<std::pair<std::shared_ptr<zir::Type>, llvm::Value *>>
+      zirFunctionAggregateLocals_;
   const zir::Function *currentZIRFunction_ = nullptr;
   size_t zirParamSpillIndex_ = 0;
 
   int nextStringId_ = 0;
 
   llvm::Constant *getOrCreateGlobalString(const std::string &str,
-                                          std::string &globalName);
+                                          std::string &globalName,
+                                          bool owned);
 
   std::vector<std::pair<llvm::BasicBlock *, llvm::BasicBlock *>> loopBBStack_;
 
@@ -147,6 +151,10 @@ private:
   llvm::Value *lowerZIRCast(llvm::Value *src,
                             const std::shared_ptr<zir::Type> &sourceType,
                             const std::shared_ptr<zir::Type> &targetType);
+  llvm::Value *emitStringConversion(
+      llvm::Value *source, const std::shared_ptr<zir::Type> &sourceType,
+      const std::shared_ptr<zir::Type> &targetType,
+      const llvm::Twine &namePrefix);
   llvm::Value *emitStringConcat(llvm::Value *lhs, llvm::Value *rhs,
                                 const std::shared_ptr<zir::Type> &lhsType,
                                 const std::shared_ptr<zir::Type> &rhsType,
@@ -157,6 +165,12 @@ private:
   bool isClassType(const std::shared_ptr<zir::Type> &type) const;
   bool isWeakClassType(const std::shared_ptr<zir::Type> &type) const;
   bool isOwnedStringType(const std::shared_ptr<zir::Type> &type) const;
+  bool containsManagedValues(const std::shared_ptr<zir::Type> &type) const;
+  void emitManagedRetain(llvm::Value *value,
+                         const std::shared_ptr<zir::Type> &type);
+  void emitManagedRelease(llvm::Value *value,
+                          const std::shared_ptr<zir::Type> &type);
+  void emitZIRFunctionReleases();
   bool expressionProducesOwnedClass(const sema::BoundExpression *expr) const;
   bool expressionProducesOwnedString(const sema::BoundExpression *expr) const;
   void emitRetainIfNeeded(llvm::Value *value,

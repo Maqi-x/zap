@@ -1,5 +1,6 @@
 #include "../ir/string_type.hpp"
 #include "llvm_codegen.hpp"
+#include "string_layout.hpp"
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Instructions.h>
@@ -28,12 +29,39 @@ bool isStringType(const std::shared_ptr<zir::Type> &type) {
 } // namespace
 
 llvm::Constant *LLVMCodeGen::getOrCreateGlobalString(const std::string &str,
-                                                     std::string &globalName) {
+                                                     std::string &globalName,
+                                                     bool owned) {
   globalName = ".str." + std::to_string(nextStringId_++);
 
-  auto *arrayTy = llvm::ArrayType::get(llvm::Type::getInt8Ty(ctx_),
+  auto *i8Ty = llvm::Type::getInt8Ty(ctx_);
+  auto *i64Ty = llvm::Type::getInt64Ty(ctx_);
+  auto *arrayTy = llvm::ArrayType::get(i8Ty,
                                        static_cast<unsigned>(str.size() + 1));
   auto *constArray = llvm::ConstantDataArray::getString(ctx_, str, true);
+
+  if (owned) {
+    if (str.empty()) {
+      return llvm::ConstantPointerNull::get(
+          llvm::PointerType::getUnqual(ctx_));
+    }
+
+    auto *storageTy = llvm::StructType::get(i64Ty, i64Ty, arrayTy);
+    auto *initializer = llvm::ConstantStruct::get(
+        storageTy,
+        {llvm::ConstantInt::getSigned(i64Ty, kStringImmortalRefCount),
+         llvm::ConstantInt::get(i64Ty, static_cast<uint64_t>(str.size())),
+         constArray});
+    auto *storage = new llvm::GlobalVariable(
+        *module_, storageTy, /*isConstant=*/true,
+        llvm::GlobalValue::PrivateLinkage, initializer, globalName);
+
+    auto *zero = llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx_), 0);
+    auto *dataIndex = llvm::ConstantInt::get(
+        llvm::Type::getInt32Ty(ctx_), kStringDataIndex);
+    llvm::Constant *indices[] = {zero, dataIndex, zero};
+    return llvm::ConstantExpr::getInBoundsGetElementPtr(storageTy, storage,
+                                                        indices);
+  }
 
   auto *gv = new llvm::GlobalVariable(*module_, arrayTy, /*isConstant=*/true,
                                       llvm::GlobalValue::PrivateLinkage,
@@ -43,7 +71,7 @@ llvm::Constant *LLVMCodeGen::getOrCreateGlobalString(const std::string &str,
   llvm::Constant *indices[] = {zero32, zero32};
   auto *gep =
       llvm::ConstantExpr::getInBoundsGetElementPtr(arrayTy, gv, indices);
-  auto *ptrTy = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_));
+  auto *ptrTy = llvm::PointerType::getUnqual(ctx_);
   return llvm::ConstantExpr::getBitCast(gep, ptrTy);
 }
 
@@ -52,7 +80,9 @@ llvm::Constant *LLVMCodeGen::lowerZIRConstant(const zir::Constant &constant) {
     const auto &rt = static_cast<const zir::RecordType &>(*constant.getType());
     if (zir::isIntrinsicStringType(rt)) {
       std::string gname;
-      auto *ptrConst = getOrCreateGlobalString(constant.getLiteral(), gname);
+      auto *ptrConst = getOrCreateGlobalString(
+          constant.getLiteral(), gname,
+          !zir::isIntrinsicStringViewType(rt));
       auto *lenConst = llvm::ConstantInt::get(
           llvm::Type::getInt64Ty(ctx_),
           static_cast<uint64_t>(constant.getLiteral().size()));
