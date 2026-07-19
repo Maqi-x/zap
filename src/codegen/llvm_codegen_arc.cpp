@@ -119,19 +119,6 @@ void LLVMCodeGen::emitManagedRelease(
   }
 }
 
-bool LLVMCodeGen::expressionProducesOwnedClass(
-    const sema::BoundExpression *expr) const {
-  return arcEmitter_->expressionProducesOwnedClass(expr);
-}
-
-bool LLVMCodeGen::expressionProducesOwnedString(
-    const sema::BoundExpression *expr) const {
-  if (!expr || !isOwnedStringType(expr->type)) {
-    return false;
-  }
-  return dynamic_cast<const sema::BoundLiteral *>(expr) == nullptr;
-}
-
 void LLVMCodeGen::emitRetainIfNeeded(llvm::Value *value,
                                      const std::shared_ptr<zir::Type> &type) {
   if (isOwnedStringType(type)) {
@@ -242,25 +229,9 @@ void LLVMCodeGen::emitStoreWithStringArc(llvm::Value *addr, llvm::Value *value,
   builder_.CreateStore(storedValue, addr);
 }
 
-void LLVMCodeGen::emitScopeReleases() {
-  arcEmitter_->emitScopeReleases();
-  if (scopeStringLocals_.empty()) {
-    return;
-  }
-  auto &locals = scopeStringLocals_.back();
-  for (auto it = locals.rbegin(); it != locals.rend(); ++it) {
-    auto *value = builder_.CreateLoad(toLLVMType(*it->first), it->second,
-                                      "str.scope.release");
-    emitStringReleaseIfNeeded(value, it->first);
-  }
-}
-
 void LLVMCodeGen::ensureClassArcSupport(
     const std::shared_ptr<zir::ClassType> &classType) {
   arcEmitter_->ensureClassArcSupport(classType);
 }
 
-void LLVMCodeGen::ensureArcSupport(sema::BoundRootNode &root) {
-  arcEmitter_->ensureArcSupport(root);
-}
 } // namespace codegen

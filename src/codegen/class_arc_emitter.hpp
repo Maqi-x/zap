@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../sema/bound_nodes.hpp"
+#include "../ir/type.hpp"
 #include <memory>
 
 namespace llvm {
@@ -16,7 +16,6 @@ public:
 
   bool isClassType(const std::shared_ptr<zir::Type> &type) const;
   bool isWeakClassType(const std::shared_ptr<zir::Type> &type) const;
-  bool expressionProducesOwnedClass(const sema::BoundExpression *expr) const;
   void emitRetainIfNeeded(llvm::Value *value,
                           const std::shared_ptr<zir::Type> &type);
   void emitReleaseIfNeeded(llvm::Value *value,
@@ -32,8 +31,6 @@ public:
   void emitStoreWithArc(llvm::Value *addr, llvm::Value *value,
                         const std::shared_ptr<zir::Type> &type,
                         bool valueIsOwned, bool skipReleaseOld = false);
-  void emitScopeReleases();
-  void ensureArcSupport(sema::BoundRootNode &root);
   void ensureClassArcSupport(const std::shared_ptr<zir::ClassType> &classType);
 
 private:

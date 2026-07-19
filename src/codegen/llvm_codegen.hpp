@@ -1,6 +1,5 @@
 #pragma once
 #include "../ir/module.hpp"
-#include "../sema/bound_nodes.hpp"
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
@@ -15,60 +14,18 @@
 namespace codegen {
 class ClassArcEmitter;
 
-class LLVMCodeGen : public sema::BoundVisitor {
+class LLVMCodeGen {
 public:
   explicit LLVMCodeGen(std::string targetTriple = {},
                        bool freestanding = false);
   ~LLVMCodeGen();
 
-  void generate(sema::BoundRootNode &root);
   void generate(const zir::Module &module);
 
   void printIR(llvm::raw_ostream &) const;
 
   bool emitObjectFile(const std::string &path, int optimization_level = 0);
   bool emitAssemblyFile(const std::string &path, int optimization_level = 0);
-
-  void visit(sema::BoundRootNode &node) override;
-  void visit(sema::BoundFunctionDeclaration &node) override;
-  void visit(sema::BoundExternalFunctionDeclaration &node) override;
-  void visit(sema::BoundBlock &node) override;
-  void visit(sema::BoundVariableDeclaration &node) override;
-  void visit(sema::BoundReturnStatement &node) override;
-  void visit(sema::BoundAssignment &node) override;
-  void visit(sema::BoundExpressionStatement &node) override;
-  void visit(sema::BoundLiteral &node) override;
-  void visit(sema::BoundVariableExpression &node) override;
-  void visit(sema::BoundCompoundTargetLoad &node) override;
-  void visit(sema::BoundBinaryExpression &node) override;
-  void visit(sema::BoundTernaryExpression &node) override;
-  void visit(sema::BoundUnaryExpression &node) override;
-  void visit(sema::BoundFunctionCall &node) override;
-  void visit(sema::BoundIndirectCall &node) override;
-  void visit(sema::BoundFunctionReference &node) override;
-  void visit(sema::BoundArrayLiteral &node) override;
-  void visit(sema::BoundIndexAccess &node) override;
-  void visit(sema::BoundRecordDeclaration &node) override;
-  void visit(sema::BoundEnumDeclaration &node) override;
-  void visit(sema::BoundTaggedUnionDeclaration &node) override;
-  void visit(sema::BoundMemberAccess &node) override;
-  void visit(sema::BoundStructLiteral &node) override;
-  void visit(sema::BoundTaggedUnionLiteral &node) override;
-  void visit(sema::BoundModuleReference &node) override;
-  void visit(sema::BoundIfStatement &node) override;
-  void visit(sema::BoundWhileStatement &node) override;
-  void visit(sema::BoundForStatement &node) override;
-  void visit(sema::BoundBreakStatement &node) override;
-  void visit(sema::BoundContinueStatement &node) override;
-  void visit(sema::BoundAsmStatement &node) override;
-  void visit(sema::BoundCast &node) override;
-  void visit(sema::BoundNewExpression &node) override;
-  void visit(sema::BoundWeakLockExpression &node) override;
-  void visit(sema::BoundWeakAliveExpression &node) override;
-  void visit(sema::BoundTryExpression &node) override;
-  void visit(sema::BoundFallbackExpression &node) override;
-  void visit(sema::BoundFailableHandleExpression &node) override;
-  void visit(sema::BoundFailStatement &node) override;
 
 private:
   llvm::LLVMContext ctx_;
@@ -78,11 +35,6 @@ private:
   bool freestanding_ = false;
 
   llvm::Function *currentFn_ = nullptr;
-  llvm::Value *lastValue_ = nullptr;
-  bool evaluateAsAddr_ = false;
-  llvm::Value *compoundTargetAddr_ = nullptr;
-
-  std::map<std::string, llvm::Value *> localValues_;
   std::map<std::string, llvm::GlobalVariable *> globalValues_;
   std::map<std::string, llvm::Function *> functionMap_;
   std::map<std::string, const zir::Function *> zirFunctionMap_;
@@ -95,10 +47,6 @@ private:
   std::map<std::string, llvm::Function *> classDestructorFns_;
   std::map<std::string, llvm::GlobalVariable *> classMetadataGlobals_;
   std::unordered_set<std::string> cyclicClasses_;
-  std::vector<std::vector<std::pair<std::shared_ptr<zir::Type>, llvm::Value *>>>
-      scopeClassLocals_;
-  std::vector<std::vector<std::pair<std::shared_ptr<zir::Type>, llvm::Value *>>>
-      scopeStringLocals_;
   std::unique_ptr<ClassArcEmitter> arcEmitter_;
   std::unordered_map<const zir::Value *, llvm::Value *> zirValueMap_;
   std::unordered_set<const zir::Value *> refReturnValues_;
@@ -124,12 +72,8 @@ private:
                                           std::string &globalName,
                                           bool owned);
 
-  std::vector<std::pair<llvm::BasicBlock *, llvm::BasicBlock *>> loopBBStack_;
-
   llvm::Type *toLLVMType(const zir::Type &ty);
   llvm::Type *toLLVMAggregateFieldType(const std::shared_ptr<zir::Type> &type);
-  llvm::FunctionType *buildFunctionType(const sema::FunctionSymbol &sym,
-                                        bool injectMainProcessArgs = false);
   llvm::FunctionType *buildFunctionType(const zir::Function &fn);
   void initializeModule();
   void declareZIRFunction(const zir::Function &fn, bool isExternal);
@@ -171,8 +115,6 @@ private:
   void emitManagedRelease(llvm::Value *value,
                           const std::shared_ptr<zir::Type> &type);
   void emitZIRFunctionReleases();
-  bool expressionProducesOwnedClass(const sema::BoundExpression *expr) const;
-  bool expressionProducesOwnedString(const sema::BoundExpression *expr) const;
   void emitRetainIfNeeded(llvm::Value *value,
                           const std::shared_ptr<zir::Type> &type);
   void emitReleaseIfNeeded(llvm::Value *value,
@@ -195,8 +137,6 @@ private:
   void emitStoreWithStringArc(llvm::Value *addr, llvm::Value *value,
                               const std::shared_ptr<zir::Type> &type,
                               bool valueIsOwned, bool skipReleaseOld = false);
-  void emitScopeReleases();
-  void ensureArcSupport(sema::BoundRootNode &root);
   void ensureClassArcSupport(const std::shared_ptr<zir::ClassType> &classType);
   void computeCyclicClasses(const zir::Module &module);
   llvm::StructType *getOrCreateClassStruct(const zir::ClassType &ct);

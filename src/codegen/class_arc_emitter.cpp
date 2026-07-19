@@ -21,30 +21,6 @@ bool ClassArcEmitter::isWeakClassType(
          std::static_pointer_cast<zir::ClassType>(type)->isWeak();
 }
 
-bool ClassArcEmitter::expressionProducesOwnedClass(
-    const sema::BoundExpression *expr) const {
-  if (!expr || !isClassType(expr->type)) {
-    return false;
-  }
-  if (dynamic_cast<const sema::BoundNewExpression *>(expr)) {
-    return true;
-  }
-  if (dynamic_cast<const sema::BoundFunctionCall *>(expr)) {
-    return true;
-  }
-  if (dynamic_cast<const sema::BoundWeakLockExpression *>(expr)) {
-    return true;
-  }
-  if (auto cast = dynamic_cast<const sema::BoundCast *>(expr)) {
-    return expressionProducesOwnedClass(cast->expression.get());
-  }
-  if (auto ternary = dynamic_cast<const sema::BoundTernaryExpression *>(expr)) {
-    return expressionProducesOwnedClass(ternary->thenExpr.get()) &&
-           expressionProducesOwnedClass(ternary->elseExpr.get());
-  }
-  return false;
-}
-
 void ClassArcEmitter::emitRetainIfNeeded(
     llvm::Value *value, const std::shared_ptr<zir::Type> &type) {
   if (!value || !isClassType(type) || isWeakClassType(type)) {
@@ -412,25 +388,6 @@ void ClassArcEmitter::emitStoreWithArc(llvm::Value *addr, llvm::Value *value,
   }
 }
 
-void ClassArcEmitter::emitScopeReleases() {
-  if (codegen_.scopeClassLocals_.empty()) {
-    return;
-  }
-
-  auto &locals = codegen_.scopeClassLocals_.back();
-  for (auto it = locals.rbegin(); it != locals.rend(); ++it) {
-    auto *addr = it->second;
-    auto *value = codegen_.builder_.CreateLoad(codegen_.toLLVMType(*it->first),
-                                               addr, "arc.scope.value");
-    if (isWeakClassType(it->first)) {
-      emitReleaseWeakIfNeeded(value, it->first);
-    } else {
-      emitReleaseIfNeeded(value, it->first);
-    }
-  }
-  locals.clear();
-}
-
 void ClassArcEmitter::ensureClassArcSupport(
     const std::shared_ptr<zir::ClassType> &classType) {
   if (!classType || codegen_.classReleaseFns_.count(classType->getName())) {
@@ -548,11 +505,9 @@ void ClassArcEmitter::ensureClassArcSupport(
   }
 
   auto savedFn = codegen_.currentFn_;
-  auto savedLocals = codegen_.localValues_;
   auto savedBlock = codegen_.builder_.GetInsertBlock();
 
   codegen_.currentFn_ = destroyHelper;
-  codegen_.localValues_.clear();
   auto *destroyEntry =
       llvm::BasicBlock::Create(codegen_.ctx_, "entry", destroyHelper);
   auto *destroyReturnBB =
@@ -638,7 +593,6 @@ void ClassArcEmitter::ensureClassArcSupport(
   codegen_.builder_.CreateRetVoid();
 
   codegen_.currentFn_ = releaseHelper;
-  codegen_.localValues_.clear();
   auto *entry = llvm::BasicBlock::Create(codegen_.ctx_, "entry", releaseHelper);
   auto *decrementedBB =
       llvm::BasicBlock::Create(codegen_.ctx_, "arc.dec", releaseHelper);
@@ -717,17 +671,9 @@ void ClassArcEmitter::ensureClassArcSupport(
   codegen_.builder_.CreateRetVoid();
 
   codegen_.currentFn_ = savedFn;
-  codegen_.localValues_ = std::move(savedLocals);
   if (savedBlock) {
     codegen_.builder_.SetInsertPoint(savedBlock);
   }
 }
 
-void ClassArcEmitter::ensureArcSupport(sema::BoundRootNode &root) {
-  for (const auto &rec : root.records) {
-    if (rec->type && rec->type->getKind() == zir::TypeKind::Class) {
-      codegen_.toLLVMType(*rec->type);
-    }
-  }
-}
 } // namespace codegen
