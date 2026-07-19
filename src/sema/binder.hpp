@@ -4,6 +4,7 @@
 #include "../ir/type_identity.hpp"
 #include "../utils/diagnostics.hpp"
 #include "bound_nodes.hpp"
+#include "conversion.hpp"
 #include "module_info.hpp"
 #include "semantic_info.hpp"
 #include "symbol_table.hpp"
@@ -124,6 +125,7 @@ private:
   std::unique_ptr<BoundBlock> currentBlock_;
   std::vector<std::shared_ptr<zir::Type>> expectedExpressionTypes_;
   mutable zir::TypeInterner typeInterner_;
+  mutable ConversionClassifier conversions_{typeInterner_};
 
   int loopDepth_ = 0;
   size_t syntheticLoopCounter_ = 0;
@@ -186,18 +188,6 @@ private:
   std::unordered_map<std::string, ClassInfo> classInfos_;
   std::vector<std::string> currentClassStack_;
 
-  struct PairHash {
-    size_t operator()(const std::pair<const zir::Type *, const zir::Type *> &p)
-        const noexcept {
-      size_t h1 = std::hash<const void *>{}(p.first);
-      size_t h2 = std::hash<const void *>{}(p.second);
-      return h1 ^ (h2 * 2654435761u); // Knuth's multiplicative constant,
-                                      // spreads bits to reduce collisions
-    }
-  };
-  mutable std::unordered_map<std::pair<const zir::Type *, const zir::Type *>,
-                             bool, PairHash>
-      canConvertCache_;
   std::unordered_map<const TypeNode *, std::shared_ptr<zir::Type>>
       mapTypeCache_;
 
@@ -221,8 +211,8 @@ private:
   foldConstantBinary(const BoundBinaryExpression *binary);
   std::string makeSyntheticLoopName(std::string_view prefix);
   std::unique_ptr<BoundExpression>
-  wrapInCast(std::unique_ptr<BoundExpression> expr,
-             std::shared_ptr<zir::Type> targetType);
+  applyConversion(std::unique_ptr<BoundExpression> expr,
+                  const Conversion &conversion);
   std::unique_ptr<BoundExpression>
   buildBinaryExpression(std::unique_ptr<BoundExpression> left,
                         const std::string &op,
@@ -279,13 +269,9 @@ private:
   std::shared_ptr<zir::Type> currentExpectedExpressionType() const;
   bool bindSizeOfBuiltinCall(FunCall &node);
   bool bindWeakBuiltinCall(FunCall &node);
-  int conversionCost(std::shared_ptr<zir::Type> from,
-                     std::shared_ptr<zir::Type> to) const;
   bool isSignedIntegerType(std::shared_ptr<zir::Type> type) const;
   bool isUnsignedIntegerType(std::shared_ptr<zir::Type> type) const;
   int typeBitWidth(std::shared_ptr<zir::Type> type) const;
-  std::string describeConversion(std::shared_ptr<zir::Type> from,
-                                 std::shared_ptr<zir::Type> to) const;
   std::unique_ptr<BoundBlock> bindBody(BodyNode *body, bool createScope);
   void initializeBuiltins();
   void predeclareModuleTypes(ModuleState &module);
@@ -301,8 +287,6 @@ private:
   bool isUnsafeActive() const;
   void requireUnsafeEnabled(SourceSpan span, const std::string &feature);
   void requireUnsafeContext(SourceSpan span, const std::string &feature);
-  bool canConvert(std::shared_ptr<zir::Type> from,
-                  std::shared_ptr<zir::Type> to) const;
   std::shared_ptr<zir::Type> getPromotedType(std::shared_ptr<zir::Type> t1,
                                              std::shared_ptr<zir::Type> t2);
   std::shared_ptr<zir::Type>

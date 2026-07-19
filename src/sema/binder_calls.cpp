@@ -49,14 +49,16 @@ void Binder::visit(FunCall &node) {
         if (!payload) {
           return;
         }
-        if (!canConvert(payload->type, variant->payloadType)) {
+        auto conversion =
+            conversions_.classifyImplicit(payload->type, variant->payloadType);
+        if (!conversion) {
           error(node.params_[0]->value->span,
                 "Cannot convert enum payload from '" +
                     renderTypeForUser(payload->type) + "' to '" +
                     renderTypeForUser(variant->payloadType) + "'");
           return;
         }
-        payload = wrapInCast(std::move(payload), variant->payloadType);
+        payload = applyConversion(std::move(payload), *conversion);
         expressionStack_.push(std::make_unique<BoundTaggedUnionLiteral>(
             taggedUnionType, variant->name, variant->tag, std::move(payload)));
         return;
@@ -182,11 +184,13 @@ void Binder::visit(FunCall &node) {
         bool failed = false;
         for (size_t i = 0; i < rawArgs.size(); ++i) {
           auto expectedType = funcSymbol->parameters[i + paramOffset]->type;
-          if (!canConvert(rawArgs[i]->type, expectedType)) {
+          auto conversion =
+              conversions_.classifyImplicit(rawArgs[i]->type, expectedType);
+          if (!conversion) {
             failed = true;
             break;
           }
-          match.cost.push_back(conversionCost(rawArgs[i]->type, expectedType));
+          match.cost.push_back(conversion->cost());
         }
         if (!failed) {
           matches.push_back(std::move(match));
@@ -228,7 +232,10 @@ void Binder::visit(FunCall &node) {
       for (size_t i = 0; i < node.params_.size(); ++i) {
         auto arg = rawArgs[i]->clone();
         auto expectedType = funcSymbol->parameters[i + paramOffset]->type;
-        arg = wrapInCast(std::move(arg), expectedType);
+        if (auto conversion =
+                conversions_.classifyImplicit(arg->type, expectedType)) {
+          arg = applyConversion(std::move(arg), *conversion);
+        }
         args.push_back(std::move(arg));
         argIsRef.push_back(node.params_[i]->isRef);
       }
@@ -526,16 +533,18 @@ void Binder::visit(FunCall &node) {
         auto expectedViewType =
             makeVariadicViewType(variadicParam->variadic_element_type);
 
+        auto conversion =
+            conversions_.classifyImplicit(arg->type, expectedViewType);
         if (arg->type && arg->type->getKind() == zir::TypeKind::Array) {
-          if (!canConvert(arg->type, expectedViewType)) {
+          if (!conversion) {
             failed = true;
             failureReason =
                 "spread argument type does not match variadic parameter";
             break;
           }
-          arg = wrapInCast(std::move(arg), expectedViewType);
+          arg = applyConversion(std::move(arg), *conversion);
         } else if (!arg->type || !isVariadicViewType(arg->type) ||
-                   !canConvert(arg->type, expectedViewType)) {
+                   !conversion) {
           failed = true;
           failureReason =
               "spread argument type does not match variadic parameter";
@@ -574,16 +583,10 @@ void Binder::visit(FunCall &node) {
           match.cost.push_back(0);
           match.notes.push_back("param " + parameter->name +
                                 ": exact ref match");
-        } else if (!canConvert(arg->type, expectedType)) {
-          failed = true;
-          failureReason = "argument for parameter '" + parameter->name +
-                          "' is not convertible from '" +
-                          renderTypeForUser(arg->type) + "' to '" +
-                          renderTypeForUser(expectedType) + "'";
-          break;
         } else {
-          int cost = conversionCost(arg->type, expectedType);
-          if (cost >= 1000) {
+          auto conversion =
+              conversions_.classifyImplicit(arg->type, expectedType);
+          if (!conversion) {
             failed = true;
             failureReason = "argument for parameter '" + parameter->name +
                             "' is not convertible from '" +
@@ -591,10 +594,10 @@ void Binder::visit(FunCall &node) {
                             renderTypeForUser(expectedType) + "'";
             break;
           }
-          match.cost.push_back(cost);
+          match.cost.push_back(conversion->cost());
           match.notes.push_back("param " + parameter->name + ": " +
-                                describeConversion(arg->type, expectedType));
-          arg = wrapInCast(std::move(arg), expectedType);
+                                std::string(conversion->description()));
+          arg = applyConversion(std::move(arg), *conversion);
         }
         match.argumentIsRef[parameterIndex] = argIsRef;
         match.arguments[parameterIndex] = std::move(arg);
@@ -608,19 +611,20 @@ void Binder::visit(FunCall &node) {
         if (!genericBindings.empty()) {
           expectedType = substituteGenericType(expectedType, genericBindings);
         }
-        if (!canConvert(arg->type, expectedType)) {
+        auto conversion =
+            conversions_.classifyImplicit(arg->type, expectedType);
+        if (!conversion) {
           failed = true;
           failureReason = "variadic argument is not convertible from '" +
                           renderTypeForUser(arg->type) + "' to '" +
                           renderTypeForUser(expectedType) + "'";
           break;
         }
-        int cost = conversionCost(arg->type, expectedType);
-        match.cost.push_back(cost);
+        match.cost.push_back(conversion->cost());
         match.usedExtraArguments = true;
         match.notes.push_back("variadic: " +
-                              describeConversion(arg->type, expectedType));
-        arg = wrapInCast(std::move(arg), expectedType);
+                              std::string(conversion->description()));
+        arg = applyConversion(std::move(arg), *conversion);
         match.argumentIsRef.push_back(false);
         match.arguments.push_back(std::move(arg));
       } else if (funcSymbol->isCVariadic) {
@@ -636,12 +640,19 @@ void Binder::visit(FunCall &node) {
                           "' is not supported in C variadic arguments";
           break;
         }
-        int cost = conversionCost(arg->type, promotedType);
-        match.cost.push_back(cost);
+        auto conversion =
+            conversions_.classifyCVariadic(arg->type, promotedType);
+        if (!conversion) {
+          failed = true;
+          failureReason = "type '" + renderTypeForUser(arg->type) +
+                          "' cannot undergo its required C promotion";
+          break;
+        }
+        match.cost.push_back(conversion->cost());
         match.usedExtraArguments = true;
         match.notes.push_back("c variadic: " +
-                              describeConversion(arg->type, promotedType));
-        arg = wrapInCast(std::move(arg), promotedType);
+                              std::string(conversion->description()));
+        arg = applyConversion(std::move(arg), *conversion);
         match.argumentIsRef.push_back(false);
         match.arguments.push_back(std::move(arg));
       } else {
@@ -658,15 +669,11 @@ void Binder::visit(FunCall &node) {
     }
 
     if (expectedReturnType) {
-      if (typeInterner_.same(funcSymbol->returnType, expectedReturnType)) {
-        match.returnCost = 0;
-        match.notes.push_back("return: exact match");
-      } else if (canConvert(funcSymbol->returnType, expectedReturnType)) {
-        match.returnCost =
-            conversionCost(funcSymbol->returnType, expectedReturnType);
+      if (auto conversion = conversions_.classifyImplicit(
+              funcSymbol->returnType, expectedReturnType)) {
+        match.returnCost = conversion->cost();
         match.notes.push_back(
-            "return: " +
-            describeConversion(funcSymbol->returnType, expectedReturnType));
+            "return: " + std::string(conversion->description()));
       } else {
         match.returnCost = 50;
         match.notes.push_back("return: incompatible with expected " +
@@ -695,7 +702,10 @@ void Binder::visit(FunCall &node) {
         if (i < resolvedSymbol->parameters.size() && argClone) {
           auto expected = resolvedSymbol->parameters[i]->type;
           if (!resolvedSymbol->parameters[i]->is_ref) {
-            argClone = wrapInCast(std::move(argClone), expected);
+            if (auto conversion =
+                    conversions_.classifyImplicit(argClone->type, expected)) {
+              argClone = applyConversion(std::move(argClone), *conversion);
+            }
           }
         }
         remappedArgs.push_back(std::move(argClone));

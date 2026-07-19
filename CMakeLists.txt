@@ -15,7 +15,6 @@ set(SOURCES
     src/lexer/lexer.cpp
     src/parser/parser.cpp
     src/frontend/module_loader.cpp
-    src/ir/failable_type.cpp
     src/ir/ir_generator.cpp
     src/sema/binder.cpp
     src/sema/binder_calls.cpp
@@ -39,9 +38,17 @@ set(SOURCES
     src/utils/stream.cpp
 )
 
-add_library(zap_type_system STATIC src/ir/type_identity.cpp)
+add_library(zap_type_system STATIC
+    src/ir/failable_type.cpp
+    src/ir/type_identity.cpp
+)
 target_include_directories(zap_type_system PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_options(zap_type_system PRIVATE -Wall -Wextra)
+
+add_library(zap_sema_conversions STATIC src/sema/conversion.cpp)
+target_include_directories(zap_sema_conversions PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_options(zap_sema_conversions PRIVATE -Wall -Wextra)
+target_link_libraries(zap_sema_conversions PUBLIC zap_type_system)
 
 add_library(zap_zir_verifier STATIC
     src/ir/zir_verifier.cpp
@@ -89,6 +96,7 @@ endif()
 
 target_link_libraries(zapc PRIVATE ${llvm_libs})
 target_link_libraries(zapc PRIVATE zap_type_system)
+target_link_libraries(zapc PRIVATE zap_sema_conversions)
 target_link_libraries(zapc PRIVATE zap_zir_verifier)
 target_compile_definitions(zapc PRIVATE ${LLVM_DEFINITIONS})
 target_compile_definitions(zapc PRIVATE ZAPC_STDLIB_PATH="${CMAKE_BINARY_DIR}/stdlib.o")
@@ -103,6 +111,11 @@ if(BUILD_TESTING)
     target_link_libraries(zap-type-identity-tests PRIVATE zap_type_system)
     target_compile_options(zap-type-identity-tests PRIVATE -Wall -Wextra)
     add_test(NAME type-identity COMMAND zap-type-identity-tests)
+
+    add_executable(zap-conversion-tests tests/cpp/conversion_test.cpp)
+    target_link_libraries(zap-conversion-tests PRIVATE zap_sema_conversions)
+    target_compile_options(zap-conversion-tests PRIVATE -Wall -Wextra)
+    add_test(NAME conversions COMMAND zap-conversion-tests)
 
     add_executable(zap-zir-verifier-tests tests/cpp/zir_verifier_test.cpp)
     target_link_libraries(zap-zir-verifier-tests PRIVATE zap_zir_verifier)

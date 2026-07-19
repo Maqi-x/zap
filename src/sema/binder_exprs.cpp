@@ -142,8 +142,12 @@ Binder::buildBinaryExpression(std::unique_ptr<BoundExpression> left,
                 renderTypeForUser(rightType) + "'");
     } else {
       resultType = getPromotedType(leftType, rightType);
-      left = wrapInCast(std::move(left), resultType);
-      right = wrapInCast(std::move(right), resultType);
+      left = applyConversion(
+          std::move(left),
+          *conversions_.classifyImplicit(leftType, resultType));
+      right = applyConversion(
+          std::move(right),
+          *conversions_.classifyImplicit(rightType, resultType));
     }
   } else if (op == "&" || op == "|" || op == "^") {
     if (!leftType->isInteger() || !rightType->isInteger()) {
@@ -153,8 +157,12 @@ Binder::buildBinaryExpression(std::unique_ptr<BoundExpression> left,
                 renderTypeForUser(rightType) + "'");
     } else {
       resultType = getPromotedType(leftType, rightType);
-      left = wrapInCast(std::move(left), resultType);
-      right = wrapInCast(std::move(right), resultType);
+      left = applyConversion(
+          std::move(left),
+          *conversions_.classifyImplicit(leftType, resultType));
+      right = applyConversion(
+          std::move(right),
+          *conversions_.classifyImplicit(rightType, resultType));
     }
   } else if (op == "<<" || op == ">>") {
     if (!leftType->isInteger() || !rightType->isInteger()) {
@@ -165,7 +173,9 @@ Binder::buildBinaryExpression(std::unique_ptr<BoundExpression> left,
     } else {
       // Keep the left-hand integer type for shift results.
       resultType = leftType;
-      right = wrapInCast(std::move(right), resultType);
+      right = applyConversion(
+          std::move(right),
+          *conversions_.classifyImplicit(rightType, resultType));
 
       if (auto shiftAmount = evaluateConstantInt(right.get())) {
         if (*shiftAmount < 0) {
@@ -206,31 +216,35 @@ Binder::buildBinaryExpression(std::unique_ptr<BoundExpression> left,
                 "' and '" + renderTypeForUser(rightType) + "'");
     }
 
-    if (!canConvert(leftType, rightType) && !canConvert(rightType, leftType)) {
+    auto leftToRight = conversions_.classifyImplicit(leftType, rightType);
+    auto rightToLeft = conversions_.classifyImplicit(rightType, leftType);
+    if (!leftToRight && !rightToLeft) {
       error(SourceSpan::merge(leftSpan, rightSpan),
             "Cannot compare '" + renderTypeForUser(leftType) + "' and '" +
                 renderTypeForUser(rightType) + "'");
-    } else if (isNullType(leftType) && isPointerType(rightType)) {
-      left = wrapInCast(std::move(left), rightType);
-    } else if (isNullType(rightType) && isPointerType(leftType)) {
-      right = wrapInCast(std::move(right), leftType);
-    } else if (isNullType(leftType) &&
-               rightType->getKind() == zir::TypeKind::Class) {
-      left = wrapInCast(std::move(left), rightType);
-    } else if (isNullType(rightType) &&
-               leftType->getKind() == zir::TypeKind::Class) {
-      right = wrapInCast(std::move(right), leftType);
     } else if ((leftType->isInteger() && rightType->isInteger()) ||
                (leftType->isFloatingPoint() && rightType->isFloatingPoint()) ||
                (leftType->isInteger() && rightType->isFloatingPoint()) ||
                (leftType->isFloatingPoint() && rightType->isInteger())) {
       auto promotedType = getPromotedType(leftType, rightType);
-      left = wrapInCast(std::move(left), promotedType);
-      right = wrapInCast(std::move(right), promotedType);
+      left = applyConversion(
+          std::move(left),
+          *conversions_.classifyImplicit(leftType, promotedType));
+      right = applyConversion(
+          std::move(right),
+          *conversions_.classifyImplicit(rightType, promotedType));
     } else if (stringComparison) {
       auto stringViewType = zir::makeStringViewType();
-      left = wrapInCast(std::move(left), stringViewType);
-      right = wrapInCast(std::move(right), stringViewType);
+      left = applyConversion(
+          std::move(left),
+          *conversions_.classifyImplicit(leftType, stringViewType));
+      right = applyConversion(
+          std::move(right),
+          *conversions_.classifyImplicit(rightType, stringViewType));
+    } else if (leftToRight) {
+      left = applyConversion(std::move(left), *leftToRight);
+    } else if (rightToLeft) {
+      right = applyConversion(std::move(right), *rightToLeft);
     }
     resultType = std::make_shared<zir::PrimitiveType>(zir::TypeKind::Bool);
   } else if (op == "&&" || op == "||") {
@@ -275,18 +289,24 @@ void Binder::visit(TernaryExpr &node) {
   auto elseExpr = std::move(expressionStack_.top());
   expressionStack_.pop();
 
-  if (!canConvert(thenExpr->type, elseExpr->type) &&
-      !canConvert(elseExpr->type, thenExpr->type)) {
+  auto thenToElse =
+      conversions_.classifyImplicit(thenExpr->type, elseExpr->type);
+  auto elseToThen =
+      conversions_.classifyImplicit(elseExpr->type, thenExpr->type);
+  if (!thenToElse && !elseToThen) {
     error(SourceSpan::merge(node.thenExpr_->span, node.elseExpr_->span),
           "Ternary branches must be compatible, got '" +
               renderTypeForUser(thenExpr->type) + "' and '" +
               renderTypeForUser(elseExpr->type) + "'");
+    return;
   }
 
-  auto resultType = canConvert(thenExpr->type, elseExpr->type) ? elseExpr->type
-                                                               : thenExpr->type;
-  thenExpr = wrapInCast(std::move(thenExpr), resultType);
-  elseExpr = wrapInCast(std::move(elseExpr), resultType);
+  auto resultType = thenToElse ? elseExpr->type : thenExpr->type;
+  if (thenToElse) {
+    thenExpr = applyConversion(std::move(thenExpr), *thenToElse);
+  } else {
+    elseExpr = applyConversion(std::move(elseExpr), *elseToThen);
+  }
 
   expressionStack_.push(std::make_unique<BoundTernaryExpression>(
       std::move(condition), std::move(thenExpr), std::move(elseExpr),
@@ -340,37 +360,7 @@ void Binder::visit(CastExpr &node) {
     return;
   }
 
-  bool castAllowed = false;
-  auto sourceKind = expr->type->getKind();
-  auto targetKind = targetType->getKind();
-  bool sourceIsChar = sourceKind == zir::TypeKind::Char;
-  bool targetIsChar = targetKind == zir::TypeKind::Char;
-
-  if (isNumeric(expr->type) && isNumeric(targetType))
-    castAllowed = true;
-  else if ((sourceIsChar && targetType->isInteger()) ||
-           (expr->type->isInteger() && targetIsChar))
-    castAllowed = true;
-  else if (sourceKind == zir::TypeKind::Enum && targetType->isInteger())
-    castAllowed = true;
-  else if ((isPointerType(expr->type) || isNullType(expr->type)) &&
-           isPointerType(targetType))
-    castAllowed = true;
-  else if (isStringType(expr->type) && isPointerType(targetType))
-    castAllowed = true;
-  else if (isStringType(expr->type) && isStringType(targetType))
-    castAllowed = true;
-  else if (isPointerType(expr->type) && isStringType(targetType)) {
-    auto ptrType = std::static_pointer_cast<zir::PointerType>(expr->type);
-    auto baseKind = ptrType->getBaseType()->getKind();
-    castAllowed =
-        baseKind == zir::TypeKind::Void || baseKind == zir::TypeKind::Char;
-  } else if (isPointerType(expr->type) && targetType->isInteger())
-    castAllowed = true;
-  else if (expr->type->isInteger() && isPointerType(targetType))
-    castAllowed = true;
-
-  if (!castAllowed) {
+  if (!conversions_.classifyExplicit(expr->type, targetType)) {
     error(node.span, "Cannot cast from '" + renderTypeForUser(expr->type) +
                          "' to '" + renderTypeForUser(targetType) + "'");
     return;
@@ -443,14 +433,15 @@ void Binder::visit(FallbackExpr &node) {
     return;
   }
 
-  if (!canConvert(fallback->type, valueType)) {
+  auto conversion = conversions_.classifyImplicit(fallback->type, valueType);
+  if (!conversion) {
     error(node.fallback_->span, "Fallback expression type '" +
                                     renderTypeForUser(fallback->type) +
                                     "' is not compatible with '" +
                                     renderTypeForUser(valueType) + "'");
     return;
   }
-  fallback = wrapInCast(std::move(fallback), valueType);
+  fallback = applyConversion(std::move(fallback), *conversion);
 
   expressionStack_.push(std::make_unique<BoundFallbackExpression>(
       std::move(expression), std::move(fallback), valueType, errorType));
@@ -497,14 +488,17 @@ void Binder::visit(FailableHandleExpr &node) {
 
   std::shared_ptr<zir::Type> handlerResultType = valueType;
   if (handler && handler->result) {
-    if (!canConvert(handler->result->type, valueType)) {
+    auto conversion =
+        conversions_.classifyImplicit(handler->result->type, valueType);
+    if (!conversion) {
       error(node.span, "Handler result type '" +
                            renderTypeForUser(handler->result->type) +
                            "' is not compatible with '" +
                            renderTypeForUser(valueType) + "'");
       return;
     }
-    handler->result = wrapInCast(std::move(handler->result), valueType);
+    handler->result =
+        applyConversion(std::move(handler->result), *conversion);
     handlerResultType = valueType;
   } else if (valueType && valueType->getKind() != zir::TypeKind::Void &&
              (!handler || !blockAlwaysReturns(handler.get()))) {
@@ -554,8 +548,8 @@ void Binder::visit(ConstId &node) {
         if (overload->parameters.size() == fpType.getParams().size()) {
           bool ok = true;
           for (size_t i = 0; i < fpType.getParams().size(); ++i) {
-            if (!canConvert(fpType.getParams()[i],
-                            overload->parameters[i]->type)) {
+            if (!conversions_.classifyImplicit(
+                    fpType.getParams()[i], overload->parameters[i]->type)) {
               ok = false;
               break;
             }
@@ -631,12 +625,13 @@ void Binder::visit(AssignNode &node) {
       return;
   }
 
-  if (!canConvert(expr->type, target->type)) {
+  auto conversion = conversions_.classifyImplicit(expr->type, target->type);
+  if (!conversion) {
     error(node.span, "Cannot assign expression of type '" +
                          renderTypeForUser(expr->type) + "' to type '" +
                          renderTypeForUser(target->type) + "'");
   } else {
-    expr = wrapInCast(std::move(expr), target->type);
+    expr = applyConversion(std::move(expr), *conversion);
   }
 
   statementStack_.push(std::make_unique<BoundAssignment>(
@@ -687,10 +682,16 @@ void Binder::visit(IndexAccessNode &node) {
             "String indexing requires the core.at(StringView, Int) helper.");
       return;
     }
-    left = wrapInCast(std::move(left),
-                      stringIndexFunction_->parameters[0]->type);
-    index = wrapInCast(std::move(index),
-                       stringIndexFunction_->parameters[1]->type);
+    auto leftConversion = conversions_.classifyImplicit(
+        left->type, stringIndexFunction_->parameters[0]->type);
+    auto indexConversion = conversions_.classifyImplicit(
+        index->type, stringIndexFunction_->parameters[1]->type);
+    if (!leftConversion || !indexConversion) {
+      error(node.span, "String index helper has an incompatible signature.");
+      return;
+    }
+    left = applyConversion(std::move(left), *leftConversion);
+    index = applyConversion(std::move(index), *indexConversion);
 
     std::vector<std::unique_ptr<BoundExpression>> arguments;
     arguments.push_back(std::move(left));
@@ -917,11 +918,13 @@ void Binder::visit(NewExpr &node) {
       bool failed = false;
       for (size_t i = 0; i < rawArgs.size(); ++i) {
         auto expected = candidate->parameters[i + ctorParamOffset]->type;
-        if (!canConvert(rawArgs[i]->type, expected)) {
+        auto conversion =
+            conversions_.classifyImplicit(rawArgs[i]->type, expected);
+        if (!conversion) {
           failed = true;
           break;
         }
-        match.cost.push_back(conversionCost(rawArgs[i]->type, expected));
+        match.cost.push_back(conversion->cost());
       }
       if (!failed) {
         matches.push_back(std::move(match));
@@ -954,7 +957,10 @@ void Binder::visit(NewExpr &node) {
     auto expected =
         ctor ? ctor->parameters[i + ctorParamOffset]->type : nullptr;
     if (expected) {
-      arg = wrapInCast(std::move(arg), expected);
+      if (auto conversion =
+              conversions_.classifyImplicit(arg->type, expected)) {
+        arg = applyConversion(std::move(arg), *conversion);
+      }
     }
     args.push_back(std::move(arg));
     argRefs.push_back(node.args_[i]->isRef);
@@ -1044,12 +1050,14 @@ void Binder::visit(ArrayLiteralNode &node) {
     if (boundEl) {
       if (!elementType) {
         elementType = boundEl->type;
-      } else if (!canConvert(boundEl->type, elementType)) {
+      } else if (auto conversion =
+                     conversions_.classifyImplicit(boundEl->type,
+                                                   elementType)) {
+        boundEl = applyConversion(std::move(boundEl), *conversion);
+      } else {
         error(el->span, "Array elements must have the same type. Expected '" +
                             renderTypeForUser(elementType) + "', but got '" +
                             renderTypeForUser(boundEl->type) + "'");
-      } else {
-        boundEl = wrapInCast(std::move(boundEl), elementType);
       }
       elements.push_back(std::move(boundEl));
     }
@@ -1183,13 +1191,15 @@ void Binder::visit(StructLiteralNode &node) {
     bool found = false;
     for (const auto &f : recordType->getFields()) {
       if (f.name == fieldInit.name) {
-        if (!canConvert(boundVal->type, f.type)) {
+        auto conversion =
+            conversions_.classifyImplicit(boundVal->type, f.type);
+        if (!conversion) {
           error(node.span, "Cannot assign type '" +
                                renderTypeForUser(boundVal->type) +
                                "' to field '" + f.name + "' of type '" +
                                renderTypeForUser(f.type) + "'");
         } else {
-          boundVal = wrapInCast(std::move(boundVal), f.type);
+          boundVal = applyConversion(std::move(boundVal), *conversion);
         }
         found = true;
         break;
@@ -1231,14 +1241,17 @@ void Binder::visit(StructLiteralNode &node) {
             bindExpressionWithExpected(declField->defaultValue.get(), f.type);
         if (!defaultValue) {
           defaultValue = nullptr;
-        } else if (!canConvert(defaultValue->type, f.type)) {
+        } else if (auto conversion =
+                       conversions_.classifyImplicit(defaultValue->type,
+                                                     f.type)) {
+          defaultValue =
+              applyConversion(std::move(defaultValue), *conversion);
+        } else {
           error(declField->defaultValue->span,
                 "Cannot assign default value of type '" +
                     renderTypeForUser(defaultValue->type) + "' to field '" +
                     f.name + "' of type '" + renderTypeForUser(f.type) + "'");
           defaultValue = nullptr;
-        } else {
-          defaultValue = wrapInCast(std::move(defaultValue), f.type);
         }
       }
 

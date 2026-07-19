@@ -1,17 +1,6 @@
-#include "../ast/class_decl.hpp"
-#include "../ast/const/const_char.hpp"
-#include "../ast/record_decl.hpp"
-#include "../ir/string_type.hpp"
 #include "binder.hpp"
+
 #include <algorithm>
-#include <cctype>
-#include <cstdio>
-#include <functional>
-#include <limits>
-#include <sstream>
-#include <string_view>
-#include <unordered_map>
-#include <unordered_set>
 
 namespace sema {
 
@@ -67,93 +56,6 @@ int Binder::typeBitWidth(std::shared_ptr<zir::Type> type) const {
   }
 }
 
-int Binder::conversionCost(std::shared_ptr<zir::Type> from,
-                           std::shared_ptr<zir::Type> to) const {
-  if (!from || !to) {
-    return 1000;
-  }
-  if (typeInterner_.same(from, to)) {
-    return 0;
-  }
-  if (isNullType(from) && isPointerType(to)) {
-    return 3;
-  }
-  if (!canConvert(from, to)) {
-    return 1000;
-  }
-  if (isStringType(from) && isStringType(to)) {
-    return zir::isIntrinsicStringViewType(to) ? 0 : 1;
-  }
-
-  if (from->getKind() == zir::TypeKind::Enum && to->isInteger()) {
-    return 1;
-  }
-
-  if (from->isFloatingPoint() && to->isFloatingPoint()) {
-    return typeBitWidth(to) >= typeBitWidth(from) ? 1 : 5;
-  }
-
-  if (isSignedIntegerType(from) && isSignedIntegerType(to)) {
-    return typeBitWidth(to) >= typeBitWidth(from) ? 1 : 4;
-  }
-
-  if (isUnsignedIntegerType(from) && isUnsignedIntegerType(to)) {
-    return typeBitWidth(to) >= typeBitWidth(from) ? 1 : 4;
-  }
-
-  if (from->isInteger() && to->isFloatingPoint()) {
-    return typeBitWidth(to) >= typeBitWidth(from) ? 2 : 5;
-  }
-
-  if (from->isFloatingPoint() && to->isInteger()) {
-    return 6;
-  }
-
-  if (from->isInteger() && to->isInteger()) {
-    return 5;
-  }
-
-  return 7;
-}
-
-std::string Binder::describeConversion(std::shared_ptr<zir::Type> from,
-                                       std::shared_ptr<zir::Type> to) const {
-  if (!from || !to) {
-    return "invalid conversion";
-  }
-  int cost = conversionCost(from, to);
-  if (cost == 0) {
-    return "exact match";
-  }
-  if (isNullType(from) &&
-      (isPointerType(to) || to->getKind() == zir::TypeKind::Class)) {
-    return "null-to-reference conversion";
-  }
-  if (from->isFloatingPoint() && to->isFloatingPoint()) {
-    return typeBitWidth(to) >= typeBitWidth(from) ? "floating widening"
-                                                  : "floating narrowing";
-  }
-  if (isSignedIntegerType(from) && isSignedIntegerType(to)) {
-    return typeBitWidth(to) >= typeBitWidth(from) ? "signed widening"
-                                                  : "signed narrowing";
-  }
-  if (isUnsignedIntegerType(from) && isUnsignedIntegerType(to)) {
-    return typeBitWidth(to) >= typeBitWidth(from) ? "unsigned widening"
-                                                  : "unsigned narrowing";
-  }
-  if (from->isInteger() && to->isFloatingPoint()) {
-    return "integer-to-float conversion";
-  }
-  if (from->isFloatingPoint() && to->isInteger()) {
-    return "float-to-integer conversion";
-  }
-  if (from->isInteger() && to->isInteger()) {
-    return "signedness-changing integer conversion";
-  }
-  return cost >= 1000 ? "not convertible" : "implicit conversion";
-}
-
-
 bool Binder::isNumeric(std::shared_ptr<zir::Type> type) const {
   return type->isInteger() || type->isFloatingPoint();
 }
@@ -180,67 +82,6 @@ void Binder::requireUnsafeContext(SourceSpan span, const std::string &feature) {
   if (!isUnsafeActive()) {
     error(span, "Using " + feature + " is only allowed inside unsafe code.");
   }
-}
-
-bool Binder::canConvert(std::shared_ptr<zir::Type> from,
-                        std::shared_ptr<zir::Type> to) const {
-  if (!from || !to)
-    return false;
-  if (typeInterner_.same(from, to))
-    return true;
-
-  auto key = std::make_pair(from.get(), to.get());
-  auto cacheIt = canConvertCache_.find(key);
-  if (cacheIt != canConvertCache_.end())
-    return cacheIt->second;
-
-  auto &cached = canConvertCache_[key];
-  if (isNullType(from) &&
-      (isPointerType(to) || to->getKind() == zir::TypeKind::Class))
-    return cached = true;
-  if (isStringType(from) && isStringType(to))
-    return cached = true;
-  if (isStringType(from) && isPointerType(to)) {
-    auto ptrType = std::static_pointer_cast<zir::PointerType>(to);
-    return cached = (ptrType &&
-                     ptrType->getBaseType()->getKind() == zir::TypeKind::Char);
-  }
-  if (from->getKind() == zir::TypeKind::Class &&
-      to->getKind() == zir::TypeKind::Class) {
-    auto fromClass = std::static_pointer_cast<zir::ClassType>(from);
-    auto toClass = std::static_pointer_cast<zir::ClassType>(to);
-    if (fromClass->isWeak() && !toClass->isWeak())
-      return cached = false;
-    for (auto current = fromClass; current; current = current->getBase()) {
-      if (current->getName() == toClass->getName())
-        return cached = true;
-    }
-  }
-  if (from->getKind() == zir::TypeKind::Array && isVariadicViewType(to)) {
-    auto arrayType = std::static_pointer_cast<zir::ArrayType>(from);
-    auto viewType = std::static_pointer_cast<zir::RecordType>(to);
-    if (!viewType->getFields().empty() &&
-        viewType->getFields()[0].type->getKind() == zir::TypeKind::Pointer) {
-      auto dataType = std::static_pointer_cast<zir::PointerType>(
-          viewType->getFields()[0].type);
-      return cached = typeInterner_.same(arrayType->getBaseType(),
-                                         dataType->getBaseType());
-    }
-  }
-  if (isFailableType(from) && isFailableType(to)) {
-    auto fromValueType = failableValueType(from);
-    auto fromErrorType = failableErrorType(from);
-    auto toValueType = failableValueType(to);
-    auto toErrorType = failableErrorType(to);
-    return cached = (canConvert(fromValueType, toValueType) &&
-                     canConvert(fromErrorType, toErrorType));
-  }
-  if (isNumeric(from) && isNumeric(to))
-    return cached = true;
-  if (from->getKind() == zir::TypeKind::Enum &&
-      to->getKind() == zir::TypeKind::Int)
-    return cached = true;
-  return cached = false;
 }
 
 std::shared_ptr<zir::Type>
@@ -352,17 +193,14 @@ Binder::getCVariadicArgumentType(std::shared_ptr<zir::Type> type) {
 }
 
 std::unique_ptr<BoundExpression>
-Binder::wrapInCast(std::unique_ptr<BoundExpression> expr,
-                   std::shared_ptr<zir::Type> targetType) {
-  if (!expr || !targetType)
+Binder::applyConversion(std::unique_ptr<BoundExpression> expr,
+                        const Conversion &conversion) {
+  if (!expr || !conversion.targetType)
     return expr;
-  if (typeInterner_.same(expr->type, targetType)) {
+  if (!conversion.requiresCast()) {
     return expr;
   }
-  if (isNullType(expr->type) && isPointerType(targetType)) {
-    return std::make_unique<BoundCast>(std::move(expr), targetType);
-  }
-  return std::make_unique<BoundCast>(std::move(expr), targetType);
+  return std::make_unique<BoundCast>(std::move(expr), conversion.targetType);
 }
 
 } // namespace sema

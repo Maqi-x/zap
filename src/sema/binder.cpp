@@ -93,13 +93,6 @@ makeVariadicViewType(const std::shared_ptr<zir::Type> &elementType) {
   return type;
 }
 
-bool isVariadicViewType(const std::shared_ptr<zir::Type> &type) {
-  return type && type->getKind() == zir::TypeKind::Record &&
-         static_cast<zir::RecordType *>(type.get())
-                 ->getName()
-                 .rfind("__zap_varargs_", 0) == 0;
-}
-
 std::unique_ptr<BoundExpression>
 makeDefaultValueExpr(const std::shared_ptr<zir::Type> &type) {
   if (!type) {

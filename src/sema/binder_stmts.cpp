@@ -153,30 +153,38 @@ void Binder::visit(ReturnNode &node) {
 
     if (isFailableType(expectedType) && !isFailableType(actualType)) {
       auto expectedValueType = failableValueType(expectedType);
-      if (!canConvert(actualType, expectedValueType)) {
+      auto conversion =
+          conversions_.classifyImplicit(actualType, expectedValueType);
+      if (!conversion) {
         error(node.span,
               "Function '" + currentFunction_->name +
                   "' expects return type '" + renderTypeForUser(expectedType) +
                   "', but received '" + renderTypeForUser(actualType) + "'");
       } else if (expr) {
-        expr = wrapInCast(std::move(expr), expectedValueType);
+        expr = applyConversion(std::move(expr), *conversion);
         expr = makeFailableValueExpr(std::move(expr), expectedType);
       } else {
         expr = makeFailableValueExpr(makeDefaultValueExpr(expectedValueType),
                                      expectedType);
       }
-    } else if (!canConvert(actualType, expectedType)) {
-      if (expressionHadDiagnostic) {
-        statementStack_.push(std::make_unique<BoundReturnStatement>(
-            std::move(expr), currentFunction_ && currentFunction_->returnsRef));
-        return;
+    } else {
+      auto conversion =
+          conversions_.classifyImplicit(actualType, expectedType);
+      if (!conversion) {
+        if (expressionHadDiagnostic) {
+          statementStack_.push(std::make_unique<BoundReturnStatement>(
+              std::move(expr),
+              currentFunction_ && currentFunction_->returnsRef));
+          return;
+        }
+        error(node.span, "Function '" + currentFunction_->name +
+                             "' expects return type '" +
+                             renderTypeForUser(expectedType) +
+                             "', but received '" +
+                             renderTypeForUser(actualType) + "'");
+      } else if (expr) {
+        expr = applyConversion(std::move(expr), *conversion);
       }
-      error(node.span,
-            "Function '" + currentFunction_->name + "' expects return type '" +
-                renderTypeForUser(expectedType) + "', but received '" +
-                renderTypeForUser(actualType) + "'");
-    } else if (expr) {
-      expr = wrapInCast(std::move(expr), expectedType);
     }
   }
 
@@ -199,13 +207,15 @@ void Binder::visit(FailNode &node) {
     return;
   }
 
-  if (!canConvert(errExpr->type, expectedErrorType)) {
+  auto conversion =
+      conversions_.classifyImplicit(errExpr->type, expectedErrorType);
+  if (!conversion) {
     error(node.errorValue_->span,
           "Cannot fail with error type '" + renderTypeForUser(errExpr->type) +
               "', expected '" + renderTypeForUser(expectedErrorType) + "'");
     return;
   }
-  errExpr = wrapInCast(std::move(errExpr), expectedErrorType);
+  errExpr = applyConversion(std::move(errExpr), *conversion);
 
   statementStack_.push(std::make_unique<BoundFailStatement>(
       std::move(errExpr), propagatedType, expectedErrorType));

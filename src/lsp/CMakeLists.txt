@@ -10,7 +10,6 @@ set(LSP_SOURCES
   "${CMAKE_SOURCE_DIR}/src/lexer/lexer.cpp"
   "${CMAKE_SOURCE_DIR}/src/parser/parser.cpp"
   "${CMAKE_SOURCE_DIR}/src/frontend/module_loader.cpp"
-  "${CMAKE_SOURCE_DIR}/src/ir/failable_type.cpp"
   "${CMAKE_SOURCE_DIR}/src/sema/binder.cpp"
   "${CMAKE_SOURCE_DIR}/src/sema/binder_calls.cpp"
   "${CMAKE_SOURCE_DIR}/src/sema/binder_conversions.cpp"
@@ -28,6 +27,7 @@ set(LSP_SOURCES
 
 add_executable(zap-lsp ${LSP_SOURCES})
 target_link_libraries(zap-lsp PRIVATE zap_type_system)
+target_link_libraries(zap-lsp PRIVATE zap_sema_conversions)
 
 target_include_directories(zap-lsp PRIVATE "${CMAKE_SOURCE_DIR}/src")
 target_compile_options(zap-lsp PRIVATE -Wall -Wextra)

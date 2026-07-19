@@ -163,8 +163,11 @@ void Binder::visit(FunDecl &node) {
       auto inferred = returnTypes[0];
       bool conflict = false;
       for (size_t i = 1; i < returnTypes.size(); ++i) {
-        if (!canConvert(returnTypes[i], inferred) &&
-            !canConvert(inferred, returnTypes[i])) {
+        auto toInferred =
+            conversions_.classifyImplicit(returnTypes[i], inferred);
+        auto fromInferred =
+            conversions_.classifyImplicit(inferred, returnTypes[i]);
+        if (!toInferred && !fromInferred) {
           error(node.span, "Cannot infer return type of function '" +
                                node.name_ + "': conflicting return types '" +
                                renderTypeForUser(inferred) + "' and '" +
@@ -173,7 +176,7 @@ void Binder::visit(FunDecl &node) {
           conflict = true;
           break;
         }
-        if (canConvert(inferred, returnTypes[i])) {
+        if (fromInferred) {
           inferred = returnTypes[i];
         }
       }
@@ -257,13 +260,15 @@ void Binder::visit(VarDecl &node) {
     if (node.initializer_) {
       initializer = bindExpressionWithExpected(node.initializer_.get(), type);
       if (initializer && !isRef) {
-        if (!canConvert(initializer->type, type)) {
+        auto conversion =
+            conversions_.classifyImplicit(initializer->type, type);
+        if (!conversion) {
           error(node.initializer_->span,
                 "Cannot assign expression of type '" +
                     renderTypeForUser(initializer->type) +
                     "' to variable of type '" + renderTypeForUser(type) + "'");
         } else {
-          initializer = wrapInCast(std::move(initializer), type);
+          initializer = applyConversion(std::move(initializer), *conversion);
         }
       }
     } else if (isRef) {
@@ -341,13 +346,15 @@ void Binder::visit(ConstDecl &node) {
     if (node.initializer_) {
       initializer = bindExpressionWithExpected(node.initializer_.get(), type);
       if (initializer) {
-        if (!canConvert(initializer->type, type)) {
+        auto conversion =
+            conversions_.classifyImplicit(initializer->type, type);
+        if (!conversion) {
           error(node.initializer_->span,
                 "Cannot assign expression of type '" +
                     renderTypeForUser(initializer->type) +
                     "' to constant of type '" + renderTypeForUser(type) + "'");
         } else {
-          initializer = wrapInCast(std::move(initializer), type);
+          initializer = applyConversion(std::move(initializer), *conversion);
         }
       }
     } else {
