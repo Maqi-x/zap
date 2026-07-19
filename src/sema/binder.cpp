@@ -85,8 +85,9 @@ std::string renderGenericCodegenName(
 std::shared_ptr<zir::RecordType>
 makeVariadicViewType(const std::shared_ptr<zir::Type> &elementType) {
   auto suffix = zir::typeMangleKey(elementType);
-  auto type = std::make_shared<zir::RecordType>("__zap_varargs_" + suffix,
-                                                "__zap_varargs_" + suffix);
+  auto type = std::make_shared<zir::RecordType>(
+      "variadic$" + suffix, "variadic$" + suffix,
+      zir::IntrinsicTypeKind::None, zir::RecordRole::VariadicView);
   type->addField("data", std::make_shared<zir::PointerType>(elementType));
   type->addField("len",
                  std::make_shared<zir::PrimitiveType>(zir::TypeKind::Int));

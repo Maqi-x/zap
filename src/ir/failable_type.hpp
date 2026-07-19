@@ -6,8 +6,6 @@
 
 namespace zir {
 
-constexpr const char *kFailableTypePrefix = "__zap_failable_";
-
 struct FailableTypeLayout {
   static constexpr int OkField = 0;
   static constexpr int ValueField = 1;

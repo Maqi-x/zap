@@ -170,8 +170,8 @@ size_t ConversionClassifier::TypePairHash::operator()(
 
 bool isVariadicViewType(const std::shared_ptr<zir::Type> &type) {
   return type && type->getKind() == zir::TypeKind::Record &&
-         static_cast<const zir::RecordType &>(*type).getName().rfind(
-             "__zap_varargs_", 0) == 0;
+         static_cast<const zir::RecordType &>(*type).getRole() ==
+             zir::RecordRole::VariadicView;
 }
 
 bool ConversionClassifier::isSubtype(

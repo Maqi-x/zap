@@ -1,3 +1,4 @@
+#include "ir/failable_type.hpp"
 #include "ir/string_type.hpp"
 #include "ir/type_identity.hpp"
 
@@ -108,6 +109,31 @@ bool testInternerDeduplicatesIdentity() {
                 "interner retained duplicate canonical identities");
 }
 
+bool testSyntheticRecordRolesAreNotNameProtocols() {
+  TypeInterner types;
+  auto userRecord = std::make_shared<RecordType>("failable$legacy");
+  auto failable = zir::makeFailableRecordType(primitive(TypeKind::Int),
+                                              primitive(TypeKind::Int));
+  auto userNamedLikeOldVariadic =
+      std::make_shared<RecordType>("__zap_varargs_legacy");
+  auto variadic = std::make_shared<RecordType>(
+      "slice", "slice", zir::IntrinsicTypeKind::None,
+      zir::RecordRole::VariadicView);
+  auto userT = std::make_shared<RecordType>("T");
+  auto genericT = zir::makeGenericParameterType("T");
+
+  return expect(!zir::getFailableTypeLayout(userRecord),
+                "a user record was recognized as failable by its name") &&
+         expect(zir::getFailableTypeLayout(failable).has_value(),
+                "tagged failable record was not recognized") &&
+         expect(userNamedLikeOldVariadic->getRole() ==
+                    zir::RecordRole::User &&
+                    variadic->getRole() == zir::RecordRole::VariadicView,
+                "variadic view role depends on its generated name") &&
+         expect(!types.same(userT, genericT),
+                "user record and generic parameter have equal identities");
+}
+
 bool testMangleKeysAreCanonicalAndCollisionFree() {
   TypeInterner types;
   auto intType = primitive(TypeKind::Int);
@@ -138,6 +164,7 @@ int main() {
   ok = testStructuralTypes() && ok;
   ok = testNominalAndQualifiedTypes() && ok;
   ok = testInternerDeduplicatesIdentity() && ok;
+  ok = testSyntheticRecordRolesAreNotNameProtocols() && ok;
   ok = testMangleKeysAreCanonicalAndCollisionFree() && ok;
   return ok ? 0 : 1;
 }

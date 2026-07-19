@@ -267,13 +267,20 @@ std::shared_ptr<zir::Type> Binder::substituteGenericType(
 
   if (type->getKind() == zir::TypeKind::Record) {
     auto record = std::static_pointer_cast<zir::RecordType>(type);
-    auto it = genericBindings.find(record->getName());
-    if (it == genericBindings.end() && !record->getName().empty() &&
-        record->getName()[0] == '%') {
-      it = genericBindings.find(record->getName().substr(1));
+    if (record->getRole() == zir::RecordRole::GenericParameter) {
+      auto it = genericBindings.find(record->getName());
+      return it != genericBindings.end() ? it->second : type;
     }
-    if (it != genericBindings.end()) {
-      return it->second;
+    if (record->getRole() == zir::RecordRole::VariadicView) {
+      const auto &fields = record->getFields();
+      if (fields.size() >= 2 &&
+          fields[0].type->getKind() == zir::TypeKind::Pointer) {
+        auto dataPtr =
+            std::static_pointer_cast<zir::PointerType>(fields[0].type);
+        return makeVariadicViewType(
+            substituteGenericType(dataPtr->getBaseType(), genericBindings));
+      }
+      return type;
     }
     if (record->isGenericInstance()) {
       std::vector<std::shared_ptr<zir::Type>> substitutedArgs;
@@ -297,27 +304,12 @@ std::shared_ptr<zir::Type> Binder::substituteGenericType(
       return substituted;
     }
 
-    if (record->getName().rfind("__zap_varargs_", 0) == 0) {
-      const auto &fields = record->getFields();
-      if (fields.size() >= 2 &&
-          fields[0].type->getKind() == zir::TypeKind::Pointer) {
-        auto dataPtr =
-            std::static_pointer_cast<zir::PointerType>(fields[0].type);
-        auto elemType =
-            substituteGenericType(dataPtr->getBaseType(), genericBindings);
-        return makeVariadicViewType(elemType);
-      }
-    }
     return type;
   }
 
   if (type->getKind() == zir::TypeKind::Class) {
     auto classType = std::static_pointer_cast<zir::ClassType>(type);
     auto it = genericBindings.find(classType->getName());
-    if (it == genericBindings.end() && !classType->getName().empty() &&
-        classType->getName()[0] == '%') {
-      it = genericBindings.find(classType->getName().substr(1));
-    }
     if (it != genericBindings.end()) {
       return it->second;
     }

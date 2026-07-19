@@ -277,8 +277,8 @@ std::shared_ptr<TypeSymbol> Binder::instantiateGenericTypeSymbol(
           methodGenericBindings;
       for (const auto &genericParam : methodDecl->genericParams_) {
         if (genericParam) {
-          auto placeholder = std::make_shared<zir::RecordType>(
-              genericParam->typeName, genericParam->typeName);
+          auto placeholder = zir::makeGenericParameterType(
+              genericParam->typeName);
           methodGenericBindings[genericParam->typeName] = placeholder;
         }
       }
@@ -558,18 +558,11 @@ Binder::buildGenericBindings(
         }
         return true;
       }
-      auto paramName = rec->getName();
-      std::string normalizedParamName =
-          (!paramName.empty() && paramName[0] == '%') ? paramName.substr(1)
-                                                      : paramName;
-      auto isGenericName = std::find(function.genericParameterNames.begin(),
-                                     function.genericParameterNames.end(),
-                                     normalizedParamName) !=
-                           function.genericParameterNames.end();
-      if (isGenericName) {
-        auto it = bindings.find(normalizedParamName);
+      if (rec->getRole() == zir::RecordRole::GenericParameter) {
+        const auto &paramName = rec->getName();
+        auto it = bindings.find(paramName);
         if (it == bindings.end()) {
-          bindings[normalizedParamName] = argType;
+          bindings[paramName] = argType;
           return true;
         }
         return typeInterner_.same(it->second, argType);
@@ -602,18 +595,15 @@ Binder::buildGenericBindings(
         }
         return true;
       }
-      auto paramName = cls->getName();
-      std::string normalizedParamName =
-          (!paramName.empty() && paramName[0] == '%') ? paramName.substr(1)
-                                                      : paramName;
+      const auto &paramName = cls->getName();
       auto isGenericName = std::find(function.genericParameterNames.begin(),
                                      function.genericParameterNames.end(),
-                                     normalizedParamName) !=
+                                     paramName) !=
                            function.genericParameterNames.end();
       if (isGenericName) {
-        auto it = bindings.find(normalizedParamName);
+        auto it = bindings.find(paramName);
         if (it == bindings.end()) {
-          bindings[normalizedParamName] = argType;
+          bindings[paramName] = argType;
           return true;
         }
         return typeInterner_.same(it->second, argType);

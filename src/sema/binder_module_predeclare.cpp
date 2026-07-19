@@ -453,8 +453,8 @@ void Binder::predeclareModuleValues(ModuleState &module) {
         if (!genericParam) {
           continue;
         }
-        auto placeholder = std::make_shared<zir::RecordType>(
-            genericParam->typeName, genericParam->typeName);
+        auto placeholder = zir::makeGenericParameterType(
+            genericParam->typeName);
         genericBindings[genericParam->typeName] = placeholder;
       }
 
@@ -628,8 +628,8 @@ void Binder::predeclareModuleValues(ModuleState &module) {
             methodGenericBindings;
         for (const auto &genericParam : methodDecl->genericParams_) {
           if (genericParam) {
-            auto placeholder = std::make_shared<zir::RecordType>(
-                genericParam->typeName, genericParam->typeName);
+            auto placeholder = zir::makeGenericParameterType(
+                genericParam->typeName);
             methodGenericBindings[genericParam->typeName] = placeholder;
           }
         }

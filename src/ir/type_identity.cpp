@@ -77,7 +77,9 @@ private:
     }
     case TypeKind::Record: {
       tag(IdentityTag::Record);
-      name(static_cast<const RecordType &>(type).getCodegenName());
+      const auto &record = static_cast<const RecordType &>(type);
+      number(static_cast<uint64_t>(record.getRole()));
+      name(record.getCodegenName());
       return;
     }
     case TypeKind::Class: {

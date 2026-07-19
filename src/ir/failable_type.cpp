@@ -11,7 +11,7 @@ asFailableRecord(const std::shared_ptr<Type> &type) {
   }
 
   auto record = std::static_pointer_cast<RecordType>(type);
-  if (record->getName().rfind(kFailableTypePrefix, 0) != 0) {
+  if (record->getRole() != RecordRole::Failable) {
     return nullptr;
   }
 
@@ -44,8 +44,10 @@ makeFailableRecordType(const std::shared_ptr<Type> &valueType,
   auto suffix = (valueType ? typeMangleKey(valueType) : "missing") +
                 std::string("$") +
                 (errorType ? typeMangleKey(errorType) : "missing");
-  auto typeName = std::string(kFailableTypePrefix) + suffix;
-  auto type = std::make_shared<RecordType>(typeName, typeName);
+  auto typeName = std::string("failable$") + suffix;
+  auto type = std::make_shared<RecordType>(typeName, typeName,
+                                           IntrinsicTypeKind::None,
+                                           RecordRole::Failable);
   type->addField("ok", std::make_shared<PrimitiveType>(TypeKind::Bool));
   type->addField("value", valueType);
   type->addField("error", errorType);

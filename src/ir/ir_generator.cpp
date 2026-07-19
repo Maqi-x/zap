@@ -1639,7 +1639,7 @@ void BoundIRGenerator::visit(sema::BoundIndexAccess &node) {
   if (node.left->type->getKind() == zir::TypeKind::Record) {
     auto recordType =
         std::static_pointer_cast<zir::RecordType>(node.left->type);
-    if (recordType->getName().rfind("__zap_varargs_", 0) == 0) {
+    if (recordType->getRole() == RecordRole::VariadicView) {
       bool oldEvaluateAsAddress = evaluateAsAddress_;
       evaluateAsAddress_ = true;
       node.left->accept(*this);
@@ -1720,8 +1720,8 @@ void BoundIRGenerator::visit(sema::BoundIndexAccess &node) {
 void BoundIRGenerator::visit(sema::BoundCast &node) {
   auto isArrayViewType = [](const std::shared_ptr<Type> &type) {
     return type && type->getKind() == TypeKind::Record &&
-           std::static_pointer_cast<RecordType>(type)->getName().rfind(
-               "__zap_varargs_", 0) == 0;
+           std::static_pointer_cast<RecordType>(type)->getRole() ==
+               RecordRole::VariadicView;
   };
 
   if (node.expression->type &&

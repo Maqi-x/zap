@@ -58,6 +58,15 @@ enum class IntrinsicTypeKind {
   StringView = 2,
 };
 
+// These records have a physical record ABI, but distinct semantic roles.
+// The tag prevents semantic code from inferring that role from generated names.
+enum class RecordRole {
+  User,
+  Failable,
+  VariadicView,
+  GenericParameter,
+};
+
 class Type {
   IntrinsicTypeKind intrinsicKind;
 
@@ -124,15 +133,18 @@ protected:
   std::string genericBaseName;
   std::string genericCodegenBaseName;
   std::vector<std::shared_ptr<Type>> genericArguments;
+  RecordRole role = RecordRole::User;
 
 public:
   bool hasReprC = false;
   bool isPacked = false;
 
   RecordType(std::string n, std::string codegen = "",
-             IntrinsicTypeKind intrinsic = IntrinsicTypeKind::None)
+             IntrinsicTypeKind intrinsic = IntrinsicTypeKind::None,
+             RecordRole recordRole = RecordRole::User)
       : Type(intrinsic), name(std::move(n)),
-        codegenName(codegen.empty() ? name : std::move(codegen)) {}
+        codegenName(codegen.empty() ? name : std::move(codegen)),
+        role(recordRole) {}
   TypeKind getKind() const override { return TypeKind::Record; }
   std::string toString() const override { return "%" + name; }
   bool isReferenceType() const override { return true; }
@@ -155,6 +167,7 @@ public:
   const std::vector<std::shared_ptr<Type>> &getGenericArguments() const {
     return genericArguments;
   }
+  RecordRole getRole() const { return role; }
   bool isGenericInstance() const { return !genericBaseName.empty(); }
 
   void setGenericInstance(std::string baseName, std::string codegenBaseName,
@@ -164,6 +177,11 @@ public:
     genericArguments = std::move(args);
   }
 };
+
+inline std::shared_ptr<RecordType> makeGenericParameterType(std::string name) {
+  return std::make_shared<RecordType>(name, name, IntrinsicTypeKind::None,
+                                      RecordRole::GenericParameter);
+}
 
 class ClassType : public RecordType {
   std::shared_ptr<ClassType> base;
