@@ -61,6 +61,12 @@ struct Conversion {
   std::string_view description() const;
 };
 
+struct TypeJoin {
+  std::shared_ptr<zir::Type> type;
+  Conversion leftConversion;
+  Conversion rightConversion;
+};
+
 class ConversionClassifier {
 public:
   explicit ConversionClassifier(zir::TypeInterner &types) : types_(types) {}
@@ -74,6 +80,11 @@ public:
   std::optional<Conversion>
   classifyCVariadic(const std::shared_ptr<zir::Type> &source,
                     const std::shared_ptr<zir::Type> &target) const;
+  bool isSubtype(const std::shared_ptr<zir::Type> &source,
+                 const std::shared_ptr<zir::Type> &target) const;
+  std::optional<TypeJoin>
+  joinTypes(const std::shared_ptr<zir::Type> &left,
+            const std::shared_ptr<zir::Type> &right) const;
   void clear() const { implicitCache_.clear(); }
 
 private:
@@ -93,6 +104,10 @@ private:
   std::optional<Conversion>
   classifyImplicitUncached(const std::shared_ptr<zir::Type> &source,
                            const std::shared_ptr<zir::Type> &target) const;
+  std::optional<TypeJoin>
+  makeJoin(const std::shared_ptr<zir::Type> &left,
+           const std::shared_ptr<zir::Type> &right,
+           const std::shared_ptr<zir::Type> &target) const;
 
   zir::TypeInterner &types_;
   mutable std::unordered_map<TypePair, std::optional<Conversion>, TypePairHash>

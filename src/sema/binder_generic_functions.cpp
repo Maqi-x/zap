@@ -396,7 +396,7 @@ bool Binder::validateGenericConstraints(
       }
       return false;
     }
-    if (!conversions_.classifyImplicit(boundIt->second, requiredType)) {
+    if (!conversions_.isSubtype(boundIt->second, requiredType)) {
       if (failureReason) {
         *failureReason =
             "type parameter '" + constraint.parameterName + "' with type '" +

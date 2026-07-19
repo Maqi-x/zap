@@ -1,3 +1,4 @@
+#include "ir/failable_type.hpp"
 #include "ir/string_type.hpp"
 #include "sema/conversion.hpp"
 
@@ -155,6 +156,108 @@ bool testCachedConversionUsesRequestedTargetObject() {
                 "cached conversion reused a stale target object");
 }
 
+bool testSubtypeRelation() {
+  TypeInterner types;
+  ConversionClassifier conversions(types);
+  auto base = std::make_shared<ClassType>("Base", "module.Base");
+  auto derived = std::make_shared<ClassType>("Derived", "module.Derived");
+  derived->setBase(base);
+  auto unrelated = std::make_shared<ClassType>("Other", "module.Other");
+  auto weakBase = std::make_shared<ClassType>(*base);
+  weakBase->setWeak(true);
+  auto weakDerived = std::make_shared<ClassType>(*derived);
+  weakDerived->setWeak(true);
+
+  return expect(conversions.isSubtype(derived, base),
+                "derived class is not a subtype of its base") &&
+         expect(!conversions.isSubtype(base, derived),
+                "base class became a subtype of its derived class") &&
+         expect(conversions.isSubtype(weakDerived, weakBase),
+                "weak class inheritance was not preserved") &&
+         expect(!conversions.isSubtype(derived, weakBase),
+                "strong-to-weak coercion was classified as subtyping") &&
+         expect(!conversions.isSubtype(derived, unrelated),
+                "unrelated classes satisfy the subtype relation") &&
+         expect(!conversions.isSubtype(primitive(TypeKind::Int16),
+                                       primitive(TypeKind::Int64)),
+                "numeric widening was classified as subtyping");
+}
+
+bool testTypeJoins() {
+  TypeInterner types;
+  ConversionClassifier conversions(types);
+
+  auto signedJoin = conversions.joinTypes(primitive(TypeKind::Int16),
+                                          primitive(TypeKind::UInt8));
+  auto reversedSignedJoin = conversions.joinTypes(primitive(TypeKind::UInt8),
+                                                  primitive(TypeKind::Int16));
+  auto floatJoin = conversions.joinTypes(primitive(TypeKind::Int),
+                                         primitive(TypeKind::Float64));
+  auto stringJoin =
+      conversions.joinTypes(zir::makeStringType(), zir::makeStringViewType());
+  auto reversedStringJoin =
+      conversions.joinTypes(zir::makeStringViewType(), zir::makeStringType());
+  auto charPointer =
+      std::make_shared<PointerType>(primitive(TypeKind::Char));
+  auto nullJoin =
+      conversions.joinTypes(primitive(TypeKind::NullPtr), charPointer);
+
+  auto base = std::make_shared<ClassType>("Base", "module.Base");
+  auto leftClass = std::make_shared<ClassType>("Left", "module.Left");
+  auto rightClass = std::make_shared<ClassType>("Right", "module.Right");
+  leftClass->setBase(base);
+  rightClass->setBase(base);
+  auto classJoin = conversions.joinTypes(leftClass, rightClass);
+  auto reversedClassJoin = conversions.joinTypes(rightClass, leftClass);
+  auto weakLeftClass = std::make_shared<ClassType>(*leftClass);
+  weakLeftClass->setWeak(true);
+  auto weakClassJoin = conversions.joinTypes(weakLeftClass, rightClass);
+
+  auto leftFailable = zir::makeFailableRecordType(
+      primitive(TypeKind::Int16), primitive(TypeKind::Int));
+  auto rightFailable = zir::makeFailableRecordType(
+      primitive(TypeKind::UInt8), primitive(TypeKind::Int));
+  auto failableJoin = conversions.joinTypes(leftFailable, rightFailable);
+  auto failableLayout =
+      failableJoin ? zir::getFailableTypeLayout(failableJoin->type)
+                   : std::nullopt;
+
+  auto firstRecord =
+      std::make_shared<zir::RecordType>("First", "module.First");
+  auto secondRecord =
+      std::make_shared<zir::RecordType>("Second", "module.Second");
+
+  return expect(signedJoin &&
+                    types.same(signedJoin->type, primitive(TypeKind::Int16)),
+                "mixed integer join selected the wrong signed width") &&
+         expect(reversedSignedJoin &&
+                    types.same(signedJoin->type, reversedSignedJoin->type),
+                "numeric join depends on operand order") &&
+         expect(floatJoin &&
+                    types.same(floatJoin->type, primitive(TypeKind::Float64)),
+                "integer/float join selected the wrong float type") &&
+         expect(stringJoin && reversedStringJoin &&
+                    zir::isIntrinsicStringViewType(stringJoin->type) &&
+                    zir::isIntrinsicStringViewType(reversedStringJoin->type),
+                "String/StringView join is not stable and borrow-oriented") &&
+         expect(nullJoin && types.same(nullJoin->type, charPointer),
+                "null/pointer join did not select the pointer type") &&
+         expect(classJoin && reversedClassJoin &&
+                    types.same(classJoin->type, base) &&
+                    types.same(classJoin->type, reversedClassJoin->type),
+                "sibling classes did not join at their nearest base") &&
+         expect(weakClassJoin &&
+                    std::static_pointer_cast<ClassType>(weakClassJoin->type)
+                        ->isWeak(),
+                "class join lost the weak qualification") &&
+         expect(failableLayout &&
+                    types.same(failableLayout->valueType,
+                               primitive(TypeKind::Int16)),
+                "failable join did not join its value types") &&
+         expect(!conversions.joinTypes(firstRecord, secondRecord),
+                "unrelated nominal records unexpectedly have a join");
+}
+
 } // namespace
 
 int main() {
@@ -163,5 +266,7 @@ int main() {
   ok = testStringAndReferenceConversions() && ok;
   ok = testContextSpecificConversions() && ok;
   ok = testCachedConversionUsesRequestedTargetObject() && ok;
+  ok = testSubtypeRelation() && ok;
+  ok = testTypeJoins() && ok;
   return ok ? 0 : 1;
 }

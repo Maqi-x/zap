@@ -269,8 +269,6 @@ private:
   std::shared_ptr<zir::Type> currentExpectedExpressionType() const;
   bool bindSizeOfBuiltinCall(FunCall &node);
   bool bindWeakBuiltinCall(FunCall &node);
-  bool isSignedIntegerType(std::shared_ptr<zir::Type> type) const;
-  bool isUnsignedIntegerType(std::shared_ptr<zir::Type> type) const;
   int typeBitWidth(std::shared_ptr<zir::Type> type) const;
   std::unique_ptr<BoundBlock> bindBody(BodyNode *body, bool createScope);
   void initializeBuiltins();
@@ -287,8 +285,6 @@ private:
   bool isUnsafeActive() const;
   void requireUnsafeEnabled(SourceSpan span, const std::string &feature);
   void requireUnsafeContext(SourceSpan span, const std::string &feature);
-  std::shared_ptr<zir::Type> getPromotedType(std::shared_ptr<zir::Type> t1,
-                                             std::shared_ptr<zir::Type> t2);
   std::shared_ptr<zir::Type>
   getCVariadicArgumentType(std::shared_ptr<zir::Type> type);
 

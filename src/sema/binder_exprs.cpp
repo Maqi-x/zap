@@ -92,6 +92,11 @@ Binder::buildBinaryExpression(std::unique_ptr<BoundExpression> left,
   auto leftType = left->type;
   auto rightType = right->type;
   std::shared_ptr<zir::Type> resultType = leftType;
+  auto applyJoin = [&](const TypeJoin &join) {
+    resultType = join.type;
+    left = applyConversion(std::move(left), join.leftConversion);
+    right = applyConversion(std::move(right), join.rightConversion);
+  };
 
   if (op == "+" &&
       ((isStringType(leftType) || leftType->getKind() == zir::TypeKind::Char) ||
@@ -141,13 +146,10 @@ Binder::buildBinaryExpression(std::unique_ptr<BoundExpression> left,
                 renderTypeForUser(leftType) + "' and '" +
                 renderTypeForUser(rightType) + "'");
     } else {
-      resultType = getPromotedType(leftType, rightType);
-      left = applyConversion(
-          std::move(left),
-          *conversions_.classifyImplicit(leftType, resultType));
-      right = applyConversion(
-          std::move(right),
-          *conversions_.classifyImplicit(rightType, resultType));
+      auto join = conversions_.joinTypes(leftType, rightType);
+      if (join) {
+        applyJoin(*join);
+      }
     }
   } else if (op == "&" || op == "|" || op == "^") {
     if (!leftType->isInteger() || !rightType->isInteger()) {
@@ -156,13 +158,10 @@ Binder::buildBinaryExpression(std::unique_ptr<BoundExpression> left,
                 renderTypeForUser(leftType) + "' and '" +
                 renderTypeForUser(rightType) + "'");
     } else {
-      resultType = getPromotedType(leftType, rightType);
-      left = applyConversion(
-          std::move(left),
-          *conversions_.classifyImplicit(leftType, resultType));
-      right = applyConversion(
-          std::move(right),
-          *conversions_.classifyImplicit(rightType, resultType));
+      auto join = conversions_.joinTypes(leftType, rightType);
+      if (join) {
+        applyJoin(*join);
+      }
     }
   } else if (op == "<<" || op == ">>") {
     if (!leftType->isInteger() || !rightType->isInteger()) {
@@ -216,24 +215,7 @@ Binder::buildBinaryExpression(std::unique_ptr<BoundExpression> left,
                 "' and '" + renderTypeForUser(rightType) + "'");
     }
 
-    auto leftToRight = conversions_.classifyImplicit(leftType, rightType);
-    auto rightToLeft = conversions_.classifyImplicit(rightType, leftType);
-    if (!leftToRight && !rightToLeft) {
-      error(SourceSpan::merge(leftSpan, rightSpan),
-            "Cannot compare '" + renderTypeForUser(leftType) + "' and '" +
-                renderTypeForUser(rightType) + "'");
-    } else if ((leftType->isInteger() && rightType->isInteger()) ||
-               (leftType->isFloatingPoint() && rightType->isFloatingPoint()) ||
-               (leftType->isInteger() && rightType->isFloatingPoint()) ||
-               (leftType->isFloatingPoint() && rightType->isInteger())) {
-      auto promotedType = getPromotedType(leftType, rightType);
-      left = applyConversion(
-          std::move(left),
-          *conversions_.classifyImplicit(leftType, promotedType));
-      right = applyConversion(
-          std::move(right),
-          *conversions_.classifyImplicit(rightType, promotedType));
-    } else if (stringComparison) {
+    if (stringComparison) {
       auto stringViewType = zir::makeStringViewType();
       left = applyConversion(
           std::move(left),
@@ -241,10 +223,12 @@ Binder::buildBinaryExpression(std::unique_ptr<BoundExpression> left,
       right = applyConversion(
           std::move(right),
           *conversions_.classifyImplicit(rightType, stringViewType));
-    } else if (leftToRight) {
-      left = applyConversion(std::move(left), *leftToRight);
-    } else if (rightToLeft) {
-      right = applyConversion(std::move(right), *rightToLeft);
+    } else if (auto join = conversions_.joinTypes(leftType, rightType)) {
+      applyJoin(*join);
+    } else {
+      error(SourceSpan::merge(leftSpan, rightSpan),
+            "Cannot compare '" + renderTypeForUser(leftType) + "' and '" +
+                renderTypeForUser(rightType) + "'");
     }
     resultType = std::make_shared<zir::PrimitiveType>(zir::TypeKind::Bool);
   } else if (op == "&&" || op == "||") {
@@ -289,11 +273,8 @@ void Binder::visit(TernaryExpr &node) {
   auto elseExpr = std::move(expressionStack_.top());
   expressionStack_.pop();
 
-  auto thenToElse =
-      conversions_.classifyImplicit(thenExpr->type, elseExpr->type);
-  auto elseToThen =
-      conversions_.classifyImplicit(elseExpr->type, thenExpr->type);
-  if (!thenToElse && !elseToThen) {
+  auto join = conversions_.joinTypes(thenExpr->type, elseExpr->type);
+  if (!join) {
     error(SourceSpan::merge(node.thenExpr_->span, node.elseExpr_->span),
           "Ternary branches must be compatible, got '" +
               renderTypeForUser(thenExpr->type) + "' and '" +
@@ -301,12 +282,9 @@ void Binder::visit(TernaryExpr &node) {
     return;
   }
 
-  auto resultType = thenToElse ? elseExpr->type : thenExpr->type;
-  if (thenToElse) {
-    thenExpr = applyConversion(std::move(thenExpr), *thenToElse);
-  } else {
-    elseExpr = applyConversion(std::move(elseExpr), *elseToThen);
-  }
+  auto resultType = join->type;
+  thenExpr = applyConversion(std::move(thenExpr), join->leftConversion);
+  elseExpr = applyConversion(std::move(elseExpr), join->rightConversion);
 
   expressionStack_.push(std::make_unique<BoundTernaryExpression>(
       std::move(condition), std::move(thenExpr), std::move(elseExpr),
@@ -1040,7 +1018,9 @@ void Binder::visit(ArrayLiteralNode &node) {
   std::shared_ptr<zir::Type> elementType = nullptr;
 
   auto expectedType = currentExpectedExpressionType();
-  if (expectedType && expectedType->getKind() == zir::TypeKind::Array) {
+  bool hasExpectedElementType =
+      expectedType && expectedType->getKind() == zir::TypeKind::Array;
+  if (hasExpectedElementType) {
     elementType =
         std::static_pointer_cast<zir::ArrayType>(expectedType)->getBaseType();
   }
@@ -1050,14 +1030,35 @@ void Binder::visit(ArrayLiteralNode &node) {
     if (boundEl) {
       if (!elementType) {
         elementType = boundEl->type;
-      } else if (auto conversion =
-                     conversions_.classifyImplicit(boundEl->type,
-                                                   elementType)) {
-        boundEl = applyConversion(std::move(boundEl), *conversion);
+      } else if (hasExpectedElementType) {
+        auto conversion =
+            conversions_.classifyImplicit(boundEl->type, elementType);
+        if (conversion) {
+          boundEl = applyConversion(std::move(boundEl), *conversion);
+        } else {
+          error(el->span,
+                "Array elements must have the same type. Expected '" +
+                    renderTypeForUser(elementType) + "', but got '" +
+                    renderTypeForUser(boundEl->type) + "'");
+          continue;
+        }
       } else {
-        error(el->span, "Array elements must have the same type. Expected '" +
-                            renderTypeForUser(elementType) + "', but got '" +
-                            renderTypeForUser(boundEl->type) + "'");
+        auto join = conversions_.joinTypes(elementType, boundEl->type);
+        if (!join) {
+          error(el->span,
+                "Array elements must have a common type, got '" +
+                    renderTypeForUser(elementType) + "' and '" +
+                    renderTypeForUser(boundEl->type) + "'");
+          continue;
+        } else {
+          for (auto &element : elements) {
+            element =
+                applyConversion(std::move(element), join->leftConversion);
+          }
+          boundEl =
+              applyConversion(std::move(boundEl), join->rightConversion);
+          elementType = join->type;
+        }
       }
       elements.push_back(std::move(boundEl));
     }

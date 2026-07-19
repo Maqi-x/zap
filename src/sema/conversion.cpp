@@ -3,6 +3,8 @@
 #include "../ir/failable_type.hpp"
 #include "../ir/string_type.hpp"
 
+#include <algorithm>
+
 namespace sema {
 namespace {
 
@@ -50,6 +52,69 @@ int bitWidth(const std::shared_ptr<zir::Type> &type) {
   default:
     return 0;
   }
+}
+
+std::shared_ptr<zir::Type> primitive(zir::TypeKind kind) {
+  return std::make_shared<zir::PrimitiveType>(kind);
+}
+
+std::shared_ptr<zir::Type>
+joinNumericTypes(const std::shared_ptr<zir::Type> &left,
+                 const std::shared_ptr<zir::Type> &right) {
+  if (left->isFloatingPoint() || right->isFloatingPoint()) {
+    if (left->getKind() == zir::TypeKind::Float64 ||
+        right->getKind() == zir::TypeKind::Float64) {
+      return primitive(zir::TypeKind::Float64);
+    }
+    return primitive(zir::TypeKind::Float);
+  }
+
+  int leftWidth = bitWidth(left);
+  int rightWidth = bitWidth(right);
+  int width = std::max(leftWidth, rightWidth);
+  bool leftUnsigned = left->isUnsigned();
+  bool rightUnsigned = right->isUnsigned();
+
+  bool useUnsigned = leftUnsigned && rightUnsigned;
+  if (leftUnsigned != rightUnsigned) {
+    int unsignedWidth = leftUnsigned ? leftWidth : rightWidth;
+    int signedWidth = leftUnsigned ? rightWidth : leftWidth;
+    useUnsigned = unsignedWidth >= signedWidth;
+  }
+
+  if (useUnsigned) {
+    if (width <= 8) {
+      return primitive(zir::TypeKind::UInt8);
+    }
+    if (width <= 16) {
+      return primitive(zir::TypeKind::UInt16);
+    }
+    if (width <= 32) {
+      return primitive(zir::TypeKind::UInt);
+    }
+    return primitive(zir::TypeKind::UInt64);
+  }
+
+  if (width <= 8) {
+    return primitive(zir::TypeKind::Int8);
+  }
+  if (width <= 16) {
+    return primitive(zir::TypeKind::Int16);
+  }
+  if (width <= 32) {
+    return primitive(zir::TypeKind::Int);
+  }
+  return primitive(zir::TypeKind::Int64);
+}
+
+bool hasClassAncestor(const std::shared_ptr<zir::ClassType> &source,
+                      const std::string &targetCodegenName) {
+  for (auto current = source; current; current = current->getBase()) {
+    if (current->getCodegenName() == targetCodegenName) {
+      return true;
+    }
+  }
+  return false;
 }
 
 Conversion conversion(ConversionKind kind, ConversionRank rank,
@@ -130,6 +195,26 @@ bool isVariadicViewType(const std::shared_ptr<zir::Type> &type) {
              "__zap_varargs_", 0) == 0;
 }
 
+bool ConversionClassifier::isSubtype(
+    const std::shared_ptr<zir::Type> &source,
+    const std::shared_ptr<zir::Type> &target) const {
+  if (!source || !target) {
+    return false;
+  }
+  if (types_.same(source, target)) {
+    return true;
+  }
+  if (source->getKind() != zir::TypeKind::Class ||
+      target->getKind() != zir::TypeKind::Class) {
+    return false;
+  }
+
+  const auto sourceClass = std::static_pointer_cast<zir::ClassType>(source);
+  const auto targetClass = std::static_pointer_cast<zir::ClassType>(target);
+  return sourceClass->isWeak() == targetClass->isWeak() &&
+         hasClassAncestor(sourceClass, targetClass->getCodegenName());
+}
+
 std::optional<Conversion> ConversionClassifier::classifyImplicit(
     const std::shared_ptr<zir::Type> &source,
     const std::shared_ptr<zir::Type> &target) const {
@@ -190,16 +275,14 @@ std::optional<Conversion> ConversionClassifier::classifyImplicitUncached(
       target->getKind() == zir::TypeKind::Class) {
     auto sourceClass = std::static_pointer_cast<zir::ClassType>(source);
     auto targetClass = std::static_pointer_cast<zir::ClassType>(target);
-    if (sourceClass->isWeak() && !targetClass->isWeak()) {
-      return std::nullopt;
+    if (isSubtype(source, target)) {
+      return conversion(ConversionKind::ClassUpcast,
+                        ConversionRank::Structural, target);
     }
-    for (auto current = sourceClass; current; current = current->getBase()) {
-      if (current->getCodegenName() == targetClass->getCodegenName()) {
-        auto kind = !sourceClass->isWeak() && targetClass->isWeak()
-                        ? ConversionKind::StrongToWeak
-                        : ConversionKind::ClassUpcast;
-        return conversion(kind, ConversionRank::Structural, target);
-      }
+    if (!sourceClass->isWeak() && targetClass->isWeak() &&
+        hasClassAncestor(sourceClass, targetClass->getCodegenName())) {
+      return conversion(ConversionKind::StrongToWeak,
+                        ConversionRank::Structural, target);
     }
   }
 
@@ -279,6 +362,112 @@ std::optional<Conversion> ConversionClassifier::classifyImplicitUncached(
                       target);
   }
 
+  return std::nullopt;
+}
+
+std::optional<TypeJoin> ConversionClassifier::makeJoin(
+    const std::shared_ptr<zir::Type> &left,
+    const std::shared_ptr<zir::Type> &right,
+    const std::shared_ptr<zir::Type> &target) const {
+  auto leftConversion = classifyImplicit(left, target);
+  auto rightConversion = classifyImplicit(right, target);
+  if (!leftConversion || !rightConversion) {
+    return std::nullopt;
+  }
+  return TypeJoin{target, *leftConversion, *rightConversion};
+}
+
+std::optional<TypeJoin> ConversionClassifier::joinTypes(
+    const std::shared_ptr<zir::Type> &left,
+    const std::shared_ptr<zir::Type> &right) const {
+  if (!left || !right) {
+    return std::nullopt;
+  }
+  if (types_.same(left, right)) {
+    return makeJoin(left, right, left);
+  }
+
+  bool leftNumeric = left->isInteger() || left->isFloatingPoint();
+  bool rightNumeric = right->isInteger() || right->isFloatingPoint();
+  if (leftNumeric && rightNumeric) {
+    return makeJoin(left, right, joinNumericTypes(left, right));
+  }
+
+  if (zir::isIntrinsicStringType(left) &&
+      zir::isIntrinsicStringType(right)) {
+    auto target = zir::makeStringViewType();
+    if (zir::isIntrinsicStringViewType(left)) {
+      target = std::static_pointer_cast<zir::RecordType>(left);
+    } else if (zir::isIntrinsicStringViewType(right)) {
+      target = std::static_pointer_cast<zir::RecordType>(right);
+    }
+    return makeJoin(left, right, target);
+  }
+
+  if (left->getKind() == zir::TypeKind::Class &&
+      right->getKind() == zir::TypeKind::Class) {
+    auto leftClass = std::static_pointer_cast<zir::ClassType>(left);
+    auto rightClass = std::static_pointer_cast<zir::ClassType>(right);
+    std::shared_ptr<zir::ClassType> commonClass;
+    for (auto leftAncestor = leftClass; leftAncestor && !commonClass;
+         leftAncestor = leftAncestor->getBase()) {
+      for (auto rightAncestor = rightClass; rightAncestor;
+           rightAncestor = rightAncestor->getBase()) {
+        if (leftAncestor->getCodegenName() ==
+            rightAncestor->getCodegenName()) {
+          commonClass = leftAncestor;
+          break;
+        }
+      }
+    }
+    if (commonClass) {
+      bool weak = leftClass->isWeak() || rightClass->isWeak();
+      std::shared_ptr<zir::ClassType> target = commonClass;
+      if (weak && !target->isWeak()) {
+        if (leftClass->isWeak() &&
+            leftClass->getCodegenName() == target->getCodegenName()) {
+          target = leftClass;
+        } else if (rightClass->isWeak() &&
+                   rightClass->getCodegenName() == target->getCodegenName()) {
+          target = rightClass;
+        } else {
+          target = std::make_shared<zir::ClassType>(*commonClass);
+          target->setWeak(true);
+        }
+      }
+      return makeJoin(left, right, target);
+    }
+  }
+
+  auto leftFailable = zir::getFailableTypeLayout(left);
+  auto rightFailable = zir::getFailableTypeLayout(right);
+  if (leftFailable && rightFailable) {
+    auto valueJoin =
+        joinTypes(leftFailable->valueType, rightFailable->valueType);
+    auto errorJoin =
+        joinTypes(leftFailable->errorType, rightFailable->errorType);
+    if (valueJoin && errorJoin) {
+      return makeJoin(left, right, zir::makeFailableRecordType(
+                                       valueJoin->type, errorJoin->type));
+    }
+  }
+
+  auto leftToRight = classifyImplicit(left, right);
+  auto rightToLeft = classifyImplicit(right, left);
+  if (leftToRight && !rightToLeft) {
+    return makeJoin(left, right, right);
+  }
+  if (rightToLeft && !leftToRight) {
+    return makeJoin(left, right, left);
+  }
+  if (leftToRight && rightToLeft) {
+    if (leftToRight->cost() < rightToLeft->cost()) {
+      return makeJoin(left, right, right);
+    }
+    if (rightToLeft->cost() < leftToRight->cost()) {
+      return makeJoin(left, right, left);
+    }
+  }
   return std::nullopt;
 }
 

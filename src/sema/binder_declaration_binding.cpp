@@ -131,53 +131,73 @@ void Binder::visit(FunDecl &node) {
   unsafeDepth_ = oldUnsafeDepth;
 
   if (!symbol->returnType) {
-    std::vector<std::shared_ptr<zir::Type>> returnTypes;
-    std::function<void(const BoundBlock *)> collectReturns =
-        [&](const BoundBlock *block) {
+    std::vector<BoundReturnStatement *> returns;
+    std::function<void(BoundBlock *)> collectReturns =
+        [&](BoundBlock *block) {
           if (!block)
             return;
-          for (const auto &stmt : block->statements) {
-            if (auto *ret =
-                    dynamic_cast<const BoundReturnStatement *>(stmt.get())) {
-              returnTypes.push_back(ret->expression
-                                        ? ret->expression->type
-                                        : std::make_shared<zir::PrimitiveType>(
-                                              zir::TypeKind::Void));
+          for (auto &stmt : block->statements) {
+            if (auto *ret = dynamic_cast<BoundReturnStatement *>(stmt.get())) {
+              returns.push_back(ret);
             } else if (auto *ifStmt =
-                           dynamic_cast<const BoundIfStatement *>(stmt.get())) {
+                           dynamic_cast<BoundIfStatement *>(stmt.get())) {
               collectReturns(ifStmt->thenBody.get());
               collectReturns(ifStmt->elseBody.get());
             } else if (auto *whileStmt =
-                           dynamic_cast<const BoundWhileStatement *>(
-                               stmt.get())) {
+                           dynamic_cast<BoundWhileStatement *>(stmt.get())) {
               collectReturns(whileStmt->body.get());
+            } else if (auto *forStmt =
+                           dynamic_cast<BoundForStatement *>(stmt.get())) {
+              collectReturns(forStmt->body.get());
+            } else if (auto *nested =
+                           dynamic_cast<BoundBlock *>(stmt.get())) {
+              collectReturns(nested);
             }
           }
         };
     collectReturns(boundBody.get());
 
-    if (returnTypes.empty()) {
+    if (returns.empty()) {
       symbol->returnType =
           std::make_shared<zir::PrimitiveType>(zir::TypeKind::Void);
     } else {
-      auto inferred = returnTypes[0];
+      auto returnType = [](const BoundReturnStatement *ret) {
+        return ret->expression
+                   ? ret->expression->type
+                   : std::make_shared<zir::PrimitiveType>(zir::TypeKind::Void);
+      };
+      auto inferred = returnType(returns[0]);
       bool conflict = false;
-      for (size_t i = 1; i < returnTypes.size(); ++i) {
-        auto toInferred =
-            conversions_.classifyImplicit(returnTypes[i], inferred);
-        auto fromInferred =
-            conversions_.classifyImplicit(inferred, returnTypes[i]);
-        if (!toInferred && !fromInferred) {
+      for (size_t i = 1; i < returns.size(); ++i) {
+        auto candidate = returnType(returns[i]);
+        auto join = conversions_.joinTypes(inferred, candidate);
+        if (!join) {
           error(node.span, "Cannot infer return type of function '" +
                                node.name_ + "': conflicting return types '" +
                                renderTypeForUser(inferred) + "' and '" +
-                               renderTypeForUser(returnTypes[i]) +
+                               renderTypeForUser(candidate) +
                                "'. Add an explicit return type annotation.");
           conflict = true;
           break;
         }
-        if (fromInferred) {
-          inferred = returnTypes[i];
+        inferred = join->type;
+      }
+      if (!conflict) {
+        for (auto *ret : returns) {
+          if (!ret->expression) {
+            continue;
+          }
+          auto conversion =
+              conversions_.classifyImplicit(ret->expression->type, inferred);
+          if (!conversion) {
+            error(node.span,
+                  "Internal error: inferred return type cannot represent all "
+                  "return expressions.");
+            conflict = true;
+            break;
+          }
+          ret->expression =
+              applyConversion(std::move(ret->expression), *conversion);
         }
       }
       symbol->returnType =

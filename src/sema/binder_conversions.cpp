@@ -1,29 +1,6 @@
 #include "binder.hpp"
 
-#include <algorithm>
-
 namespace sema {
-
-bool Binder::isSignedIntegerType(std::shared_ptr<zir::Type> type) const {
-  if (!type) {
-    return false;
-  }
-
-  switch (type->getKind()) {
-  case zir::TypeKind::Int8:
-  case zir::TypeKind::Int16:
-  case zir::TypeKind::Int32:
-  case zir::TypeKind::Int64:
-  case zir::TypeKind::Int:
-    return true;
-  default:
-    return false;
-  }
-}
-
-bool Binder::isUnsignedIntegerType(std::shared_ptr<zir::Type> type) const {
-  return type && type->isInteger() && type->isUnsigned();
-}
 
 int Binder::typeBitWidth(std::shared_ptr<zir::Type> type) const {
   if (!type) {
@@ -82,77 +59,6 @@ void Binder::requireUnsafeContext(SourceSpan span, const std::string &feature) {
   if (!isUnsafeActive()) {
     error(span, "Using " + feature + " is only allowed inside unsafe code.");
   }
-}
-
-std::shared_ptr<zir::Type>
-Binder::getPromotedType(std::shared_ptr<zir::Type> t1,
-                        std::shared_ptr<zir::Type> t2) {
-  if (typeInterner_.same(t1, t2))
-    return t1;
-
-  if (t1->isFloatingPoint() || t2->isFloatingPoint()) {
-    if (t1->getKind() == zir::TypeKind::Float64 ||
-        t2->getKind() == zir::TypeKind::Float64) {
-      return std::make_shared<zir::PrimitiveType>(zir::TypeKind::Float64);
-    }
-    return std::make_shared<zir::PrimitiveType>(zir::TypeKind::Float);
-  }
-
-  // Integer promotion: preserve unsignedness when both operands are unsigned,
-  // and choose width-aware integer kinds instead of always forcing Int64.
-  if (isUnsignedIntegerType(t1) && isUnsignedIntegerType(t2)) {
-    int width = std::max(typeBitWidth(t1), typeBitWidth(t2));
-    if (width <= 8)
-      return std::make_shared<zir::PrimitiveType>(zir::TypeKind::UInt8);
-    if (width <= 16)
-      return std::make_shared<zir::PrimitiveType>(zir::TypeKind::UInt16);
-    if (width <= 32)
-      return std::make_shared<zir::PrimitiveType>(zir::TypeKind::UInt);
-    return std::make_shared<zir::PrimitiveType>(zir::TypeKind::UInt64);
-  }
-
-  // Mixed signed/unsigned or both signed:
-  // - preserve unsignedness when the unsigned operand width is >= signed width
-  //   (e.g. Int + UInt -> UInt, Int16 + UInt16 -> UInt16, Int + UInt64 ->
-  //   UInt64)
-  // - otherwise use signed, width-aware promotion.
-  if ((isUnsignedIntegerType(t1) && isSignedIntegerType(t2)) ||
-      (isSignedIntegerType(t1) && isUnsignedIntegerType(t2))) {
-    auto unsignedType = isUnsignedIntegerType(t1) ? t1 : t2;
-    auto signedType = isUnsignedIntegerType(t1) ? t2 : t1;
-
-    int unsignedWidth = typeBitWidth(unsignedType);
-    int signedWidth = typeBitWidth(signedType);
-
-    if (unsignedWidth >= signedWidth) {
-      if (unsignedWidth <= 8)
-        return std::make_shared<zir::PrimitiveType>(zir::TypeKind::UInt8);
-      if (unsignedWidth <= 16)
-        return std::make_shared<zir::PrimitiveType>(zir::TypeKind::UInt16);
-      if (unsignedWidth <= 32)
-        return std::make_shared<zir::PrimitiveType>(zir::TypeKind::UInt);
-      return std::make_shared<zir::PrimitiveType>(zir::TypeKind::UInt64);
-    }
-
-    int width = std::max(unsignedWidth, signedWidth);
-    if (width <= 8)
-      return std::make_shared<zir::PrimitiveType>(zir::TypeKind::Int8);
-    if (width <= 16)
-      return std::make_shared<zir::PrimitiveType>(zir::TypeKind::Int16);
-    if (width <= 32)
-      return std::make_shared<zir::PrimitiveType>(zir::TypeKind::Int);
-    return std::make_shared<zir::PrimitiveType>(zir::TypeKind::Int64);
-  }
-
-  // Both signed: keep signed result, width-aware.
-  int width = std::max(typeBitWidth(t1), typeBitWidth(t2));
-  if (width <= 8)
-    return std::make_shared<zir::PrimitiveType>(zir::TypeKind::Int8);
-  if (width <= 16)
-    return std::make_shared<zir::PrimitiveType>(zir::TypeKind::Int16);
-  if (width <= 32)
-    return std::make_shared<zir::PrimitiveType>(zir::TypeKind::Int);
-  return std::make_shared<zir::PrimitiveType>(zir::TypeKind::Int64);
 }
 
 std::shared_ptr<zir::Type>
