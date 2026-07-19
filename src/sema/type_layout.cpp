@@ -12,22 +12,28 @@ uint64_t alignTo(uint64_t value, uint64_t alignment) {
   return ((value + alignment - 1) / alignment) * alignment;
 }
 
-TypeLayout layoutOfAggregateField(const std::shared_ptr<zir::Type> &type) {
+TypeLayout layoutOfAggregateField(const std::shared_ptr<zir::Type> &type,
+                                  TargetInfo targetInfo) {
   if (type && type->getKind() == zir::TypeKind::Void) {
     return {1, 1};
   }
-  return computeTypeLayout(type);
+  return computeTypeLayout(type, targetInfo);
 }
 
-TypeLayout layoutOfRecord(const zir::RecordType &record) {
+TypeLayout layoutOfRecord(const zir::RecordType &record,
+                          TargetInfo targetInfo) {
   if (zir::isIntrinsicStringType(record)) {
-    return {16, 8};
+    uint64_t wordSize = targetInfo.pointerBitWidth / 8;
+    uint64_t lengthAlign = std::min<uint64_t>(8, wordSize);
+    uint64_t offset = alignTo(wordSize, lengthAlign) + 8;
+    uint64_t alignment = std::max(wordSize, lengthAlign);
+    return {alignTo(offset, alignment), alignment};
   }
 
   uint64_t offset = 0;
   uint64_t maxAlign = 1;
   for (const auto &field : record.getFields()) {
-    auto fieldLayout = layoutOfAggregateField(field.type);
+    auto fieldLayout = layoutOfAggregateField(field.type, targetInfo);
     maxAlign = std::max(maxAlign, fieldLayout.align);
     if (!record.isPacked) {
       offset = alignTo(offset, fieldLayout.align);
@@ -41,13 +47,14 @@ TypeLayout layoutOfRecord(const zir::RecordType &record) {
   return {offset, record.isPacked ? 1 : maxAlign};
 }
 
-TypeLayout layoutOfTaggedUnion(const zir::TaggedUnionType &taggedUnion) {
+TypeLayout layoutOfTaggedUnion(const zir::TaggedUnionType &taggedUnion,
+                               TargetInfo targetInfo) {
   TypeLayout payloadLayout{1, 1};
   for (const auto &variant : taggedUnion.getVariants()) {
     if (!variant.payloadType) {
       continue;
     }
-    auto candidate = layoutOfAggregateField(variant.payloadType);
+    auto candidate = layoutOfAggregateField(variant.payloadType, targetInfo);
     if (candidate.size > payloadLayout.size ||
         (candidate.size == payloadLayout.size &&
          candidate.align > payloadLayout.align)) {
@@ -64,7 +71,8 @@ TypeLayout layoutOfTaggedUnion(const zir::TaggedUnionType &taggedUnion) {
 
 } // namespace
 
-TypeLayout computeTypeLayout(const std::shared_ptr<zir::Type> &type) {
+TypeLayout computeTypeLayout(const std::shared_ptr<zir::Type> &type,
+                             TargetInfo targetInfo) {
   if (!type) {
     return {0, 1};
   }
@@ -79,34 +87,44 @@ TypeLayout computeTypeLayout(const std::shared_ptr<zir::Type> &type) {
     return {1, 1};
   case zir::TypeKind::Int16:
   case zir::TypeKind::UInt16:
-    return {2, 2};
   case zir::TypeKind::Int32:
   case zir::TypeKind::UInt32:
   case zir::TypeKind::Float:
   case zir::TypeKind::Float32:
-    return {4, 4};
   case zir::TypeKind::Int:
   case zir::TypeKind::UInt:
   case zir::TypeKind::Int64:
   case zir::TypeKind::UInt64:
-  case zir::TypeKind::Float64:
+  case zir::TypeKind::Float64: {
+    auto info = *zir::numericTypeInfo(type->getKind());
+    uint64_t size = info.bitWidth(targetInfo.nativeIntegerBitWidth()) / 8;
+    return {size, std::min<uint64_t>(size, targetInfo.pointerBitWidth / 8)};
+  }
   case zir::TypeKind::Pointer:
   case zir::TypeKind::NullPtr:
   case zir::TypeKind::FunctionPointer:
-  case zir::TypeKind::Class:
-    return {8, 8};
+  case zir::TypeKind::Class: {
+    uint64_t size = targetInfo.pointerBitWidth / 8;
+    return {size, size};
+  }
   case zir::TypeKind::Enum:
-    return std::static_pointer_cast<zir::EnumType>(type)->hasReprC
-               ? TypeLayout{4, 4}
-               : TypeLayout{8, 8};
+    if (std::static_pointer_cast<zir::EnumType>(type)->hasReprC) {
+      return {4, 4};
+    }
+    {
+      uint64_t size = targetInfo.nativeIntegerBitWidth() / 8;
+      return {size, size};
+    }
   case zir::TypeKind::Record:
-    return layoutOfRecord(*std::static_pointer_cast<zir::RecordType>(type));
+    return layoutOfRecord(*std::static_pointer_cast<zir::RecordType>(type),
+                          targetInfo);
   case zir::TypeKind::TaggedUnion:
     return layoutOfTaggedUnion(
-        *std::static_pointer_cast<zir::TaggedUnionType>(type));
+        *std::static_pointer_cast<zir::TaggedUnionType>(type), targetInfo);
   case zir::TypeKind::Array: {
     auto array = std::static_pointer_cast<zir::ArrayType>(type);
-    auto elementLayout = layoutOfAggregateField(array->getBaseType());
+    auto elementLayout =
+        layoutOfAggregateField(array->getBaseType(), targetInfo);
     return {elementLayout.size * array->getSize(), elementLayout.align};
   }
   }

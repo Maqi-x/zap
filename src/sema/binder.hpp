@@ -8,6 +8,7 @@
 #include "module_info.hpp"
 #include "semantic_info.hpp"
 #include "symbol_table.hpp"
+#include "target_info.hpp"
 #include <map>
 #include <memory>
 #include <optional>
@@ -63,7 +64,7 @@ deriveValueExpressionFromIf(const BoundIfStatement &stmt);
 class Binder : public Visitor {
 public:
   Binder(zap::DiagnosticEngine &diag, bool allowUnsafe = true,
-         SemanticInfo *semanticInfo = nullptr);
+         SemanticInfo *semanticInfo = nullptr, TargetInfo targetInfo = {});
   std::unique_ptr<BoundRootNode> bind(RootNode &root);
   std::unique_ptr<BoundRootNode> bind(std::vector<ModuleInfo> &modules);
   std::unique_ptr<BoundRootNode> bind(std::vector<ModuleInfo *> modules);
@@ -116,6 +117,7 @@ public:
 private:
   zap::DiagnosticEngine &_diag;
   SemanticInfo *semanticInfo_ = nullptr;
+  TargetInfo targetInfo_;
   std::shared_ptr<SymbolTable> currentScope_;
   std::shared_ptr<SymbolTable> builtinScope_;
   std::unique_ptr<BoundRootNode> boundRoot_;
@@ -125,7 +127,7 @@ private:
   std::unique_ptr<BoundBlock> currentBlock_;
   std::vector<std::shared_ptr<zir::Type>> expectedExpressionTypes_;
   mutable zir::TypeInterner typeInterner_;
-  mutable ConversionClassifier conversions_{typeInterner_};
+  mutable ConversionClassifier conversions_{typeInterner_, targetInfo_};
 
   int loopDepth_ = 0;
   size_t syntheticLoopCounter_ = 0;

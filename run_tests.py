@@ -167,6 +167,14 @@ EXTRA_TESTS = [
     {
         "file": "tests/valid.zp",
         "type": "compile",
+        "desc": "Emit 32-bit freestanding LLVM IR with native Int main",
+        "compile_flags": ["--freestanding", "--target=i386-unknown-none", "-S", "-emit-llvm"],
+        "output_file": "/tmp/zap-freestanding-i386.ll",
+        "output_pattern": "define i32 @main()"
+    },
+    {
+        "file": "tests/valid.zp",
+        "type": "compile",
         "desc": "Freestanding executable link is rejected",
         "compile_flags": ["--freestanding"],
         "exit": 1,

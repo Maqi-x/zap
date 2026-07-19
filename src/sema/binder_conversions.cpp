@@ -6,31 +6,14 @@ int Binder::typeBitWidth(std::shared_ptr<zir::Type> type) const {
   if (!type) {
     return 0;
   }
-
-  switch (type->getKind()) {
-  case zir::TypeKind::Bool:
+  if (type->getKind() == zir::TypeKind::Bool) {
     return 1;
-  case zir::TypeKind::Char:
-  case zir::TypeKind::Int8:
-  case zir::TypeKind::UInt8:
-    return 8;
-  case zir::TypeKind::Int16:
-  case zir::TypeKind::UInt16:
-    return 16;
-  case zir::TypeKind::Int32:
-  case zir::TypeKind::UInt32:
-  case zir::TypeKind::Int:
-  case zir::TypeKind::UInt:
-  case zir::TypeKind::Float:
-  case zir::TypeKind::Float32:
-    return 32;
-  case zir::TypeKind::Int64:
-  case zir::TypeKind::UInt64:
-  case zir::TypeKind::Float64:
-    return 64;
-  default:
-    return 0;
   }
+  if (type->getKind() == zir::TypeKind::Char) {
+    return 8;
+  }
+  auto info = zir::numericTypeInfo(type->getKind());
+  return info ? info->bitWidth(targetInfo_.nativeIntegerBitWidth()) : 0;
 }
 
 bool Binder::isNumeric(std::shared_ptr<zir::Type> type) const {
@@ -84,7 +67,7 @@ Binder::getCVariadicArgumentType(std::shared_ptr<zir::Type> type) {
   case zir::TypeKind::Int16:
   case zir::TypeKind::UInt8:
   case zir::TypeKind::UInt16:
-    return std::make_shared<zir::PrimitiveType>(zir::TypeKind::Int);
+    return std::make_shared<zir::PrimitiveType>(zir::TypeKind::Int32);
   case zir::TypeKind::Int32:
   case zir::TypeKind::Int64:
   case zir::TypeKind::UInt32:

@@ -219,10 +219,11 @@ void Binder::visit(FunDecl &node) {
 
   if (!hasReturn && symbol->returnType->getKind() != zir::TypeKind::Void) {
     auto kind = symbol->returnType->getKind();
-    if (symbol->returnType->isInteger() || kind == zir::TypeKind::Float ||
+    if (symbol->returnType->isInteger() ||
+        symbol->returnType->isFloatingPoint() ||
         kind == zir::TypeKind::Bool) {
       std::string litVal = "0";
-      if (kind == zir::TypeKind::Float)
+      if (symbol->returnType->isFloatingPoint())
         litVal = "0.0";
       else if (kind == zir::TypeKind::Bool)
         litVal = "false";

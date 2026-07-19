@@ -301,9 +301,9 @@ deriveValueExpressionFromBlock(const BoundBlock &block) {
 }
 
 Binder::Binder(zap::DiagnosticEngine &diag, bool allowUnsafe,
-               SemanticInfo *semanticInfo)
-    : _diag(diag), semanticInfo_(semanticInfo), allowUnsafe_(allowUnsafe),
-      hadError_(false) {}
+               SemanticInfo *semanticInfo, TargetInfo targetInfo)
+    : _diag(diag), semanticInfo_(semanticInfo), targetInfo_(targetInfo),
+      allowUnsafe_(allowUnsafe), hadError_(false) {}
 
 std::unique_ptr<BoundRootNode> Binder::bind(RootNode &root) {
   (void)root;

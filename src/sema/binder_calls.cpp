@@ -825,7 +825,7 @@ bool Binder::bindSizeOfBuiltinCall(FunCall &node) {
     return true;
   }
 
-  auto layout = computeTypeLayout(argument->type);
+  auto layout = computeTypeLayout(argument->type, targetInfo_);
   expressionStack_.push(std::make_unique<BoundLiteral>(
       std::to_string(layout.size),
       std::make_shared<zir::PrimitiveType>(zir::TypeKind::Int)));

@@ -73,6 +73,7 @@ private:
                                           bool owned);
 
   llvm::Type *toLLVMType(const zir::Type &ty);
+  llvm::IntegerType *nativeIntegerType();
   llvm::Type *toLLVMAggregateFieldType(const std::shared_ptr<zir::Type> &type);
   llvm::FunctionType *buildFunctionType(const zir::Function &fn);
   void initializeModule();

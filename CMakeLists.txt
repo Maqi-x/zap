@@ -26,7 +26,6 @@ set(SOURCES
     src/sema/binder_generic_functions.cpp
     src/sema/binder_generic_types.cpp
     src/sema/binder_types.cpp
-    src/sema/type_layout.cpp
     src/codegen/llvm_codegen.cpp
     src/codegen/llvm_codegen_constants.cpp
     src/codegen/llvm_codegen_zir.cpp
@@ -40,6 +39,7 @@ set(SOURCES
 
 add_library(zap_type_system STATIC
     src/ir/failable_type.cpp
+    src/ir/primitive_type.cpp
     src/ir/type_identity.cpp
 )
 target_include_directories(zap_type_system PUBLIC "${CMAKE_SOURCE_DIR}/src")
@@ -49,6 +49,11 @@ add_library(zap_sema_conversions STATIC src/sema/conversion.cpp)
 target_include_directories(zap_sema_conversions PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_options(zap_sema_conversions PRIVATE -Wall -Wextra)
 target_link_libraries(zap_sema_conversions PUBLIC zap_type_system)
+
+add_library(zap_type_layout STATIC src/sema/type_layout.cpp)
+target_include_directories(zap_type_layout PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_options(zap_type_layout PRIVATE -Wall -Wextra)
+target_link_libraries(zap_type_layout PUBLIC zap_type_system)
 
 add_library(zap_zir_verifier STATIC
     src/ir/zir_verifier.cpp
@@ -97,6 +102,7 @@ endif()
 target_link_libraries(zapc PRIVATE ${llvm_libs})
 target_link_libraries(zapc PRIVATE zap_type_system)
 target_link_libraries(zapc PRIVATE zap_sema_conversions)
+target_link_libraries(zapc PRIVATE zap_type_layout)
 target_link_libraries(zapc PRIVATE zap_zir_verifier)
 target_compile_definitions(zapc PRIVATE ${LLVM_DEFINITIONS})
 target_compile_definitions(zapc PRIVATE ZAPC_STDLIB_PATH="${CMAKE_BINARY_DIR}/stdlib.o")
@@ -116,6 +122,11 @@ if(BUILD_TESTING)
     target_link_libraries(zap-conversion-tests PRIVATE zap_sema_conversions)
     target_compile_options(zap-conversion-tests PRIVATE -Wall -Wextra)
     add_test(NAME conversions COMMAND zap-conversion-tests)
+
+    add_executable(zap-type-layout-tests tests/cpp/type_layout_test.cpp)
+    target_link_libraries(zap-type-layout-tests PRIVATE zap_type_layout)
+    target_compile_options(zap-type-layout-tests PRIVATE -Wall -Wextra)
+    add_test(NAME type-layout COMMAND zap-type-layout-tests)
 
     add_executable(zap-zir-verifier-tests tests/cpp/zir_verifier_test.cpp)
     target_link_libraries(zap-zir-verifier-tests PRIVATE zap_zir_verifier)

@@ -5,6 +5,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -121,9 +122,9 @@ bool testContextSpecificConversions() {
   auto explicitPointerInteger =
       conversions.classifyExplicit(charPointer, primitive(TypeKind::Int64));
   auto cCharPromotion = conversions.classifyCVariadic(
-      primitive(TypeKind::Char), primitive(TypeKind::Int));
+      primitive(TypeKind::Char), primitive(TypeKind::Int32));
   auto cBoolPromotion = conversions.classifyCVariadic(
-      primitive(TypeKind::Bool), primitive(TypeKind::Int));
+      primitive(TypeKind::Bool), primitive(TypeKind::Int32));
 
   return expect(!implicitPointerInteger,
                 "pointer-to-integer conversion became implicit") &&
@@ -139,6 +140,39 @@ bool testContextSpecificConversions() {
                     cBoolPromotion->kind ==
                         ConversionKind::CVariadicPromotion,
                 "C variadic Bool promotion was rejected");
+}
+
+bool testTargetDependentNativeIntegerConversions() {
+  TypeInterner types;
+  ConversionClassifier conversions32(types, sema::TargetInfo{32});
+  ConversionClassifier conversions64(types, sema::TargetInfo{64});
+
+  auto nativeInt = primitive(TypeKind::Int);
+  auto fixedInt32 = primitive(TypeKind::Int32);
+  auto fixedInt64 = primitive(TypeKind::Int64);
+  auto join32 = conversions32.joinTypes(nativeInt, fixedInt64);
+  auto join64 = conversions64.joinTypes(nativeInt, fixedInt64);
+  auto sameWidth32 = conversions32.classifyImplicit(nativeInt, fixedInt32);
+  auto floatAlias = conversions64.classifyImplicit(
+      primitive(TypeKind::Float), primitive(TypeKind::Float32));
+  auto enumType = std::make_shared<zir::EnumType>(
+      "Mode", std::vector<std::string>{"First", "Second"});
+  auto enumToNative = conversions64.classifyImplicit(enumType, nativeInt);
+  auto enumToFixed = conversions64.classifyImplicit(enumType, fixedInt64);
+
+  return expect(join32 && types.same(join32->type, fixedInt64),
+                "32-bit native Int incorrectly dominates fixed Int64") &&
+         expect(join64 && types.same(join64->type, nativeInt),
+                "64-bit native Int was not preserved by an equal-width join") &&
+         expect(sameWidth32 &&
+                    sameWidth32->kind == ConversionKind::SignedWidening &&
+                    sameWidth32->rank == ConversionRank::Promotion,
+                "equal-width native/fixed integer conversion was rejected") &&
+         expect(floatAlias && floatAlias->kind == ConversionKind::Identity,
+                "Float-to-Float32 alias conversion is not identity") &&
+         expect(enumToNative && enumToFixed &&
+                    enumToNative->cost() < enumToFixed->cost(),
+                "native Int is not preferred for a native enum");
 }
 
 bool testCachedConversionUsesRequestedTargetObject() {
@@ -265,6 +299,7 @@ int main() {
   ok = testNumericConversions() && ok;
   ok = testStringAndReferenceConversions() && ok;
   ok = testContextSpecificConversions() && ok;
+  ok = testTargetDependentNativeIntegerConversions() && ok;
   ok = testCachedConversionUsesRequestedTargetObject() && ok;
   ok = testSubtypeRelation() && ok;
   ok = testTypeJoins() && ok;

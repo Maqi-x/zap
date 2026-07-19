@@ -97,7 +97,7 @@ private:
       return;
     default:
       tag(IdentityTag::Primitive);
-      number(static_cast<uint64_t>(type.getKind()));
+      number(static_cast<uint64_t>(canonicalPrimitiveKind(type.getKind())));
       return;
     }
   }

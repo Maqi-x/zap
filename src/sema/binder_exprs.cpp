@@ -172,11 +172,12 @@ Binder::buildBinaryExpression(std::unique_ptr<BoundExpression> left,
     } else {
       // Keep the left-hand integer type for shift results.
       resultType = leftType;
+      auto shiftAmount = evaluateConstantInt(right.get());
       right = applyConversion(
           std::move(right),
           *conversions_.classifyImplicit(rightType, resultType));
 
-      if (auto shiftAmount = evaluateConstantInt(right.get())) {
+      if (shiftAmount) {
         if (*shiftAmount < 0) {
           error(SourceSpan::merge(leftSpan, rightSpan),
                 "Shift amount must be non-negative, got '" +

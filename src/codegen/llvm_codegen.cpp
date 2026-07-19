@@ -374,6 +374,11 @@ bool LLVMCodeGen::emitAssemblyFile(const std::string &path,
   return !is_broken;
 }
 
+llvm::IntegerType *LLVMCodeGen::nativeIntegerType() {
+  return llvm::IntegerType::get(
+      ctx_, module_->getDataLayout().getPointerSizeInBits());
+}
+
 llvm::Type *LLVMCodeGen::toLLVMType(const zir::Type &ty) {
   switch (ty.getKind()) {
   case zir::TypeKind::Void:
@@ -393,6 +398,7 @@ llvm::Type *LLVMCodeGen::toLLVMType(const zir::Type &ty) {
     return llvm::Type::getInt32Ty(ctx_);
   case zir::TypeKind::Int:
   case zir::TypeKind::UInt:
+    return nativeIntegerType();
   case zir::TypeKind::Int64:
   case zir::TypeKind::UInt64:
     return llvm::Type::getInt64Ty(ctx_);
@@ -414,7 +420,7 @@ llvm::Type *LLVMCodeGen::toLLVMType(const zir::Type &ty) {
   case zir::TypeKind::Enum:
     if (static_cast<const zir::EnumType &>(ty).hasReprC)
       return llvm::Type::getInt32Ty(ctx_);
-    return llvm::Type::getInt64Ty(ctx_);
+    return nativeIntegerType();
   case zir::TypeKind::TaggedUnion: {
     const auto &tu = static_cast<const zir::TaggedUnionType &>(ty);
     auto it = structCache_.find(tu.getCodegenName());

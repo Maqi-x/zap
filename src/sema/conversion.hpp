@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../ir/type_identity.hpp"
+#include "target_info.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -69,7 +70,9 @@ struct TypeJoin {
 
 class ConversionClassifier {
 public:
-  explicit ConversionClassifier(zir::TypeInterner &types) : types_(types) {}
+  explicit ConversionClassifier(zir::TypeInterner &types,
+                                TargetInfo targetInfo = {})
+      : types_(types), targetInfo_(targetInfo) {}
 
   std::optional<Conversion>
   classifyImplicit(const std::shared_ptr<zir::Type> &source,
@@ -110,6 +113,7 @@ private:
            const std::shared_ptr<zir::Type> &target) const;
 
   zir::TypeInterner &types_;
+  TargetInfo targetInfo_;
   mutable std::unordered_map<TypePair, std::optional<Conversion>, TypePairHash>
       implicitCache_;
 };

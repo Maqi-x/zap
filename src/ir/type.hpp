@@ -1,7 +1,9 @@
 #pragma once
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace zir {
@@ -17,8 +19,8 @@ enum class TypeKind {
   UInt16 = 6,
   UInt32 = 7,
   UInt64 = 8,
-  Int = 9,  // Default Int (32-bit)
-  UInt = 10, // Default UInt (32-bit)
+  Int = 9,   // Native signed integer (pointer width)
+  UInt = 10, // Native unsigned integer (pointer width)
   Float = 11,
   Float32 = 12,
   Float64 = 13,
@@ -33,6 +35,22 @@ enum class TypeKind {
   TaggedUnion = 22,
   FunctionPointer = 23
 };
+
+enum class NumericCategory { SignedInteger, UnsignedInteger, FloatingPoint };
+
+struct NumericTypeInfo {
+  NumericCategory category;
+  uint16_t fixedBitWidth;
+  bool isNative;
+
+  uint16_t bitWidth(uint16_t nativeBitWidth) const {
+    return isNative ? nativeBitWidth : fixedBitWidth;
+  }
+};
+
+std::optional<NumericTypeInfo> numericTypeInfo(TypeKind kind);
+TypeKind canonicalPrimitiveKind(TypeKind kind);
+std::string_view primitiveIrName(TypeKind kind);
 
 enum class IntrinsicTypeKind {
   None = 0,
@@ -57,23 +75,16 @@ public:
     return k == TypeKind::Pointer || k == TypeKind::NullPtr;
   }
   virtual bool isInteger() const {
-    auto k = getKind();
-    return k == TypeKind::Int8 || k == TypeKind::Int16 ||
-           k == TypeKind::Int32 || k == TypeKind::Int64 ||
-           k == TypeKind::UInt8 || k == TypeKind::UInt16 ||
-           k == TypeKind::UInt32 || k == TypeKind::UInt64 ||
-           k == TypeKind::Int || k == TypeKind::UInt;
+    auto info = numericTypeInfo(getKind());
+    return info && info->category != NumericCategory::FloatingPoint;
   }
   virtual bool isUnsigned() const {
-    auto k = getKind();
-    return k == TypeKind::UInt8 || k == TypeKind::UInt16 ||
-           k == TypeKind::UInt32 || k == TypeKind::UInt64 ||
-           k == TypeKind::UInt;
+    auto info = numericTypeInfo(getKind());
+    return info && info->category == NumericCategory::UnsignedInteger;
   }
   virtual bool isFloatingPoint() const {
-    auto k = getKind();
-    return k == TypeKind::Float || k == TypeKind::Float32 ||
-           k == TypeKind::Float64;
+    auto info = numericTypeInfo(getKind());
+    return info && info->category == NumericCategory::FloatingPoint;
   }
   IntrinsicTypeKind getIntrinsicKind() const { return intrinsicKind; }
 };
@@ -84,46 +95,7 @@ class PrimitiveType : public Type {
 public:
   PrimitiveType(TypeKind k) : kind(k) {}
   TypeKind getKind() const override { return kind; }
-  std::string toString() const override {
-    switch (kind) {
-    case TypeKind::Int8:
-      return "i8";
-    case TypeKind::Int16:
-      return "i16";
-    case TypeKind::Int32:
-      return "i32";
-    case TypeKind::Int64:
-      return "i64";
-    case TypeKind::UInt8:
-      return "u8";
-    case TypeKind::UInt16:
-      return "u16";
-    case TypeKind::UInt32:
-      return "u32";
-    case TypeKind::UInt64:
-      return "u64";
-    case TypeKind::Int:
-      return "i32";
-    case TypeKind::UInt:
-      return "u32";
-    case TypeKind::Float:
-      return "f32";
-    case TypeKind::Float32:
-      return "f32";
-    case TypeKind::Float64:
-      return "f64";
-    case TypeKind::Bool:
-      return "i1";
-    case TypeKind::Char:
-      return "i8";
-    case TypeKind::Void:
-      return "void";
-    case TypeKind::NullPtr:
-      return "null";
-    default:
-      return "unknown";
-    }
-  }
+  std::string toString() const override;
 };
 
 class PointerType : public Type {

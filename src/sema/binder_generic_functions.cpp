@@ -222,10 +222,11 @@ std::shared_ptr<FunctionSymbol> Binder::ensureGenericFunctionInstantiation(
   if (!hasReturn &&
       instantiated->returnType->getKind() != zir::TypeKind::Void) {
     auto kind = instantiated->returnType->getKind();
-    if (instantiated->returnType->isInteger() || kind == zir::TypeKind::Float ||
+    if (instantiated->returnType->isInteger() ||
+        instantiated->returnType->isFloatingPoint() ||
         kind == zir::TypeKind::Bool) {
       std::string litVal = "0";
-      if (kind == zir::TypeKind::Float)
+      if (instantiated->returnType->isFloatingPoint())
         litVal = "0.0";
       else if (kind == zir::TypeKind::Bool)
         litVal = "false";

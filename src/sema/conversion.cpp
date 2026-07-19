@@ -9,49 +9,14 @@ namespace sema {
 namespace {
 
 bool isSignedInteger(const std::shared_ptr<zir::Type> &type) {
-  if (!type) {
-    return false;
-  }
-  switch (type->getKind()) {
-  case zir::TypeKind::Int8:
-  case zir::TypeKind::Int16:
-  case zir::TypeKind::Int32:
-  case zir::TypeKind::Int64:
-  case zir::TypeKind::Int:
-    return true;
-  default:
-    return false;
-  }
+  auto info = type ? zir::numericTypeInfo(type->getKind()) : std::nullopt;
+  return info && info->category == zir::NumericCategory::SignedInteger;
 }
 
-int bitWidth(const std::shared_ptr<zir::Type> &type) {
-  if (!type) {
-    return 0;
-  }
-  switch (type->getKind()) {
-  case zir::TypeKind::Bool:
-    return 1;
-  case zir::TypeKind::Char:
-  case zir::TypeKind::Int8:
-  case zir::TypeKind::UInt8:
-    return 8;
-  case zir::TypeKind::Int16:
-  case zir::TypeKind::UInt16:
-    return 16;
-  case zir::TypeKind::Int32:
-  case zir::TypeKind::UInt32:
-  case zir::TypeKind::Int:
-  case zir::TypeKind::UInt:
-  case zir::TypeKind::Float:
-  case zir::TypeKind::Float32:
-    return 32;
-  case zir::TypeKind::Int64:
-  case zir::TypeKind::UInt64:
-  case zir::TypeKind::Float64:
-    return 64;
-  default:
-    return 0;
-  }
+int bitWidth(const std::shared_ptr<zir::Type> &type,
+             uint16_t nativeBitWidth) {
+  auto info = type ? zir::numericTypeInfo(type->getKind()) : std::nullopt;
+  return info ? info->bitWidth(nativeBitWidth) : 0;
 }
 
 std::shared_ptr<zir::Type> primitive(zir::TypeKind kind) {
@@ -60,17 +25,22 @@ std::shared_ptr<zir::Type> primitive(zir::TypeKind kind) {
 
 std::shared_ptr<zir::Type>
 joinNumericTypes(const std::shared_ptr<zir::Type> &left,
-                 const std::shared_ptr<zir::Type> &right) {
+                 const std::shared_ptr<zir::Type> &right,
+                 uint16_t nativeBitWidth) {
   if (left->isFloatingPoint() || right->isFloatingPoint()) {
     if (left->getKind() == zir::TypeKind::Float64 ||
         right->getKind() == zir::TypeKind::Float64) {
       return primitive(zir::TypeKind::Float64);
     }
-    return primitive(zir::TypeKind::Float);
+    auto kind = left->getKind() == zir::TypeKind::Float ||
+                        right->getKind() == zir::TypeKind::Float
+                    ? zir::TypeKind::Float
+                    : zir::TypeKind::Float32;
+    return primitive(kind);
   }
 
-  int leftWidth = bitWidth(left);
-  int rightWidth = bitWidth(right);
+  int leftWidth = bitWidth(left, nativeBitWidth);
+  int rightWidth = bitWidth(right, nativeBitWidth);
   int width = std::max(leftWidth, rightWidth);
   bool leftUnsigned = left->isUnsigned();
   bool rightUnsigned = right->isUnsigned();
@@ -82,6 +52,15 @@ joinNumericTypes(const std::shared_ptr<zir::Type> &left,
     useUnsigned = unsignedWidth >= signedWidth;
   }
 
+  auto leftInfo = *zir::numericTypeInfo(left->getKind());
+  auto rightInfo = *zir::numericTypeInfo(right->getKind());
+  bool preferNative = width == nativeBitWidth &&
+                      ((leftInfo.isNative && leftUnsigned == useUnsigned) ||
+                       (rightInfo.isNative && rightUnsigned == useUnsigned));
+  if (preferNative) {
+    return primitive(useUnsigned ? zir::TypeKind::UInt : zir::TypeKind::Int);
+  }
+
   if (useUnsigned) {
     if (width <= 8) {
       return primitive(zir::TypeKind::UInt8);
@@ -90,7 +69,7 @@ joinNumericTypes(const std::shared_ptr<zir::Type> &left,
       return primitive(zir::TypeKind::UInt16);
     }
     if (width <= 32) {
-      return primitive(zir::TypeKind::UInt);
+      return primitive(zir::TypeKind::UInt32);
     }
     return primitive(zir::TypeKind::UInt64);
   }
@@ -102,7 +81,7 @@ joinNumericTypes(const std::shared_ptr<zir::Type> &left,
     return primitive(zir::TypeKind::Int16);
   }
   if (width <= 32) {
-    return primitive(zir::TypeKind::Int);
+    return primitive(zir::TypeKind::Int32);
   }
   return primitive(zir::TypeKind::Int64);
 }
@@ -310,14 +289,30 @@ std::optional<Conversion> ConversionClassifier::classifyImplicitUncached(
                       target);
   }
 
-  if (source->getKind() == zir::TypeKind::Enum &&
-      target->getKind() == zir::TypeKind::Int) {
-    return conversion(ConversionKind::EnumToInteger, ConversionRank::Promotion,
-                      target);
+  if (source->getKind() == zir::TypeKind::Enum && target->isInteger()) {
+    const auto &enumType = static_cast<const zir::EnumType &>(*source);
+    int sourceWidth = enumType.hasReprC
+                          ? 32
+                          : targetInfo_.nativeIntegerBitWidth();
+    int targetWidth =
+        bitWidth(target, targetInfo_.nativeIntegerBitWidth());
+    auto targetInfo = zir::numericTypeInfo(target->getKind());
+    auto rank = ConversionRank::Narrowing;
+    if (target->isUnsigned()) {
+      rank = ConversionRank::Lossy;
+    } else if (targetInfo && targetInfo->isNative) {
+      rank = ConversionRank::Promotion;
+    } else if (targetWidth >= sourceWidth) {
+      // A fixed-width integer can represent the enum, but the enum's natural
+      // representation is the native signed integer.
+      rank = ConversionRank::Numeric;
+    }
+    return conversion(ConversionKind::EnumToInteger, rank, target);
   }
 
   if (source->isFloatingPoint() && target->isFloatingPoint()) {
-    bool widening = bitWidth(target) >= bitWidth(source);
+    bool widening = bitWidth(target, targetInfo_.nativeIntegerBitWidth()) >=
+                    bitWidth(source, targetInfo_.nativeIntegerBitWidth());
     return conversion(widening ? ConversionKind::FloatingWidening
                                : ConversionKind::FloatingNarrowing,
                       widening ? ConversionRank::Promotion
@@ -326,7 +321,8 @@ std::optional<Conversion> ConversionClassifier::classifyImplicitUncached(
   }
 
   if (isSignedInteger(source) && isSignedInteger(target)) {
-    bool widening = bitWidth(target) >= bitWidth(source);
+    bool widening = bitWidth(target, targetInfo_.nativeIntegerBitWidth()) >=
+                    bitWidth(source, targetInfo_.nativeIntegerBitWidth());
     return conversion(widening ? ConversionKind::SignedWidening
                                : ConversionKind::SignedNarrowing,
                       widening ? ConversionRank::Promotion
@@ -336,7 +332,8 @@ std::optional<Conversion> ConversionClassifier::classifyImplicitUncached(
 
   if (source->isInteger() && source->isUnsigned() && target->isInteger() &&
       target->isUnsigned()) {
-    bool widening = bitWidth(target) >= bitWidth(source);
+    bool widening = bitWidth(target, targetInfo_.nativeIntegerBitWidth()) >=
+                    bitWidth(source, targetInfo_.nativeIntegerBitWidth());
     return conversion(widening ? ConversionKind::UnsignedWidening
                                : ConversionKind::UnsignedNarrowing,
                       widening ? ConversionRank::Promotion
@@ -345,7 +342,9 @@ std::optional<Conversion> ConversionClassifier::classifyImplicitUncached(
   }
 
   if (source->isInteger() && target->isFloatingPoint()) {
-    bool preservesWidth = bitWidth(target) >= bitWidth(source);
+    bool preservesWidth =
+        bitWidth(target, targetInfo_.nativeIntegerBitWidth()) >=
+        bitWidth(source, targetInfo_.nativeIntegerBitWidth());
     return conversion(ConversionKind::IntegerToFloat,
                       preservesWidth ? ConversionRank::Numeric
                                      : ConversionRank::Lossy,
@@ -390,7 +389,9 @@ std::optional<TypeJoin> ConversionClassifier::joinTypes(
   bool leftNumeric = left->isInteger() || left->isFloatingPoint();
   bool rightNumeric = right->isInteger() || right->isFloatingPoint();
   if (leftNumeric && rightNumeric) {
-    return makeJoin(left, right, joinNumericTypes(left, right));
+    return makeJoin(left, right,
+                    joinNumericTypes(left, right,
+                                     targetInfo_.nativeIntegerBitWidth()));
   }
 
   if (zir::isIntrinsicStringType(left) &&
@@ -530,7 +531,10 @@ std::optional<Conversion> ConversionClassifier::classifyCVariadic(
     return std::nullopt;
   }
   auto sourceKind = source->getKind();
-  if (target->getKind() == zir::TypeKind::Int &&
+  auto numericTarget = zir::numericTypeInfo(target->getKind());
+  if (numericTarget &&
+      numericTarget->category == zir::NumericCategory::SignedInteger &&
+      numericTarget->bitWidth(targetInfo_.nativeIntegerBitWidth()) == 32 &&
       (sourceKind == zir::TypeKind::Bool ||
        sourceKind == zir::TypeKind::Char)) {
     return conversion(ConversionKind::CVariadicPromotion,

@@ -18,7 +18,10 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <llvm/TargetParser/Host.h>
+#include <llvm/TargetParser/Triple.h>
 #include <map>
+#include <optional>
 #include <set>
 #include <string_view>
 
@@ -37,6 +40,21 @@ bool compileAssemblyFromZIR(sema::BoundRootNode &node,
                             int optimization_level,
                             const std::string &targetTriple, bool freestanding);
 namespace {
+
+std::optional<sema::TargetInfo>
+targetInfoForTriple(const std::string &requestedTriple) {
+  auto normalized = requestedTriple.empty()
+                        ? llvm::sys::getDefaultTargetTriple()
+                        : llvm::Triple::normalize(requestedTriple);
+  llvm::Triple triple(normalized);
+  if (triple.isArch32Bit()) {
+    return sema::TargetInfo{32};
+  }
+  if (triple.isArch64Bit()) {
+    return sema::TargetInfo{64};
+  }
+  return std::nullopt;
+}
 
 std::filesystem::path executableObjectPath(
     const std::filesystem::path &executablePath,
@@ -244,7 +262,13 @@ bool compileLoadedModules(driver &drv, const std::filesystem::path &entryPath) {
     modules.push_back(std::move(*module));
   }
 
-  sema::Binder binder(diagnostics, true);
+  auto targetInfo = targetInfoForTriple(drv.get_target_triple());
+  if (!targetInfo) {
+    driver::reportError("unsupported target word size for '",
+                        drv.get_target_triple(), "'");
+    return true;
+  }
+  sema::Binder binder(diagnostics, true, nullptr, *targetInfo);
   auto boundAst = binder.bind(modules);
   diagnostics.printText(err());
 
@@ -508,7 +532,13 @@ bool driver::compileSourceFile(const std::string &source,
     return true;
   }
 
-  sema::Binder binder(diagnostics, true);
+  auto targetInfo = targetInfoForTriple(cmdArgs.targetTriple);
+  if (!targetInfo) {
+    reportError("unsupported target word size for '", cmdArgs.targetTriple,
+                "'");
+    return true;
+  }
+  sema::Binder binder(diagnostics, true, nullptr, *targetInfo);
   auto boundAst = binder.bind(*ast);
   diagnostics.printText(err());
 

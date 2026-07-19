@@ -421,9 +421,10 @@ std::shared_ptr<TypeSymbol> Binder::instantiateGenericTypeSymbol(
           methodSymbol->returnType->getKind() != zir::TypeKind::Void) {
         auto kind = methodSymbol->returnType->getKind();
         if (methodSymbol->returnType->isInteger() ||
-            kind == zir::TypeKind::Float || kind == zir::TypeKind::Bool) {
+            methodSymbol->returnType->isFloatingPoint() ||
+            kind == zir::TypeKind::Bool) {
           std::string litVal = "0";
-          if (kind == zir::TypeKind::Float)
+          if (methodSymbol->returnType->isFloatingPoint())
             litVal = "0.0";
           else if (kind == zir::TypeKind::Bool)
             litVal = "false";

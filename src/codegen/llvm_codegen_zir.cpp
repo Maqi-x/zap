@@ -72,10 +72,9 @@ void LLVMCodeGen::generate(const zir::Module &module) {
         if (target != globalValues_.end()) {
           initializer = target->second;
           if (address.getArrayIndex()) {
-            auto *zero =
-                llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx_), 0);
-            auto *index = llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx_),
-                                                 *address.getArrayIndex());
+            auto *zero = llvm::ConstantInt::get(nativeIntegerType(), 0);
+            auto *index = llvm::ConstantInt::get(
+                nativeIntegerType(), *address.getArrayIndex());
             llvm::Constant *indices[] = {zero, index};
             initializer = llvm::ConstantExpr::getInBoundsGetElementPtr(
                 target->second->getValueType(), target->second, indices);
@@ -469,7 +468,7 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
             lhsIsPointer ? binaryInst.getLhs()->getType()
                          : binaryInst.getRhs()->getType());
         auto *elemTy = toLLVMType(*pointerType->getBaseType());
-        auto *indexTy = llvm::Type::getInt64Ty(ctx_);
+        auto *indexTy = nativeIntegerType();
         auto *index =
             builder_.CreateIntCast(offsetValue, indexTy, /*isSigned=*/true);
         result = builder_.CreateInBoundsGEP(elemTy, pointerValue, index);
@@ -484,20 +483,20 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         auto pointerType = std::static_pointer_cast<zir::PointerType>(
             binaryInst.getLhs()->getType());
         auto *elemTy = toLLVMType(*pointerType->getBaseType());
-        auto *i64Ty = llvm::Type::getInt64Ty(ctx_);
-        auto *lhsInt = builder_.CreatePtrToInt(lhs, i64Ty);
-        auto *rhsInt = builder_.CreatePtrToInt(rhs, i64Ty);
+        auto *pointerIntTy = nativeIntegerType();
+        auto *lhsInt = builder_.CreatePtrToInt(lhs, pointerIntTy);
+        auto *rhsInt = builder_.CreatePtrToInt(rhs, pointerIntTy);
         auto *bytes = builder_.CreateSub(lhsInt, rhsInt);
         llvm::Value *elemSize = llvm::ConstantExpr::getSizeOf(elemTy);
-        if (elemSize->getType() != i64Ty) {
-          elemSize = builder_.CreateIntCast(elemSize, i64Ty, false);
+        if (elemSize->getType() != pointerIntTy) {
+          elemSize = builder_.CreateIntCast(elemSize, pointerIntTy, false);
         }
         result = builder_.CreateSDiv(bytes, elemSize);
       } else if (lhsIsPointer) {
         auto pointerType = std::static_pointer_cast<zir::PointerType>(
             binaryInst.getLhs()->getType());
         auto *elemTy = toLLVMType(*pointerType->getBaseType());
-        auto *indexTy = llvm::Type::getInt64Ty(ctx_);
+        auto *indexTy = nativeIntegerType();
         auto *index = builder_.CreateIntCast(rhs, indexTy, /*isSigned=*/true);
         index = builder_.CreateNeg(index);
         result = builder_.CreateInBoundsGEP(elemTy, lhs, index);
@@ -1233,7 +1232,7 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
     auto *ptrTy = llvm::cast<llvm::PointerType>(toLLVMType(*classType));
     auto *objectTy = structCache_.at(classType->getCodegenName() + ".obj");
     auto *sizeOfObj = llvm::ConstantExpr::getSizeOf(objectTy);
-    auto *sizeTy = llvm::Type::getInt64Ty(ctx_);
+    auto *sizeTy = nativeIntegerType();
     llvm::Value *sizeValue = sizeOfObj;
     if (sizeValue->getType() != sizeTy) {
       sizeValue = builder_.CreateIntCast(sizeValue, sizeTy, /*isSigned=*/false);

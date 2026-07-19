@@ -33,7 +33,16 @@ bool testDisplayNamesDoNotDefineIdentity() {
   TypeInterner types;
   return expect(!types.same(primitive(TypeKind::Int),
                             primitive(TypeKind::Int32)),
-                "Int and Int32 were merged because both render as i32") &&
+                "native Int and fixed Int32 have equal identities") &&
+         expect(!types.same(primitive(TypeKind::Int),
+                            primitive(TypeKind::Int64)),
+                "native Int and fixed Int64 have equal identities") &&
+         expect(!types.same(primitive(TypeKind::UInt),
+                            primitive(TypeKind::UInt64)),
+                "native UInt and fixed UInt64 have equal identities") &&
+         expect(types.same(primitive(TypeKind::Float),
+                           primitive(TypeKind::Float32)),
+                "Float and its fixed Float32 spelling have different identities") &&
          expect(!types.same(primitive(TypeKind::Char),
                             primitive(TypeKind::Int8)),
                 "Char and Int8 were merged because both render as i8");
@@ -103,6 +112,8 @@ bool testMangleKeysAreCanonicalAndCollisionFree() {
   TypeInterner types;
   auto intType = primitive(TypeKind::Int);
   auto int32Type = primitive(TypeKind::Int32);
+  auto floatType = primitive(TypeKind::Float);
+  auto float32Type = primitive(TypeKind::Float32);
   auto dottedName = std::make_shared<RecordType>("Type", "module.a-b");
   auto dashedName = std::make_shared<RecordType>("Type", "module_a.b");
   auto firstPointer = std::make_shared<PointerType>(intType);
@@ -111,6 +122,8 @@ bool testMangleKeysAreCanonicalAndCollisionFree() {
 
   return expect(types.mangleKey(intType) != types.mangleKey(int32Type),
                 "Int and Int32 have colliding mangle keys") &&
+         expect(types.mangleKey(floatType) == types.mangleKey(float32Type),
+                "Float and Float32 aliases have different mangle keys") &&
          expect(types.mangleKey(dottedName) != types.mangleKey(dashedName),
                 "nominal names collide after mangle encoding") &&
          expect(types.mangleKey(firstPointer) == types.mangleKey(secondPointer),
