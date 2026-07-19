@@ -383,18 +383,15 @@ class BoundIndexAccess : public BoundExpression {
 public:
   std::unique_ptr<BoundExpression> left;
   std::unique_ptr<BoundExpression> index;
-  std::shared_ptr<FunctionSymbol> stringIndexFunction;
 
   BoundIndexAccess(std::unique_ptr<BoundExpression> l,
                    std::unique_ptr<BoundExpression> i,
-                   std::shared_ptr<zir::Type> t,
-                   std::shared_ptr<FunctionSymbol> stringFunction = nullptr)
-      : BoundExpression(std::move(t)), left(std::move(l)), index(std::move(i)),
-        stringIndexFunction(std::move(stringFunction)) {}
+                   std::shared_ptr<zir::Type> t)
+      : BoundExpression(std::move(t)), left(std::move(l)), index(std::move(i)) {}
   void accept(BoundVisitor &v) override { v.visit(*this); }
   std::unique_ptr<BoundExpression> clone() const override {
-    return std::make_unique<BoundIndexAccess>(
-        left->clone(), index->clone(), type, stringIndexFunction);
+    return std::make_unique<BoundIndexAccess>(left->clone(), index->clone(),
+                                              type);
   }
 };
 

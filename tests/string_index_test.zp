@@ -1,20 +1,24 @@
-import "std/io" { printChar };
-
 fun main() Int {
-    var greeting: String = "hello";
-
-    if greeting[0] != 'h' {
+    if "text"[2] != 'x' {
         return 1;
     }
 
-    if greeting[4] != 'o' {
+    var owned: String = "zap";
+    if owned[1] != 'a' {
         return 2;
     }
 
-    if "zap"[1] != 'a' {
+    var borrowed: StringView = "borrowed";
+    if borrowed[3] != 'r' {
         return 3;
     }
 
-    printChar(greeting[1]);
+    if "text"[-1] != '\0' {
+        return 4;
+    }
+    if "text"[4] != '\0' {
+        return 5;
+    }
+
     return 0;
 }

@@ -713,18 +713,11 @@ void LLVMCodeGen::visit(sema::BoundArrayLiteral &node) {
 
 void LLVMCodeGen::visit(sema::BoundIndexAccess &node) {
   llvm::Value *leftAddr = nullptr;
-  llvm::Value *leftValue = nullptr;
   bool old = evaluateAsAddr_;
 
-  if (isStringType(node.left->type)) {
-    evaluateAsAddr_ = false;
-    node.left->accept(*this);
-    leftValue = lastValue_;
-  } else {
-    evaluateAsAddr_ = true;
-    node.left->accept(*this);
-    leftAddr = lastValue_;
-  }
+  evaluateAsAddr_ = true;
+  node.left->accept(*this);
+  leftAddr = lastValue_;
 
   evaluateAsAddr_ = false;
   node.index->accept(*this);
@@ -754,14 +747,6 @@ void LLVMCodeGen::visit(sema::BoundIndexAccess &node) {
     auto *elemTy = toLLVMType(*dataType->getBaseType());
     elemAddr =
         builder_.CreateInBoundsGEP(elemTy, dataPtr, indexVal, "varargs.index");
-  } else if (isStringType(node.left->type)) {
-    if (evaluateAsAddr_) {
-      throw std::runtime_error("String index access is not assignable.");
-    }
-
-    auto *ptr = builder_.CreateExtractValue(leftValue, {0}, "string.ptr");
-    auto *i8Ty = llvm::Type::getInt8Ty(ctx_);
-    elemAddr = builder_.CreateInBoundsGEP(i8Ty, ptr, indexVal, "string.index");
   } else {
     throw std::runtime_error("Type '" + node.left->type->toString() +
                              "' does not support indexing.");

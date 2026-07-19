@@ -1,5 +1,6 @@
 fun main() Int {
     var greeting: String = "hello";
     greeting[0] = 'j';
+    "text"[0] = 'T';
     return 0;
 }

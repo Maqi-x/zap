@@ -1,5 +1,4 @@
 #include "ir_generator.hpp"
-#include "string_type.hpp"
 #include "failable_type.hpp"
 #include <cstdint>
 #include <iostream>
@@ -1641,31 +1640,6 @@ void BoundIRGenerator::visit(sema::BoundIndexAccess &node) {
   if (node.left->type->getKind() == zir::TypeKind::Record) {
     auto recordType =
         std::static_pointer_cast<zir::RecordType>(node.left->type);
-    if (zir::isIntrinsicStringType(*recordType)) {
-      if (evaluateAsAddress_) {
-        throw std::runtime_error("String index access is not assignable.");
-      }
-
-      node.left->accept(*this);
-      auto stringValue = valueStack_.top();
-      valueStack_.pop();
-
-      node.index->accept(*this);
-      auto indexValue = valueStack_.top();
-      valueStack_.pop();
-
-      if (!node.stringIndexFunction) {
-        throw std::runtime_error(
-            "String index access is missing its resolved core helper.");
-      }
-      auto result = createRegister(node.type);
-      currentBlock_->addInstruction(std::make_unique<CallInst>(
-          result, node.stringIndexFunction->linkName,
-          std::vector<std::shared_ptr<Value>>{stringValue, indexValue}));
-      valueStack_.push(result);
-      return;
-    }
-
     if (recordType->getName().rfind("__zap_varargs_", 0) == 0) {
       bool oldEvaluateAsAddress = evaluateAsAddress_;
       evaluateAsAddress_ = true;
