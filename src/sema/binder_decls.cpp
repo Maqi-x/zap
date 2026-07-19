@@ -1,7 +1,6 @@
 #include "../ast/class_decl.hpp"
 #include "../ast/const/const_char.hpp"
 #include "../ast/record_decl.hpp"
-#include "../utils/string_type_utils.hpp"
 #include "binder.hpp"
 #include <algorithm>
 #include <cctype>
@@ -95,11 +94,17 @@ void Binder::predeclareModuleTypes(ModuleState &module) {
       }
     } else if (auto structDecl =
                    dynamic_cast<StructDeclarationNode *>(child.get())) {
+      const bool isCoreStringView =
+          module.info->linkPath == "core" && structDecl->name_ == "StringView";
+      const auto intrinsic = isCoreStringView
+                                 ? zir::IntrinsicTypeKind::StringView
+                                 : zir::IntrinsicTypeKind::None;
       auto type = std::make_shared<zir::RecordType>(
           displayTypeName(module.info->moduleName, structDecl->name_),
           mangleName(module.info->linkPath.empty() ? module.info->moduleId
                                                    : module.info->linkPath,
-                     structDecl->name_));
+                     structDecl->name_),
+          intrinsic);
       auto symbol = std::make_shared<TypeSymbol>(
           structDecl->name_, type,
           mangleName(module.info->linkPath.empty() ? module.info->moduleId

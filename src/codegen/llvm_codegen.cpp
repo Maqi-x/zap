@@ -1,5 +1,5 @@
 #include "llvm_codegen.hpp"
-#include "../utils/string_type_utils.hpp"
+#include "../ir/string_type.hpp"
 #include "class_arc_emitter.hpp"
 #include "class_layout.hpp"
 #include <cctype>
@@ -25,11 +25,7 @@
 namespace codegen {
 namespace {
 bool isStringType(const std::shared_ptr<zir::Type> &type) {
-  return zap::text::isStringType(type);
-}
-
-bool isStringRecordName(const std::string &full) {
-  return zap::text::isStringRecordName(full);
+  return zir::isIntrinsicStringType(type);
 }
 
 std::string lowerGccAsmTemplateToLLVM(const std::string &assembly) {
@@ -463,7 +459,7 @@ llvm::Type *LLVMCodeGen::toLLVMType(const zir::Type &ty) {
     if (it != structCache_.end())
       return it->second;
 
-    if (isStringRecordName(rt.getName())) {
+    if (zir::isIntrinsicStringType(rt)) {
       auto *structTy = llvm::StructType::create(ctx_, rt.getCodegenName());
       structCache_[rt.getCodegenName()] = structTy;
       std::vector<llvm::Type *> fieldTypes;

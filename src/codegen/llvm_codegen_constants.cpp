@@ -1,4 +1,4 @@
-#include "../utils/string_type_utils.hpp"
+#include "../ir/string_type.hpp"
 #include "llvm_codegen.hpp"
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
@@ -23,11 +23,7 @@ uint64_t parseIntegerLiteral(const std::string &literal) {
 }
 
 bool isStringType(const std::shared_ptr<zir::Type> &type) {
-  return zap::text::isStringType(type);
-}
-
-bool isStringRecordName(const std::string &full) {
-  return zap::text::isStringRecordName(full);
+  return zir::isIntrinsicStringType(type);
 }
 } // namespace
 
@@ -54,7 +50,7 @@ llvm::Constant *LLVMCodeGen::getOrCreateGlobalString(const std::string &str,
 llvm::Constant *LLVMCodeGen::lowerZIRConstant(const zir::Constant &constant) {
   if (constant.getType()->getKind() == zir::TypeKind::Record) {
     const auto &rt = static_cast<const zir::RecordType &>(*constant.getType());
-    if (isStringRecordName(rt.getName())) {
+    if (zir::isIntrinsicStringType(rt)) {
       std::string gname;
       auto *ptrConst = getOrCreateGlobalString(constant.getLiteral(), gname);
       auto *lenConst = llvm::ConstantInt::get(

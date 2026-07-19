@@ -1,5 +1,5 @@
 #include "ir_generator.hpp"
-#include "../utils/string_type_utils.hpp"
+#include "string_type.hpp"
 #include "failable_type.hpp"
 #include <cstdint>
 #include <iostream>
@@ -1641,7 +1641,7 @@ void BoundIRGenerator::visit(sema::BoundIndexAccess &node) {
   if (node.left->type->getKind() == zir::TypeKind::Record) {
     auto recordType =
         std::static_pointer_cast<zir::RecordType>(node.left->type);
-    if (zap::text::isStringRecordName(recordType->getName())) {
+    if (zir::isIntrinsicStringType(*recordType)) {
       if (evaluateAsAddress_) {
         throw std::runtime_error("String index access is not assignable.");
       }

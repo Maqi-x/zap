@@ -1,7 +1,6 @@
 #include "../ast/class_decl.hpp"
 #include "../ast/const/const_char.hpp"
 #include "../ast/record_decl.hpp"
-#include "../utils/string_type_utils.hpp"
 #include "binder.hpp"
 #include <algorithm>
 #include <cctype>

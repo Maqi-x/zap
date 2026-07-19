@@ -33,7 +33,19 @@ enum class TypeKind {
   FunctionPointer
 };
 
+enum class IntrinsicTypeKind {
+  None,
+  String,
+  StringView,
+};
+
 class Type {
+  IntrinsicTypeKind intrinsicKind;
+
+protected:
+  explicit Type(IntrinsicTypeKind intrinsic = IntrinsicTypeKind::None)
+      : intrinsicKind(intrinsic) {}
+
 public:
   virtual ~Type() = default;
   virtual TypeKind getKind() const = 0;
@@ -62,6 +74,7 @@ public:
     return k == TypeKind::Float || k == TypeKind::Float32 ||
            k == TypeKind::Float64;
   }
+  IntrinsicTypeKind getIntrinsicKind() const { return intrinsicKind; }
 };
 
 class PrimitiveType : public Type {
@@ -143,8 +156,9 @@ public:
   bool hasReprC = false;
   bool isPacked = false;
 
-  RecordType(std::string n, std::string codegen = "")
-      : name(std::move(n)),
+  RecordType(std::string n, std::string codegen = "",
+             IntrinsicTypeKind intrinsic = IntrinsicTypeKind::None)
+      : Type(intrinsic), name(std::move(n)),
         codegenName(codegen.empty() ? name : std::move(codegen)) {}
   TypeKind getKind() const override { return TypeKind::Record; }
   std::string toString() const override { return "%" + name; }

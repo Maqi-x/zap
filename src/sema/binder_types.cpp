@@ -1,7 +1,7 @@
 #include "../ast/class_decl.hpp"
 #include "../ast/const/const_char.hpp"
 #include "../ast/record_decl.hpp"
-#include "../utils/string_type_utils.hpp"
+#include "../ir/string_type.hpp"
 #include "binder.hpp"
 #include <algorithm>
 #include <cctype>
@@ -1169,7 +1169,7 @@ int Binder::conversionCost(std::shared_ptr<zir::Type> from,
     return 1000;
   }
   if (isStringType(from) && isStringType(to)) {
-    return zap::text::isStringViewType(to) ? 0 : 1;
+    return zir::isIntrinsicStringViewType(to) ? 0 : 1;
   }
 
   if (from->getKind() == zir::TypeKind::Enum && to->isInteger()) {

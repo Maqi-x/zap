@@ -1,4 +1,4 @@
-#include "../utils/string_type_utils.hpp"
+#include "../ir/string_type.hpp"
 #include "class_arc_emitter.hpp"
 #include "llvm_codegen.hpp"
 
@@ -21,7 +21,8 @@ bool LLVMCodeGen::isWeakClassType(
 
 bool LLVMCodeGen::isOwnedStringType(
     const std::shared_ptr<zir::Type> &type) const {
-  return zap::text::isStringType(type) && !zap::text::isStringViewType(type);
+  return zir::isIntrinsicStringType(type) &&
+         !zir::isIntrinsicStringViewType(type);
 }
 
 bool LLVMCodeGen::expressionProducesOwnedClass(

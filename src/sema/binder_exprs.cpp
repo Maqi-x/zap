@@ -1,7 +1,7 @@
 #include "../ast/class_decl.hpp"
 #include "../ast/const/const_char.hpp"
 #include "../ast/record_decl.hpp"
-#include "../utils/string_type_utils.hpp"
+#include "../ir/string_type.hpp"
 #include "binder.hpp"
 #include <algorithm>
 #include <cctype>
@@ -38,7 +38,7 @@ TypeLayout layoutOfAggregateField(const std::shared_ptr<zir::Type> &type) {
 }
 
 TypeLayout layoutOfRecord(const zir::RecordType &record) {
-  if (zap::text::isStringRecordName(record.getName())) {
+  if (zir::isIntrinsicStringType(record)) {
     return {16, 8};
   }
 
@@ -227,7 +227,7 @@ Binder::buildBinaryExpression(std::unique_ptr<BoundExpression> left,
                 renderTypeForUser(leftType) + "' and '" +
                 renderTypeForUser(rightType) + "'");
     }
-    resultType = std::make_shared<zir::RecordType>("String", "String");
+    resultType = zir::makeStringType();
   } else if ((op == "+" || op == "-") &&
              (isPointerType(leftType) || isPointerType(rightType))) {
     if (op == "+" && isPointerType(leftType) && rightType->isInteger()) {
@@ -345,8 +345,7 @@ Binder::buildBinaryExpression(std::unique_ptr<BoundExpression> left,
       left = wrapInCast(std::move(left), promotedType);
       right = wrapInCast(std::move(right), promotedType);
     } else if (stringComparison) {
-      auto stringViewType =
-          std::make_shared<zir::RecordType>("StringView", "StringView");
+      auto stringViewType = zir::makeStringViewType();
       left = wrapInCast(std::move(left), stringViewType);
       right = wrapInCast(std::move(right), stringViewType);
     }
@@ -425,7 +424,7 @@ void Binder::visit(ConstFloat &node) {
 void Binder::visit(ConstString &node) {
   expressionStack_.push(std::make_unique<BoundLiteral>(
       node.value_,
-      std::make_shared<zir::RecordType>("StringView", "StringView")));
+      zir::makeStringViewType()));
 }
 
 void Binder::visit(ConstChar &node) {

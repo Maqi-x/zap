@@ -1,4 +1,4 @@
-#include "../utils/string_type_utils.hpp"
+#include "../ir/string_type.hpp"
 #include "class_layout.hpp"
 #include "llvm_codegen.hpp"
 #include <llvm/IR/BasicBlock.h>
@@ -27,11 +27,7 @@ uint64_t parseIntegerLiteral(const std::string &literal) {
 }
 
 bool isStringType(const std::shared_ptr<zir::Type> &type) {
-  return zap::text::isStringType(type);
-}
-
-bool isStringRecordName(const std::string &full) {
-  return zap::text::isStringRecordName(full);
+  return zir::isIntrinsicStringType(type);
 }
 
 bool isVariadicViewType(const std::shared_ptr<zir::Type> &type) {
@@ -169,7 +165,7 @@ void LLVMCodeGen::visit(sema::BoundCompoundTargetLoad &node) {
 void LLVMCodeGen::visit(sema::BoundLiteral &node) {
   if (node.type->getKind() == zir::TypeKind::Record) {
     const auto &rt = static_cast<const zir::RecordType &>(*node.type);
-    if (isStringRecordName(rt.getName())) {
+    if (zir::isIntrinsicStringType(rt)) {
       std::string gname;
       auto *ptrConst = getOrCreateGlobalString(node.value, gname);
       auto *lenConst =

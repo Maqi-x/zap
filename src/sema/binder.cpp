@@ -3,7 +3,7 @@
 #include "../ast/const/const_char.hpp"
 #include "../ast/record_decl.hpp"
 #include "../ir/failable_type.hpp"
-#include "../utils/string_type_utils.hpp"
+#include "../ir/string_type.hpp"
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -96,7 +96,7 @@ std::string abiTypeKey(const std::shared_ptr<zir::Type> &type) {
 }
 
 bool isStringType(const std::shared_ptr<zir::Type> &type) {
-  return zap::text::isStringType(type);
+  return zir::isIntrinsicStringType(type);
 }
 
 bool isFailableType(const std::shared_ptr<zir::Type> &type) {
@@ -561,7 +561,7 @@ void Binder::initializeBuiltins() {
   builtinScope_->declare(
       "String",
       std::make_shared<TypeSymbol>(
-          "String", std::make_shared<zir::RecordType>("String", "String"),
+          "String", zir::makeStringType(),
           "String", "", Visibility::Public));
 }
 
@@ -1030,7 +1030,7 @@ Binder::foldConstantBinary(const BoundBinaryExpression *binary) {
     if (isStringType(left->type) && isStringType(right->type)) {
       return std::make_unique<BoundLiteral>(
           left->value + right->value,
-          std::make_shared<zir::RecordType>("StringView", "StringView"));
+          zir::makeStringViewType());
     }
     return nullptr;
   }

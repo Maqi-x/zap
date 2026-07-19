@@ -47,6 +47,7 @@ SPECIAL_CASES = {
     "tests/enum_test.zp": {"type": "runtime", "exit": 1, "desc": "Enum test"},
     "tests/type_alias.zp": {"type": "runtime", "exit": 42, "desc": "Type aliasing (alias Name = Type)"},
     "tests/global_string_concat_test.zp": {"type": "runtime", "exit": 42, "desc": "Global var initialized with literal '+' concatenation is constant-folded"},
+    "tests/string_type_identity/main.zp": {"type": "runtime", "exit": 42, "desc": "User-defined String and StringView names do not acquire compiler intrinsic semantics"},
     "tests/failable_class_return_test.zp": {"type": "runtime", "exit": 42, "desc": "Failable function returning a class instance (success and fail paths)"},
     "tests/control_flow.zp": {"type": "runtime", "exit": 1, "desc": "Control flow return value"},
     "tests/compound_assign_test.zp": {"type": "runtime", "exit": 42, "desc": "Compound assignment (+= -= *= /= %= <<= >>= |= &= ^=) and ++/--"},

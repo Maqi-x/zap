@@ -1,0 +1,7 @@
+pub struct String {
+  value: Int,
+}
+
+pub struct StringView {
+  value: Int,
+}

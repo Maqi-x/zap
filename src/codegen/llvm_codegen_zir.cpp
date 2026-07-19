@@ -1,4 +1,4 @@
-#include "../utils/string_type_utils.hpp"
+#include "../ir/string_type.hpp"
 #include "class_layout.hpp"
 #include "llvm_codegen.hpp"
 #include <llvm/IR/BasicBlock.h>
@@ -12,15 +12,14 @@
 namespace codegen {
 namespace {
 bool isStringType(const std::shared_ptr<zir::Type> &type) {
-  return zap::text::isStringType(type);
+  return zir::isIntrinsicStringType(type);
 }
 
-bool isStringLLVMStructType(llvm::Type *ty) {
-  auto *st = llvm::dyn_cast_or_null<llvm::StructType>(ty);
-  if (!st || !st->hasName()) {
-    return false;
-  }
-  return zap::text::isStringRecordName(st->getName().str());
+bool hasStringAbi(llvm::Type *type) {
+  auto *record = llvm::dyn_cast_or_null<llvm::StructType>(type);
+  return record && record->getNumElements() == 2 &&
+         record->getElementType(0)->isPointerTy() &&
+         record->getElementType(1)->isIntegerTy(64);
 }
 } // namespace
 
@@ -568,7 +567,8 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
           cmpInst.getLhs()->getTypeName() + " vs " +
           cmpInst.getRhs()->getTypeName());
     }
-    if (isStringLLVMStructType(lhsTy) && isStringLLVMStructType(rhsTy) &&
+    if (isStringType(cmpInst.getLhs()->getType()) &&
+        isStringType(cmpInst.getRhs()->getType()) &&
         (pred == "eq" || pred == "ne")) {
       auto *boolTy = llvm::Type::getInt1Ty(ctx_);
       auto *strTy = lhsTy;
@@ -784,8 +784,11 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         paramTy = calleeTy->getParamType(static_cast<unsigned>(i));
       }
       if (paramTy && arg->getType() != paramTy) {
-        if (isStringLLVMStructType(arg->getType()) &&
-            isStringLLVMStructType(paramTy)) {
+        auto argumentType = callInst.getArguments()[i]
+                                ? callInst.getArguments()[i]->getType()
+                                : nullptr;
+        if (isStringType(argumentType) &&
+            (isStringType(calleeParamType) || hasStringAbi(paramTy))) {
           auto *ptr = builder_.CreateExtractValue(arg, {0}, "zir.call.str.ptr");
           auto *len = builder_.CreateExtractValue(arg, {1}, "zir.call.str.len");
           llvm::Value *converted = llvm::UndefValue::get(paramTy);
