@@ -285,6 +285,24 @@ void LLVMCodeGen::printIR(llvm::raw_ostream &os) const {
     module_->print(os, nullptr);
 }
 
+bool LLVMCodeGen::verifyModule(llvm::raw_ostream &diagnostics) const {
+  if (!module_) {
+    diagnostics << "zapc: internal error: LLVM module was not generated\n";
+    return false;
+  }
+
+  std::string verifierOutput;
+  llvm::raw_string_ostream verifierStream(verifierOutput);
+  if (!llvm::verifyModule(*module_, &verifierStream)) {
+    return true;
+  }
+  verifierStream.flush();
+
+  diagnostics << "zapc: internal error: LLVM module verification failed\n";
+  diagnostics << verifierOutput;
+  return false;
+}
+
 bool LLVMCodeGen::emitObjectFile(const std::string &path,
                                  int optimization_level) {
   llvm::Triple triple(targetTriple_);
@@ -307,6 +325,10 @@ bool LLVMCodeGen::emitObjectFile(const std::string &path,
   }
   module_->setDataLayout(tm->createDataLayout());
 
+  if (!verifyModule(llvm::errs())) {
+    return false;
+  }
+
   std::error_code ec;
   llvm::raw_fd_ostream dest(path, ec, llvm::sys::fs::OF_None);
   if (ec) {
@@ -321,13 +343,9 @@ bool LLVMCodeGen::emitObjectFile(const std::string &path,
     return false;
   }
 
-  // TODO: Improve handling of verifying the module.
-  bool is_broken = llvm::verifyModule(*module_, &llvm::errs());
-
-  if (!is_broken)
-    pm.run(*module_);
+  pm.run(*module_);
   dest.flush();
-  return !is_broken;
+  return true;
 }
 
 bool LLVMCodeGen::emitAssemblyFile(const std::string &path,
@@ -352,6 +370,10 @@ bool LLVMCodeGen::emitAssemblyFile(const std::string &path,
   }
   module_->setDataLayout(tm->createDataLayout());
 
+  if (!verifyModule(llvm::errs())) {
+    return false;
+  }
+
   std::error_code ec;
   llvm::raw_fd_ostream dest(path, ec, llvm::sys::fs::OF_None);
   if (ec) {
@@ -366,12 +388,9 @@ bool LLVMCodeGen::emitAssemblyFile(const std::string &path,
     return false;
   }
 
-  bool is_broken = llvm::verifyModule(*module_, &llvm::errs());
-  if (!is_broken) {
-    pm.run(*module_);
-  }
+  pm.run(*module_);
   dest.flush();
-  return !is_broken;
+  return true;
 }
 
 llvm::IntegerType *LLVMCodeGen::nativeIntegerType() {

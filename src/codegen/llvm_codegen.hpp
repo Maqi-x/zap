@@ -23,6 +23,7 @@ public:
   void generate(const zir::Module &module);
 
   void printIR(llvm::raw_ostream &) const;
+  bool verifyModule(llvm::raw_ostream &diagnostics) const;
 
   bool emitObjectFile(const std::string &path, int optimization_level = 0);
   bool emitAssemblyFile(const std::string &path, int optimization_level = 0);

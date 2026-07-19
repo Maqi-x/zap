@@ -27,7 +27,7 @@
 
 namespace zap {
 bool compileSourceZIR(sema::BoundRootNode &node, std::ostream &ofoutput);
-bool compileSourceLLVMFromZIR(sema::BoundRootNode &node, std::ostream &ofoutput,
+bool compileSourceLLVMFromZIR(sema::BoundRootNode &node, std::string &output,
                               const std::string &targetTriple,
                               bool freestanding);
 std::unique_ptr<zir::Module> generateZIRModule(sema::BoundRootNode &node);
@@ -101,16 +101,19 @@ bool emitRequestedTextOutputs(driver &drv, sema::BoundRootNode &node,
                          : std::filesystem::path(base_output_path)
                                .replace_extension(driver::format_fileextension(
                                    args::OutputType::TEXT_LLVM));
+    std::string llvmIr;
+    if (compileSourceLLVMFromZIR(node, llvmIr, drv.get_target_triple(),
+                                 drv.is_freestanding())) {
+      return true;
+    }
+
     std::ofstream llvm_output(llvm_path, std::ios::binary);
     if (!llvm_output) {
       driver::reportError("couldn't open the provided file: ", llvm_path,
                           "\nreason: ", strerror(errno));
       return true;
     }
-    if (compileSourceLLVMFromZIR(node, llvm_output, drv.get_target_triple(),
-                                 drv.is_freestanding())) {
-      return true;
-    }
+    llvm_output << llvmIr;
   }
 
   return false;
@@ -439,7 +442,7 @@ bool compileSourceZIR(sema::BoundRootNode &node, std::ostream &ofoutput) {
   return false;
 }
 
-bool compileSourceLLVMFromZIR(sema::BoundRootNode &node, std::ostream &ofoutput,
+bool compileSourceLLVMFromZIR(sema::BoundRootNode &node, std::string &output,
                               const std::string &targetTriple,
                               bool freestanding) {
   try {
@@ -451,10 +454,13 @@ bool compileSourceLLVMFromZIR(sema::BoundRootNode &node, std::ostream &ofoutput,
 
     codegen::LLVMCodeGen llvmGen(targetTriple, freestanding);
     llvmGen.generate(*mod);
-    std::string ir;
-    llvm::raw_string_ostream rs(ir);
+    if (!llvmGen.verifyModule(llvm::errs())) {
+      return true;
+    }
+
+    llvm::raw_string_ostream rs(output);
     llvmGen.printIR(rs);
-    ofoutput << ir;
+    rs.flush();
   } catch (const std::exception &ex) {
     driver::reportError("LLVM text generation failed: ", ex.what());
     return true;
