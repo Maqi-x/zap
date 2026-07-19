@@ -9,32 +9,31 @@ std::string renderTypeForUser(const std::shared_ptr<Type> &type) {
   if (!type) {
     return "<unknown>";
   }
-  switch (type->getKind()) {
-  case TypeKind::Pointer: {
+
+  if (type->getKind() == TypeKind::Pointer) {
     auto ptr = std::static_pointer_cast<PointerType>(type);
     return renderTypeForUser(ptr->getBaseType()) + "*";
   }
-  case TypeKind::Record: {
+  if (type->getKind() == TypeKind::Record) {
     auto rec = std::static_pointer_cast<RecordType>(type);
     auto full = rec->getName();
     auto dot = full.find_last_of('.');
     return dot == std::string::npos ? full : full.substr(dot + 1);
   }
-  case TypeKind::Class: {
+  if (type->getKind() == TypeKind::Class) {
     auto cls = std::static_pointer_cast<ClassType>(type);
     auto full = cls->getName();
     auto dot = full.find_last_of('.');
     return dot == std::string::npos ? full : full.substr(dot + 1);
   }
-  case TypeKind::Enum: {
+  if (type->getKind() == TypeKind::Enum) {
     auto en = std::static_pointer_cast<EnumType>(type);
     auto full = en->getName();
     auto dot = full.find_last_of('.');
     return dot == std::string::npos ? full : full.substr(dot + 1);
   }
-  default:
-    return type->toString();
-  }
+
+  return type->toString();
 }
 
 bool isTerminated(const BasicBlock *block) {

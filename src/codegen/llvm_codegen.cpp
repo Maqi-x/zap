@@ -502,8 +502,6 @@ llvm::Type *LLVMCodeGen::toLLVMType(const zir::Type &ty) {
                                          paramTypes, false);
     return llvm::PointerType::getUnqual(fnTy);
   }
-  default:
-    break;
   }
   throw std::runtime_error("Unknown ZIR type: " + ty.toString());
 }

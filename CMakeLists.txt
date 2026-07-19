@@ -4,6 +4,10 @@ project(zapc)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+    add_compile_options(-Werror=switch)
+endif()
+
 # Accept the system LLVM version and handle API differences in code when needed.
 find_package(LLVM REQUIRED CONFIG)
 

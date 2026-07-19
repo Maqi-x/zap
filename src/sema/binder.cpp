@@ -127,12 +127,26 @@ makeDefaultValueExpr(const std::shared_ptr<zir::Type> &type) {
       return std::make_unique<BoundStructLiteral>(std::move(fields), type);
     }
     return std::make_unique<BoundLiteral>("0", type);
-  default:
-    if (type->isInteger() || type->getKind() == zir::TypeKind::Enum) {
-      return std::make_unique<BoundLiteral>("0", type);
-    }
+  case zir::TypeKind::Void:
+  case zir::TypeKind::Char:
+  case zir::TypeKind::Int8:
+  case zir::TypeKind::Int16:
+  case zir::TypeKind::Int32:
+  case zir::TypeKind::Int64:
+  case zir::TypeKind::UInt8:
+  case zir::TypeKind::UInt16:
+  case zir::TypeKind::UInt32:
+  case zir::TypeKind::UInt64:
+  case zir::TypeKind::Int:
+  case zir::TypeKind::UInt:
+  case zir::TypeKind::Enum:
+  case zir::TypeKind::TaggedUnion:
+  case zir::TypeKind::Array:
+  case zir::TypeKind::FunctionPointer:
     return std::make_unique<BoundLiteral>("0", type);
   }
+
+  return std::make_unique<BoundLiteral>("0", type);
 }
 
 std::unique_ptr<BoundExpression>
@@ -723,6 +737,12 @@ Binder::renderTypeForUser(const std::shared_ptr<zir::Type> &type) const {
     auto en = std::static_pointer_cast<zir::EnumType>(type);
     return en->getName();
   }
+  case zir::TypeKind::TaggedUnion: {
+    auto taggedUnion = std::static_pointer_cast<zir::TaggedUnionType>(type);
+    return taggedUnion->getName();
+  }
+  case zir::TypeKind::FunctionPointer:
+    return type->toString();
   }
 
   return type->toString();

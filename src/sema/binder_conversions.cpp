@@ -76,9 +76,19 @@ Binder::getCVariadicArgumentType(std::shared_ptr<zir::Type> type) {
   case zir::TypeKind::UInt:
   case zir::TypeKind::Float64:
     return type;
-  default:
+  case zir::TypeKind::Void:
+  case zir::TypeKind::Pointer:
+  case zir::TypeKind::NullPtr:
+  case zir::TypeKind::Record:
+  case zir::TypeKind::Class:
+  case zir::TypeKind::Array:
+  case zir::TypeKind::Enum:
+  case zir::TypeKind::TaggedUnion:
+  case zir::TypeKind::FunctionPointer:
     return nullptr;
   }
+
+  return nullptr;
 }
 
 std::unique_ptr<BoundExpression>

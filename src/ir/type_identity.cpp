@@ -97,7 +97,23 @@ private:
       tag(IdentityTag::TaggedUnion);
       name(static_cast<const TaggedUnionType &>(type).getCodegenName());
       return;
-    default:
+    case TypeKind::Void:
+    case TypeKind::Int8:
+    case TypeKind::Int16:
+    case TypeKind::Int32:
+    case TypeKind::Int64:
+    case TypeKind::UInt8:
+    case TypeKind::UInt16:
+    case TypeKind::UInt32:
+    case TypeKind::UInt64:
+    case TypeKind::Int:
+    case TypeKind::UInt:
+    case TypeKind::Float:
+    case TypeKind::Float32:
+    case TypeKind::Float64:
+    case TypeKind::Bool:
+    case TypeKind::Char:
+    case TypeKind::NullPtr:
       tag(IdentityTag::Primitive);
       number(static_cast<uint64_t>(canonicalPrimitiveKind(type.getKind())));
       return;
