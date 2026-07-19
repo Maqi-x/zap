@@ -254,6 +254,22 @@ EXTRA_TESTS = [
         "desc": "Disabling prelude with -noprelude fails compilation",
         "compile_flags": ["-noprelude"],
         "exit": 1
+    },
+    {
+        "file": "tests/valid.zp",
+        "type": "compile",
+        "desc": "Unknown compiler flag fails without crashing",
+        "compile_flags": ["--zap-unknown-flag"],
+        "exit": 1,
+        "stderr_pattern": "unknown flag '--zap-unknown-flag'"
+    },
+    {
+        "file": "tests/valid.zp",
+        "type": "compile",
+        "desc": "Missing compiler option value fails without crashing",
+        "compile_flags": ["-o"],
+        "exit": 1,
+        "stderr_pattern": "missing value for flag '-o'"
     }
 ]
 
