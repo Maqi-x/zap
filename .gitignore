@@ -89,3 +89,6 @@ src/lsp/vscode/zap/stdlib
 bugs/
 playground/
 bench/
+
+# Local audit notes
+raport.md

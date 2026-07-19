@@ -29,6 +29,7 @@ set(SOURCES
     src/codegen/llvm_codegen_arc.cpp
     src/codegen/class_arc_emitter.cpp
     src/driver/driver.cpp
+    src/driver/process.cpp
     src/driver/args/argparse.cpp
     src/utils/stream.cpp
 )
@@ -75,15 +76,6 @@ target_compile_definitions(zapc PRIVATE ZAPC_CORE_DIR="${CMAKE_SOURCE_DIR}/core"
 target_compile_definitions(zapc PRIVATE ZAPC_STDLIB_DIR="${CMAKE_SOURCE_DIR}/std")
 
 include(cmake/doxygen.cmake)
-
-# Configure git hooks if .git directory exists
-if(EXISTS "${CMAKE_SOURCE_DIR}/.git")
-    message(STATUS "Configuring git hooks...")
-    execute_process(
-        COMMAND git config core.hooksPath .githooks
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    )
-endif()
 
 option(INCLUDE_LSP "Should the LSP binary be compiled" ON)
 if(INCLUDE_LSP)

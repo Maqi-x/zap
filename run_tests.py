@@ -172,6 +172,13 @@ EXTRA_TESTS = [
         "stderr_pattern": "cannot link executable in freestanding mode"
     },
     {
+        "file": "tests/valid.zp",
+        "type": "runtime",
+        "desc": "Link output paths are passed without shell interpretation",
+        "binary_path": "/tmp/zap linker ; literal-{tid}.bin",
+        "exit": 42
+    },
+    {
         "file": "tests/logical_ops.zp",
         "type": "compile",
         "desc": "Emit LLVM IR for logical operators",
@@ -323,7 +330,9 @@ def execute_test(test_item, zapc_path):
         if test_type == "runtime":
             # Generate a unique binary name per thread to prevent collision
             tid = threading.get_ident()
-            bin_path = f"{file_path}_{tid}.bin"
+            bin_path = test_item.get(
+                "binary_path", f"{file_path}_{tid}.bin"
+            ).format(tid=tid)
             to_cleanup.append(bin_path)
             
             # Compile step

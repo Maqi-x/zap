@@ -1,6 +1,7 @@
 #include "driver/driver.hpp"
 #include "ast/import_node.hpp"
 #include "codegen/llvm_codegen.hpp"
+#include "driver/process.hpp"
 #include "frontend/module_loader.hpp"
 #include "ir/ir_generator.hpp"
 #include "lexer/lexer.hpp"
@@ -547,36 +548,44 @@ bool driver::link() {
   if (!needs_linking())
     return false;
 
-  std::string cmd = "/usr/bin/cc ";
+  const std::filesystem::path linker = "/usr/bin/cc";
+  std::vector<std::string> arguments;
 
   if (cmdArgs.incStdlib) {
     auto paths = frontend::RuntimePaths{
         executable_path, std::filesystem::path(ZAPC_CORE_DIR),
         std::filesystem::path(ZAPC_STDLIB_DIR),
         std::filesystem::path(ZAPC_STDLIB_PATH)};
-    cmd += frontend::stdlibObjectPath(paths).string() + " ";
+    arguments.push_back(frontend::stdlibObjectPath(paths).string());
   } else {
-    cmd += "-nostdlib ";
+    arguments.emplace_back("-nostdlib");
   }
 
   for (const auto &obj : cmdArgs.objects) {
-    cmd += obj.string() + " ";
+    arguments.push_back(obj.string());
   }
 
   for (const auto &arg : cmdArgs.linkerArgs) {
-    cmd += arg + " ";
+    arguments.push_back(arg);
   }
 
-  cmd += "-lm ";
-  cmd += "-o " + cmdArgs.output.path.string();
+  arguments.emplace_back("-lm");
+  arguments.emplace_back("-o");
+  arguments.push_back(cmdArgs.output.path.string());
 
-  int res = std::system(cmd.c_str());
-  if (res != 0) {
-    reportError("linking failed with exit code: ", res);
-    return true;
+  const auto result = process::execute(linker, arguments);
+  if (result.succeeded()) {
+    return false;
   }
-
-  return false;
+  if (result.termination == process::Termination::LaunchFailed) {
+    reportError("failed to start linker '", linker,
+                "': ", result.error.message());
+  } else if (result.termination == process::Termination::Signaled) {
+    reportError("linker terminated by signal: ", result.code);
+  } else {
+    reportError("linking failed with exit code: ", result.code);
+  }
+  return true;
 }
 
 bool driver::cleanup() {
