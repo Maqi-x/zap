@@ -19,9 +19,12 @@ set(SOURCES
     src/ir/ir_generator.cpp
     src/sema/binder.cpp
     src/sema/binder_calls.cpp
+    src/sema/binder_conversions.cpp
     src/sema/binder_decls.cpp
     src/sema/binder_stmts.cpp
     src/sema/binder_exprs.cpp
+    src/sema/binder_generic_functions.cpp
+    src/sema/binder_generic_types.cpp
     src/sema/binder_types.cpp
     src/sema/type_layout.cpp
     src/codegen/llvm_codegen.cpp
