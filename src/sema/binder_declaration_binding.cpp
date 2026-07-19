@@ -34,7 +34,7 @@ void Binder::visit(ClassDecl &node) {
   }
 
   auto classType = std::static_pointer_cast<zir::ClassType>(symbol->type);
-  auto &classInfo = classInfos_[classType->getName()];
+  auto &classInfo = classInfos_[classType->getCodegenName()];
   currentClassStack_.push_back(classType->getName());
 
   if (node.baseType_) {
@@ -50,7 +50,7 @@ void Binder::visit(ClassDecl &node) {
     } else {
       auto baseClass = std::static_pointer_cast<zir::ClassType>(baseType);
       classType->setBase(baseClass);
-      auto baseIt = classInfos_.find(baseClass->getName());
+      auto baseIt = classInfos_.find(baseClass->getCodegenName());
       if (baseIt != classInfos_.end()) {
         if (!hasOwnCtor) {
           classInfo.constructor = baseIt->second.constructor;

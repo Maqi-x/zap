@@ -7,15 +7,15 @@ namespace zir {
 namespace {
 
 enum class IdentityTag : uint64_t {
-  Intrinsic,
-  Primitive,
-  Pointer,
-  Record,
-  Class,
-  Array,
-  Enum,
-  TaggedUnion,
-  FunctionPointer,
+  Intrinsic = 0,
+  Primitive = 1,
+  Pointer = 2,
+  Record = 3,
+  Class = 4,
+  Array = 5,
+  Enum = 6,
+  TaggedUnion = 7,
+  FunctionPointer = 8,
 };
 
 void hashCombine(size_t &seed, size_t value) {
@@ -113,6 +113,36 @@ size_t TypeIdHash::operator()(const TypeId &id) const {
   return result;
 }
 
+std::string TypeId::mangleKey() const {
+  static constexpr char hexDigits[] = "0123456789abcdef";
+  std::string result = "z1";
+  for (const auto &atom : atoms_) {
+    switch (atom.kind) {
+    case AtomKind::Tag:
+      result += 't';
+      result += std::to_string(atom.number);
+      result += '_';
+      break;
+    case AtomKind::Number:
+      result += 'n';
+      result += std::to_string(atom.number);
+      result += '_';
+      break;
+    case AtomKind::Name:
+      result += 's';
+      result += std::to_string(atom.name.size());
+      result += '_';
+      for (unsigned char byte : atom.name) {
+        result += hexDigits[byte >> 4U];
+        result += hexDigits[byte & 0x0fU];
+      }
+      result += '_';
+      break;
+    }
+  }
+  return result;
+}
+
 TypeId TypeInterner::intern(const Type &type) const {
   return *identities_.emplace(TypeIdentityBuilder::build(type)).first;
 }
@@ -122,6 +152,11 @@ TypeId TypeInterner::intern(const std::shared_ptr<Type> &type) const {
     throw std::invalid_argument("cannot intern a null type");
   }
   return intern(*type);
+}
+
+std::string
+TypeInterner::mangleKey(const std::shared_ptr<Type> &type) const {
+  return intern(type).mangleKey();
 }
 
 bool TypeInterner::same(const std::shared_ptr<Type> &lhs,
@@ -139,6 +174,11 @@ bool sameType(const std::shared_ptr<Type> &lhs,
               const std::shared_ptr<Type> &rhs) {
   TypeInterner interner;
   return interner.same(lhs, rhs);
+}
+
+std::string typeMangleKey(const std::shared_ptr<Type> &type) {
+  TypeInterner interner;
+  return interner.mangleKey(type);
 }
 
 } // namespace zir

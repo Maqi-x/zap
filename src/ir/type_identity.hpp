@@ -13,6 +13,7 @@ class TypeId {
 public:
   bool operator==(const TypeId &other) const { return atoms_ == other.atoms_; }
   bool operator!=(const TypeId &other) const { return !(*this == other); }
+  std::string mangleKey() const;
 
 private:
   enum class AtomKind : uint8_t { Tag, Number, Name };
@@ -45,6 +46,7 @@ class TypeInterner {
 public:
   TypeId intern(const Type &type) const;
   TypeId intern(const std::shared_ptr<Type> &type) const;
+  std::string mangleKey(const std::shared_ptr<Type> &type) const;
 
   bool same(const std::shared_ptr<Type> &lhs,
             const std::shared_ptr<Type> &rhs) const;
@@ -57,5 +59,6 @@ private:
 
 bool sameType(const std::shared_ptr<Type> &lhs,
               const std::shared_ptr<Type> &rhs);
+std::string typeMangleKey(const std::shared_ptr<Type> &type);
 
 } // namespace zir

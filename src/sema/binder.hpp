@@ -19,7 +19,6 @@
 namespace sema {
 
 std::string sanitizeTypeName(const std::string &value);
-std::string abiTypeKey(const std::shared_ptr<zir::Type> &type);
 bool isStringType(const std::shared_ptr<zir::Type> &type);
 bool isFailableType(const std::shared_ptr<zir::Type> &type);
 std::shared_ptr<zir::Type>

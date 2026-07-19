@@ -216,14 +216,14 @@ void LLVMCodeGen::computeCyclicClasses(const zir::Module &module) {
   for (const auto &type : module.getTypes()) {
     if (type->getKind() == zir::TypeKind::Class) {
       auto cls = std::static_pointer_cast<zir::ClassType>(type);
-      classes[cls->getName()] = cls;
+      classes[cls->getCodegenName()] = cls;
     }
   }
 
   std::unordered_map<std::string, std::vector<std::string>> subtypesOf;
   for (const auto &[name, cls] : classes) {
     for (auto cur = cls; cur; cur = cur->getBase()) {
-      subtypesOf[cur->getName()].push_back(name);
+      subtypesOf[cur->getCodegenName()].push_back(name);
     }
   }
 
@@ -239,7 +239,7 @@ void LLVMCodeGen::computeCyclicClasses(const zir::Module &module) {
         if (fieldClass->isWeak()) {
           continue;
         }
-        auto it = subtypesOf.find(fieldClass->getName());
+        auto it = subtypesOf.find(fieldClass->getCodegenName());
         if (it == subtypesOf.end()) {
           continue;
         }

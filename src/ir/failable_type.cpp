@@ -1,21 +1,8 @@
 #include "ir/failable_type.hpp"
-#include <cctype>
+#include "ir/type_identity.hpp"
 
 namespace zir {
 namespace {
-
-std::string sanitizeFailableTypeName(const std::string &value) {
-  std::string out;
-  out.reserve(value.size());
-  for (char ch : value) {
-    if (std::isalnum(static_cast<unsigned char>(ch))) {
-      out.push_back(ch);
-    } else {
-      out.push_back('_');
-    }
-  }
-  return out;
-}
 
 std::shared_ptr<RecordType>
 asFailableRecord(const std::shared_ptr<Type> &type) {
@@ -54,9 +41,9 @@ getFailableTypeLayout(const std::shared_ptr<Type> &type) {
 std::shared_ptr<RecordType>
 makeFailableRecordType(const std::shared_ptr<Type> &valueType,
                        const std::shared_ptr<Type> &errorType) {
-  auto suffix = sanitizeFailableTypeName(
-      (valueType ? valueType->toString() : "<?>") + std::string("$") +
-      (errorType ? errorType->toString() : "<?>"));
+  auto suffix = (valueType ? typeMangleKey(valueType) : "missing") +
+                std::string("$") +
+                (errorType ? typeMangleKey(errorType) : "missing");
   auto typeName = std::string(kFailableTypePrefix) + suffix;
   auto type = std::make_shared<RecordType>(typeName, typeName);
   type->addField("ok", std::make_shared<PrimitiveType>(TypeKind::Bool));

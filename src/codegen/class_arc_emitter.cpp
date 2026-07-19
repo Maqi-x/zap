@@ -390,7 +390,8 @@ void ClassArcEmitter::emitStoreWithArc(llvm::Value *addr, llvm::Value *value,
 
 void ClassArcEmitter::ensureClassArcSupport(
     const std::shared_ptr<zir::ClassType> &classType) {
-  if (!classType || codegen_.classReleaseFns_.count(classType->getName())) {
+  if (!classType ||
+      codegen_.classReleaseFns_.count(classType->getCodegenName())) {
     return;
   }
 
@@ -407,8 +408,8 @@ void ClassArcEmitter::ensureClassArcSupport(
   auto *destroyHelper = llvm::Function::Create(
       helperTy, llvm::Function::InternalLinkage,
       "__zap_arc_destroy_" + classType->getCodegenName(), *codegen_.module_);
-  codegen_.classReleaseFns_[classType->getName()] = releaseHelper;
-  codegen_.classDestroyFns_[classType->getName()] = destroyHelper;
+  codegen_.classReleaseFns_[classType->getCodegenName()] = releaseHelper;
+  codegen_.classDestroyFns_[classType->getCodegenName()] = destroyHelper;
 
   for (const auto &field : classType->getFields()) {
     if (field.type && field.type->getKind() == zir::TypeKind::Class) {
@@ -417,11 +418,11 @@ void ClassArcEmitter::ensureClassArcSupport(
     }
   }
 
-  if (!codegen_.classVTables_.count(classType->getName())) {
+  if (!codegen_.classVTables_.count(classType->getCodegenName())) {
     std::vector<llvm::Constant *> entries;
     if (auto base = classType->getBase()) {
       ensureClassArcSupport(base);
-      auto *baseVTable = codegen_.classVTables_.at(base->getName());
+      auto *baseVTable = codegen_.classVTables_.at(base->getCodegenName());
       if (auto *baseInit = baseVTable->getInitializer()) {
         for (unsigned i = 0; i < baseInit->getNumOperands(); ++i) {
           entries.push_back(
@@ -430,7 +431,8 @@ void ClassArcEmitter::ensureClassArcSupport(
       }
     }
 
-    auto methodsIt = codegen_.classVirtualMethodFns_.find(classType->getName());
+    auto methodsIt =
+        codegen_.classVirtualMethodFns_.find(classType->getCodegenName());
     if (methodsIt != codegen_.classVirtualMethodFns_.end()) {
       auto *i8PtrTy =
           llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(codegen_.ctx_));
@@ -451,10 +453,10 @@ void ClassArcEmitter::ensureClassArcSupport(
     auto *gv = new llvm::GlobalVariable(
         *codegen_.module_, vtableTy, true, llvm::GlobalValue::InternalLinkage,
         init, "__zap_vtable_" + classType->getCodegenName());
-    codegen_.classVTables_[classType->getName()] = gv;
+    codegen_.classVTables_[classType->getCodegenName()] = gv;
   }
 
-  if (!codegen_.classMetadataGlobals_.count(classType->getName())) {
+  if (!codegen_.classMetadataGlobals_.count(classType->getCodegenName())) {
     std::vector<uint32_t> strongFieldOffsets;
     auto *layout = codegen_.module_->getDataLayout().getStructLayout(objectTy);
     for (size_t i = 0; i < classType->getFields().size(); ++i) {
@@ -501,7 +503,7 @@ void ClassArcEmitter::ensureClassArcSupport(
     auto *metaGlobal = new llvm::GlobalVariable(
         *codegen_.module_, metaTy, true, llvm::GlobalValue::InternalLinkage,
         metaInit, "__zap_arc_meta_" + classType->getCodegenName());
-    codegen_.classMetadataGlobals_[classType->getName()] = metaGlobal;
+    codegen_.classMetadataGlobals_[classType->getCodegenName()] = metaGlobal;
   }
 
   auto savedFn = codegen_.currentFn_;
@@ -533,7 +535,8 @@ void ClassArcEmitter::ensureClassArcSupport(
   codegen_.builder_.CreateStore(
       llvm::ConstantInt::get(llvm::Type::getInt8Ty(codegen_.ctx_), 0),
       aliveAddr);
-  auto dtorIt = codegen_.classDestructorFns_.find(classType->getName());
+  auto dtorIt =
+      codegen_.classDestructorFns_.find(classType->getCodegenName());
   if (dtorIt != codegen_.classDestructorFns_.end()) {
     auto *dtorPtr = codegen_.builder_.CreateBitCast(
         destroyTypedObject, dtorIt->second->getArg(0)->getType(), "dtor.self");
@@ -598,7 +601,8 @@ void ClassArcEmitter::ensureClassArcSupport(
       llvm::BasicBlock::Create(codegen_.ctx_, "arc.dec", releaseHelper);
   auto *destroyBB =
       llvm::BasicBlock::Create(codegen_.ctx_, "arc.destroy", releaseHelper);
-  bool canBeCyclic = codegen_.cyclicClasses_.count(classType->getName()) != 0;
+  bool canBeCyclic =
+      codegen_.cyclicClasses_.count(classType->getCodegenName()) != 0;
   auto *cycleBB =
       canBeCyclic
           ? llvm::BasicBlock::Create(codegen_.ctx_, "arc.cycle", releaseHelper)

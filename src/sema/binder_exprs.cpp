@@ -800,7 +800,7 @@ void Binder::visit(MemberAccessNode &node) {
         error(node.span, "Weak references cannot be accessed directly.");
         return;
       }
-      auto infoIt = classInfos_.find(classType->getName());
+      auto infoIt = classInfos_.find(classType->getCodegenName());
       if (infoIt != classInfos_.end()) {
         auto fieldIt = infoIt->second.fields.find(node.member_);
         if (fieldIt != infoIt->second.fields.end()) {
@@ -826,7 +826,7 @@ void Binder::visit(MemberAccessNode &node) {
       error(node.span, "Weak references cannot be accessed directly.");
       return;
     }
-    auto infoIt = classInfos_.find(classType->getName());
+    auto infoIt = classInfos_.find(classType->getCodegenName());
     if (infoIt != classInfos_.end()) {
       auto fieldIt = infoIt->second.fields.find(node.member_);
       if (fieldIt != infoIt->second.fields.end()) {
@@ -862,7 +862,7 @@ void Binder::visit(NewExpr &node) {
     error(node.span, "'new' expects a strong class type, not 'weak'.");
     return;
   }
-  auto infoIt = classInfos_.find(concreteType->getName());
+  auto infoIt = classInfos_.find(concreteType->getCodegenName());
   if (infoIt == classInfos_.end()) {
     error(node.span, "Unknown class type: " + concreteType->getName());
     return;

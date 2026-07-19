@@ -16,85 +16,6 @@
 
 namespace sema {
 
-std::string abiTypeKey(const std::shared_ptr<zir::Type> &type) {
-  if (!type) {
-    return "void";
-  }
-
-  switch (type->getKind()) {
-  case zir::TypeKind::Void:
-    return "v";
-  case zir::TypeKind::Bool:
-    return "b1";
-  case zir::TypeKind::Char:
-    return "c8";
-  case zir::TypeKind::Int8:
-    return "i8";
-  case zir::TypeKind::Int16:
-    return "i16";
-  case zir::TypeKind::Int32:
-    return "i32";
-  case zir::TypeKind::Int64:
-    return "i64";
-  case zir::TypeKind::UInt8:
-    return "u8";
-  case zir::TypeKind::UInt16:
-    return "u16";
-  case zir::TypeKind::UInt32:
-    return "u32";
-  case zir::TypeKind::UInt64:
-    return "u64";
-  case zir::TypeKind::Int:
-    return "is";
-  case zir::TypeKind::UInt:
-    return "us";
-  case zir::TypeKind::Float:
-  case zir::TypeKind::Float32:
-    return "f32";
-  case zir::TypeKind::Float64:
-    return "f64";
-  case zir::TypeKind::NullPtr:
-    return "np";
-  case zir::TypeKind::Pointer: {
-    auto p = std::static_pointer_cast<zir::PointerType>(type);
-    return "p_" + abiTypeKey(p->getBaseType());
-  }
-  case zir::TypeKind::Array: {
-    auto a = std::static_pointer_cast<zir::ArrayType>(type);
-    return "a" + std::to_string(a->getSize()) + "_" +
-           abiTypeKey(a->getBaseType());
-  }
-  case zir::TypeKind::FunctionPointer: {
-    auto fn = std::static_pointer_cast<zir::FunctionPointerType>(type);
-    std::string out = "fp_";
-    out += abiTypeKey(fn->getReturnType());
-    out += "_";
-    for (size_t i = 0; i < fn->getParams().size(); ++i) {
-      if (i != 0) {
-        out += "_";
-      }
-      out += abiTypeKey(fn->getParams()[i]);
-    }
-    return out;
-  }
-  case zir::TypeKind::Record: {
-    auto r = std::static_pointer_cast<zir::RecordType>(type);
-    return "r_" + sanitizeTypeName(r->getCodegenName());
-  }
-  case zir::TypeKind::Class: {
-    auto c = std::static_pointer_cast<zir::ClassType>(type);
-    return std::string(c->isWeak() ? "wc_" : "c_") +
-           sanitizeTypeName(c->getCodegenName());
-  }
-  case zir::TypeKind::Enum: {
-    auto e = std::static_pointer_cast<zir::EnumType>(type);
-    return "e_" + sanitizeTypeName(e->getCodegenName());
-  }
-  }
-
-  return sanitizeTypeName(type->toString());
-}
-
 bool isStringType(const std::shared_ptr<zir::Type> &type) {
   return zir::isIntrinsicStringType(type);
 }
@@ -156,15 +77,14 @@ std::string renderGenericCodegenName(
     if (i != 0) {
       suffix += "$";
     }
-    suffix += sanitizeTypeName(arguments[i] ? arguments[i]->toString()
-                                            : std::string("<?>"));
+    suffix += arguments[i] ? zir::typeMangleKey(arguments[i]) : "missing";
   }
   return baseName + "$g$" + suffix;
 }
 
 std::shared_ptr<zir::RecordType>
 makeVariadicViewType(const std::shared_ptr<zir::Type> &elementType) {
-  auto suffix = sanitizeTypeName(elementType->toString());
+  auto suffix = zir::typeMangleKey(elementType);
   auto type = std::make_shared<zir::RecordType>("__zap_varargs_" + suffix,
                                                 "__zap_varargs_" + suffix);
   type->addField("data", std::make_shared<zir::PointerType>(elementType));
@@ -591,25 +511,13 @@ std::string Binder::mangleName(const std::string &modulePath,
 }
 
 std::string Binder::functionSignatureKey(const FunctionSymbol &function) const {
-  std::string key;
+  std::string key = "f" + std::to_string(function.parameters.size()) + "_";
   for (const auto &param : function.parameters) {
-    if (!key.empty()) {
-      key += "|";
-    }
-    if (param->is_ref) {
-      key += "ref:";
-    }
-    if (param->is_variadic_pack) {
-      key += "varargs:";
-    }
-    key += abiTypeKey(param->type);
+    key += param->is_ref ? "r1_" : "r0_";
+    key += param->is_variadic_pack ? "v1_" : "v0_";
+    key += zir::typeMangleKey(param->type);
   }
-  if (function.isCVariadic) {
-    if (!key.empty()) {
-      key += "|";
-    }
-    key += "cvarargs";
-  }
+  key += function.isCVariadic ? "c1" : "c0";
   return key;
 }
 
@@ -667,8 +575,7 @@ Binder::renderFunctionSignature(const FunctionSymbol &function) const {
 std::string Binder::mangleFunctionName(const std::string &modulePath,
                                        const FunctionSymbol &function) const {
   return mangleName(modulePath,
-                    function.name + "$" +
-                        sanitizeTypeName(functionSignatureKey(function)));
+                    function.name + "$" + functionSignatureKey(function));
 }
 
 std::shared_ptr<FunctionSymbol>

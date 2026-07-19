@@ -7,36 +7,37 @@
 namespace zir {
 
 enum class TypeKind {
-  Void,
-  Int8,
-  Int16,
-  Int32,
-  Int64,
-  UInt8,
-  UInt16,
-  UInt32,
-  UInt64,
-  Int,  // Default Int (32-bit)
-  UInt, // Default UInt (32-bit)
-  Float,
-  Float32,
-  Float64,
-  Bool,
-  Char,
-  Pointer,
-  NullPtr,
-  Record,
-  Class,
-  Array,
-  Enum,
-  TaggedUnion,
-  FunctionPointer
+  // These values are part of the z1 type-mangling schema. Append new kinds.
+  Void = 0,
+  Int8 = 1,
+  Int16 = 2,
+  Int32 = 3,
+  Int64 = 4,
+  UInt8 = 5,
+  UInt16 = 6,
+  UInt32 = 7,
+  UInt64 = 8,
+  Int = 9,  // Default Int (32-bit)
+  UInt = 10, // Default UInt (32-bit)
+  Float = 11,
+  Float32 = 12,
+  Float64 = 13,
+  Bool = 14,
+  Char = 15,
+  Pointer = 16,
+  NullPtr = 17,
+  Record = 18,
+  Class = 19,
+  Array = 20,
+  Enum = 21,
+  TaggedUnion = 22,
+  FunctionPointer = 23
 };
 
 enum class IntrinsicTypeKind {
-  None,
-  String,
-  StringView,
+  None = 0,
+  String = 1,
+  StringView = 2,
 };
 
 class Type {

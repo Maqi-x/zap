@@ -74,7 +74,7 @@ public:
   bool isDestructor = false;
   bool returnsRef = false;
   int vtableSlot = -1;
-  std::string ownerTypeName;
+  std::string ownerTypeCodegenName;
 
   FunctionSymbol(std::string n,
                  std::vector<std::shared_ptr<VariableSymbol>> params,

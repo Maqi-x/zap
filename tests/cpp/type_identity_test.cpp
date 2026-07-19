@@ -99,6 +99,24 @@ bool testInternerDeduplicatesIdentity() {
                 "interner retained duplicate canonical identities");
 }
 
+bool testMangleKeysAreCanonicalAndCollisionFree() {
+  TypeInterner types;
+  auto intType = primitive(TypeKind::Int);
+  auto int32Type = primitive(TypeKind::Int32);
+  auto dottedName = std::make_shared<RecordType>("Type", "module.a-b");
+  auto dashedName = std::make_shared<RecordType>("Type", "module_a.b");
+  auto firstPointer = std::make_shared<PointerType>(intType);
+  auto secondPointer =
+      std::make_shared<PointerType>(primitive(TypeKind::Int));
+
+  return expect(types.mangleKey(intType) != types.mangleKey(int32Type),
+                "Int and Int32 have colliding mangle keys") &&
+         expect(types.mangleKey(dottedName) != types.mangleKey(dashedName),
+                "nominal names collide after mangle encoding") &&
+         expect(types.mangleKey(firstPointer) == types.mangleKey(secondPointer),
+                "equal structural types have different mangle keys");
+}
+
 } // namespace
 
 int main() {
@@ -107,5 +125,6 @@ int main() {
   ok = testStructuralTypes() && ok;
   ok = testNominalAndQualifiedTypes() && ok;
   ok = testInternerDeduplicatesIdentity() && ok;
+  ok = testMangleKeysAreCanonicalAndCollisionFree() && ok;
   return ok ? 0 : 1;
 }

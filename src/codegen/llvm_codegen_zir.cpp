@@ -99,11 +99,12 @@ void LLVMCodeGen::generate(const zir::Module &module) {
     zirFunctionMap_[func->name] = func.get();
     declareZIRFunction(*func, false);
     auto *llvmFn = functionMap_.at(func->name);
-    if (func->isDestructor && !func->ownerTypeName.empty()) {
-      classDestructorFns_[func->ownerTypeName] = llvmFn;
+    if (func->isDestructor && !func->ownerTypeCodegenName.empty()) {
+      classDestructorFns_[func->ownerTypeCodegenName] = llvmFn;
     }
-    if (func->vtableSlot >= 0 && !func->ownerTypeName.empty()) {
-      classVirtualMethodFns_[func->ownerTypeName][func->vtableSlot] = llvmFn;
+    if (func->vtableSlot >= 0 && !func->ownerTypeCodegenName.empty()) {
+      classVirtualMethodFns_[func->ownerTypeCodegenName][func->vtableSlot] =
+          llvmFn;
     }
   }
   for (const auto &type : module.getTypes()) {
@@ -317,7 +318,7 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         zirParamSpillIndex_ < currentZIRFunction_->getArguments().size();
     bool isBorrowedSelf = false;
     if (isParamSpill) {
-      isBorrowedSelf = !currentZIRFunction_->ownerTypeName.empty() &&
+      isBorrowedSelf = !currentZIRFunction_->ownerTypeCodegenName.empty() &&
                        currentZIRFunction_->getArguments()[zirParamSpillIndex_]
                                ->getRawName() == "self";
     }
@@ -883,7 +884,7 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
       }
       bool isBorrowedSelfArg =
           zirIt != zirFunctionMap_.end() && i == 0 &&
-          !zirIt->second->ownerTypeName.empty() &&
+          !zirIt->second->ownerTypeCodegenName.empty() &&
           i < zirIt->second->getArguments().size() &&
           zirIt->second->getArguments()[i]->getRawName() == "self";
       if (!isRef && i < fixedParamCount && !isBorrowedSelfArg &&
@@ -1271,26 +1272,26 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
     auto *releaseFnAddr =
         builder_.CreateStructGEP(objectTy, typedPtr, 4, "release.fn.addr");
     auto *releaseFnPtr = builder_.CreateBitCast(
-        classReleaseFns_.at(classType->getName()),
+        classReleaseFns_.at(classType->getCodegenName()),
         llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_)));
     builder_.CreateStore(releaseFnPtr, releaseFnAddr);
     auto *destroyFnAddr =
         builder_.CreateStructGEP(objectTy, typedPtr, 5, "destroy.fn.addr");
     auto *destroyFnPtr = builder_.CreateBitCast(
-        classDestroyFns_.at(classType->getName()),
+        classDestroyFns_.at(classType->getCodegenName()),
         llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_)));
     builder_.CreateStore(destroyFnPtr, destroyFnAddr);
     auto *metadataAddr = builder_.CreateStructGEP(
         objectTy, typedPtr, kClassMetadataIndex, "metadata.addr");
     auto *metadataPtr = builder_.CreateBitCast(
-        classMetadataGlobals_.at(classType->getName()),
+        classMetadataGlobals_.at(classType->getCodegenName()),
         llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_)));
     builder_.CreateStore(metadataPtr, metadataAddr);
     auto *vtableAddr = builder_.CreateStructGEP(
         objectTy, typedPtr, kClassVTableIndex, "vtable.addr");
     auto *i8PtrTy = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_));
     auto *vtablePtrTy = llvm::PointerType::getUnqual(i8PtrTy);
-    auto *vtableGlobal = classVTables_.at(classType->getName());
+    auto *vtableGlobal = classVTables_.at(classType->getCodegenName());
     auto *zero = llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx_), 0);
     llvm::Constant *vtableIndices[] = {zero, zero};
     auto *vtablePtr = llvm::ConstantExpr::getInBoundsGetElementPtr(

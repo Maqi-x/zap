@@ -69,8 +69,8 @@ std::shared_ptr<FunctionSymbol> Binder::ensureGenericFunctionInstantiation(
       cacheKey += name;
       cacheKey += '=';
       cacheKey += (it != genericBindings.end() && it->second)
-                      ? it->second->toString()
-                      : "<?>";
+                      ? typeInterner_.mangleKey(it->second)
+                      : "missing";
     }
     cacheKey += '>';
   }
@@ -131,7 +131,7 @@ std::shared_ptr<FunctionSymbol> Binder::ensureGenericFunctionInstantiation(
   instantiated->isConstructor = baseFunction->isConstructor;
   instantiated->isDestructor = baseFunction->isDestructor;
   instantiated->vtableSlot = -1;
-  instantiated->ownerTypeName = baseFunction->ownerTypeName;
+  instantiated->ownerTypeCodegenName = baseFunction->ownerTypeCodegenName;
   instantiated->isGenericInstantiation = true;
   instantiated->genericArguments.clear();
   for (const auto &[name, type] : genericBindings) {
@@ -151,7 +151,8 @@ std::shared_ptr<FunctionSymbol> Binder::ensureGenericFunctionInstantiation(
       error(callSpan, "Missing binding for generic parameter '" + name + "'.");
       return nullptr;
     }
-    genericSuffix += sanitizeTypeName(name + "_" + abiTypeKey(it->second));
+    genericSuffix += sanitizeTypeName(name) + "_" +
+                     typeInterner_.mangleKey(it->second);
   }
   instantiated->linkName = baseFunction->linkName + "$g$" + genericSuffix;
 
@@ -303,14 +304,7 @@ std::shared_ptr<zir::Type> Binder::substituteGenericType(
             std::static_pointer_cast<zir::PointerType>(fields[0].type);
         auto elemType =
             substituteGenericType(dataPtr->getBaseType(), genericBindings);
-        auto substitutedView = std::make_shared<zir::RecordType>(
-            "__zap_varargs_" + sanitizeTypeName(elemType->toString()),
-            "__zap_varargs_" + sanitizeTypeName(elemType->toString()));
-        substitutedView->addField("data",
-                                  std::make_shared<zir::PointerType>(elemType));
-        substitutedView->addField(
-            "len", std::make_shared<zir::PrimitiveType>(zir::TypeKind::Int));
-        return substitutedView;
+        return makeVariadicViewType(elemType);
       }
     }
     return type;

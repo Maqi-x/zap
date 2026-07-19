@@ -39,6 +39,10 @@ fun main() Int {
     if classify<Bool>(true) != 10 {
         return 2;
     }
+    var explicitInt32: Int32 = 13;
+    if classify<Int32>(explicitInt32) != 99 {
+        return 5;
+    }
 
     var intBox: Box<Int> = new Box<Int>(5);
     if intBox.score() != 5 {
@@ -48,6 +52,11 @@ fun main() Int {
     var boolBox: Box<Bool> = new Box<Bool>(false);
     if boolBox.score() != 21 {
         return 4;
+    }
+
+    var int32Box: Box<Int32> = new Box<Int32>(explicitInt32);
+    if int32Box.score() != 77 {
+        return 6;
     }
 
     return 0;

@@ -82,7 +82,7 @@ void Binder::visit(FunCall &node) {
               "Weak references cannot be used to call methods directly.");
         return;
       }
-      auto infoIt = classInfos_.find(classType->getName());
+      auto infoIt = classInfos_.find(classType->getCodegenName());
       if (infoIt == classInfos_.end()) {
         error(node.span, "Unknown class type: " + classType->getName());
         return;

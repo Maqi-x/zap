@@ -11,7 +11,7 @@ class Function {
 public:
   std::string name;
   std::shared_ptr<Type> returnType;
-  std::string ownerTypeName;
+  std::string ownerTypeCodegenName;
   bool isDestructor = false;
   bool isCVariadic = false;
   bool returnsRef = false;
@@ -20,10 +20,11 @@ public:
   std::vector<std::unique_ptr<BasicBlock>> blocks;
 
   Function(std::string name, std::shared_ptr<Type> returnType,
-           std::string ownerTypeName = "", bool isDestructor = false,
+           std::string ownerTypeCodegenName = "", bool isDestructor = false,
            int vtableSlot = -1, bool isCVariadic = false)
       : name(std::move(name)), returnType(std::move(returnType)),
-        ownerTypeName(std::move(ownerTypeName)), isDestructor(isDestructor),
+        ownerTypeCodegenName(std::move(ownerTypeCodegenName)),
+        isDestructor(isDestructor),
         isCVariadic(isCVariadic), vtableSlot(vtableSlot) {}
 
   void addBlock(std::unique_ptr<BasicBlock> block) {

@@ -91,7 +91,7 @@ void Binder::predeclareModuleTypes(ModuleState &module) {
         info.typeSymbol = symbol;
         info.classType = type;
         info.ownerQualifiedName = type->getName();
-        classInfos_[type->getName()] = info;
+        classInfos_[type->getCodegenName()] = info;
       }
     } else if (auto structDecl =
                    dynamic_cast<StructDeclarationNode *>(child.get())) {
@@ -592,7 +592,7 @@ void Binder::predeclareModuleValues(ModuleState &module) {
       }
       auto classType =
           std::static_pointer_cast<zir::ClassType>(classSymbol->type);
-      auto &classInfo = classInfos_[classType->getName()];
+      auto &classInfo = classInfos_[classType->getCodegenName()];
 
       if (classDecl->baseType_) {
         bool hasOwnCtor = false;
@@ -604,7 +604,7 @@ void Binder::predeclareModuleValues(ModuleState &module) {
         auto baseType = mapType(*classDecl->baseType_);
         if (baseType && baseType->getKind() == zir::TypeKind::Class) {
           auto baseClass = std::static_pointer_cast<zir::ClassType>(baseType);
-          auto baseIt = classInfos_.find(baseClass->getName());
+          auto baseIt = classInfos_.find(baseClass->getCodegenName());
           if (baseIt != classInfos_.end()) {
             if (!hasOwnCtor) {
               classInfo.constructor = baseIt->second.constructor;
@@ -698,7 +698,7 @@ void Binder::predeclareModuleValues(ModuleState &module) {
         symbol->isStatic = methodDecl->isStatic_;
         symbol->isConstructor = isCtor;
         symbol->isDestructor = isDtor;
-        symbol->ownerTypeName = classType->getName();
+        symbol->ownerTypeCodegenName = classType->getCodegenName();
         if (symbol->isMethod && !symbol->isStatic && !symbol->isConstructor &&
             !symbol->isDestructor) {
           symbol->vtableSlot = findOverriddenVtableSlot(classInfo, *symbol);
@@ -710,7 +710,7 @@ void Binder::predeclareModuleValues(ModuleState &module) {
             mangleName(module.info->linkPath.empty() ? module.info->moduleId
                                                      : module.info->linkPath,
                        classDecl->name_ + "$" + methodDecl->name_ + "$" +
-                           sanitizeTypeName(functionSignatureKey(*symbol)));
+                           functionSignatureKey(*symbol));
         declaredFunctionSymbols_[methodDecl.get()] = symbol;
         functionDeclarationNodes_[symbol.get()] = methodDecl.get();
         functionDeclarationModuleIds_[symbol.get()] = module.info->moduleId;

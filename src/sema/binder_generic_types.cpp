@@ -115,7 +115,8 @@ std::shared_ptr<TypeSymbol> Binder::instantiateGenericTypeSymbol(
     if (i != 0) {
       cacheKey += ",";
     }
-    cacheKey += genericArgs[i] ? genericArgs[i]->toString() : "<?>";
+    cacheKey += genericArgs[i] ? typeInterner_.mangleKey(genericArgs[i])
+                               : "missing";
   }
   cacheKey += ">";
 
@@ -175,7 +176,7 @@ std::shared_ptr<TypeSymbol> Binder::instantiateGenericTypeSymbol(
     classInfo.typeSymbol = instantiatedSymbol;
     classInfo.classType = instantiatedClassType;
     classInfo.ownerQualifiedName = instantiatedClassType->getName();
-    classInfos_[instantiatedClassType->getName()] = classInfo;
+    classInfos_[instantiatedClassType->getCodegenName()] = classInfo;
   }
 
   int oldUnsafeTypeContextDepth = unsafeTypeContextDepth_;
@@ -206,8 +207,8 @@ std::shared_ptr<TypeSymbol> Binder::instantiateGenericTypeSymbol(
           std::static_pointer_cast<zir::ClassType>(instantiatedType);
       auto baseClass = std::static_pointer_cast<zir::ClassType>(baseType);
       instantiatedClassType->setBase(baseClass);
-      auto &classInfo = classInfos_[instantiatedClassType->getName()];
-      auto baseIt = classInfos_.find(baseClass->getName());
+      auto &classInfo = classInfos_[instantiatedClassType->getCodegenName()];
+      auto baseIt = classInfos_.find(baseClass->getCodegenName());
       if (baseIt != classInfos_.end()) {
         if (!hasOwnCtor) {
           classInfo.constructor = baseIt->second.constructor;
@@ -244,7 +245,7 @@ std::shared_ptr<TypeSymbol> Binder::instantiateGenericTypeSymbol(
     if (classDecl) {
       auto instantiatedClassType =
           std::static_pointer_cast<zir::ClassType>(instantiatedType);
-      auto &classInfo = classInfos_[instantiatedClassType->getName()];
+      auto &classInfo = classInfos_[instantiatedClassType->getCodegenName()];
       classInfo.fields[field->name] = std::make_shared<VariableSymbol>(
           field->name, fieldType, false, false, field->name,
           moduleIt->second.info->moduleName, field->visibility_);
@@ -261,7 +262,7 @@ std::shared_ptr<TypeSymbol> Binder::instantiateGenericTypeSymbol(
   if (classDecl) {
     auto instantiatedClassType =
         std::static_pointer_cast<zir::ClassType>(instantiatedType);
-    auto &classInfo = classInfos_[instantiatedClassType->getName()];
+    auto &classInfo = classInfos_[instantiatedClassType->getCodegenName()];
     auto oldScope = currentScope_;
     auto oldModuleId = currentModuleId_;
     currentScope_ = moduleIt->second.scope;
@@ -346,7 +347,8 @@ std::shared_ptr<TypeSymbol> Binder::instantiateGenericTypeSymbol(
       methodSymbol->isStatic = methodDecl->isStatic_;
       methodSymbol->isConstructor = isCtor;
       methodSymbol->isDestructor = isDtor;
-      methodSymbol->ownerTypeName = instantiatedClassType->getName();
+      methodSymbol->ownerTypeCodegenName =
+          instantiatedClassType->getCodegenName();
       if (methodSymbol->isMethod && !methodSymbol->isStatic &&
           !methodSymbol->isConstructor && !methodSymbol->isDestructor) {
         methodSymbol->vtableSlot =
@@ -360,7 +362,7 @@ std::shared_ptr<TypeSymbol> Binder::instantiateGenericTypeSymbol(
               ? moduleIt->second.info->moduleId
               : moduleIt->second.info->linkPath,
           instantiatedClassType->getCodegenName() + "$" + methodDecl->name_ +
-              "$" + sanitizeTypeName(functionSignatureKey(*methodSymbol)));
+              "$" + functionSignatureKey(*methodSymbol));
       functionDeclarationNodes_[methodSymbol.get()] = methodDecl.get();
       functionDeclarationModuleIds_[methodSymbol.get()] =
           moduleIt->second.info->moduleId;

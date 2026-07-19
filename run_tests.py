@@ -222,7 +222,7 @@ EXTRA_TESTS = [
         "desc": "Emit LLVM IR for generic packed structs",
         "compile_flags": ["-S", "-emit-llvm"],
         "output_file": "/tmp/zap-generic-packed-struct.ll",
-        "output_pattern": "PackedBox$g$i32\" = type <{ i8, i32, i8 }>"
+        "output_pattern": "PackedBox$g$z1t1_n3_\" = type <{ i8, i32, i8 }>"
     },
     {
         "file": "tests/inline_asm_x86_io_test.zp",

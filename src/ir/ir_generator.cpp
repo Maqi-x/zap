@@ -197,7 +197,7 @@ void BoundIRGenerator::visit(sema::BoundRootNode &node) {
 void BoundIRGenerator::visit(sema::BoundFunctionDeclaration &node) {
   auto symbol = node.symbol;
   auto func = std::make_unique<Function>(
-      symbol->linkName, symbol->returnType, symbol->ownerTypeName,
+      symbol->linkName, symbol->returnType, symbol->ownerTypeCodegenName,
       symbol->isDestructor, symbol->vtableSlot, symbol->isCVariadic);
   func->returnsRef = symbol->returnsRef;
   currentFunction_ = func.get();
@@ -249,7 +249,7 @@ void BoundIRGenerator::visit(sema::BoundFunctionDeclaration &node) {
 void BoundIRGenerator::visit(sema::BoundExternalFunctionDeclaration &node) {
   auto symbol = node.symbol;
   auto func = std::make_unique<Function>(
-      symbol->linkName, symbol->returnType, symbol->ownerTypeName,
+      symbol->linkName, symbol->returnType, symbol->ownerTypeCodegenName,
       symbol->isDestructor, symbol->vtableSlot, symbol->isCVariadic);
   func->returnsRef = symbol->returnsRef;
 
