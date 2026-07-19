@@ -18,10 +18,12 @@ set(SOURCES
     src/ir/failable_type.cpp
     src/ir/ir_generator.cpp
     src/sema/binder.cpp
+    src/sema/binder_calls.cpp
     src/sema/binder_decls.cpp
     src/sema/binder_stmts.cpp
     src/sema/binder_exprs.cpp
     src/sema/binder_types.cpp
+    src/sema/type_layout.cpp
     src/codegen/llvm_codegen.cpp
     src/codegen/llvm_codegen_constants.cpp
     src/codegen/llvm_codegen_expr.cpp
