@@ -112,6 +112,15 @@ void addInstructionUses(ValueSet &values, const Instruction &instruction) {
   }
 }
 
+bool instructionUsesValue(const Instruction &instruction, const Value *value) {
+  if (!value) {
+    return false;
+  }
+  ValueSet uses;
+  addInstructionUses(uses, instruction);
+  return uses.count(value) != 0;
+}
+
 std::shared_ptr<Value> instructionResult(const Instruction &instruction) {
   switch (instruction.getOpCode()) {
   case OpCode::Alloca:
@@ -183,6 +192,18 @@ bool OwnershipLiveness::isLiveAfter(const BasicBlock &block,
   const auto states = blockStates->second.find(instructionIndex);
   return states != blockStates->second.end() &&
          states->second.count(value.get()) != 0;
+}
+
+bool OwnershipLiveness::isLastUse(const BasicBlock &block,
+                                  size_t instructionIndex,
+                                  const std::shared_ptr<Value> &value) const {
+  if (!value || instructionIndex >= block.getInstructions().size() ||
+      !block.getInstructions()[instructionIndex]) {
+    return false;
+  }
+  return instructionUsesValue(*block.getInstructions()[instructionIndex],
+                              value.get()) &&
+         !isLiveAfter(block, instructionIndex, value);
 }
 
 bool OwnershipLiveness::isLiveOnEdge(

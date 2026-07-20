@@ -15,6 +15,8 @@ public:
                           const std::shared_ptr<Value> &value) const;
   bool isLiveAfter(const BasicBlock &block, size_t instructionIndex,
                    const std::shared_ptr<Value> &value) const;
+  bool isLastUse(const BasicBlock &block, size_t instructionIndex,
+                 const std::shared_ptr<Value> &value) const;
   bool isLiveOnEdge(const BasicBlock &source, const BasicBlock &destination,
                     const std::shared_ptr<Value> &value) const;
 

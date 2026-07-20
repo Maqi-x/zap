@@ -2,6 +2,7 @@
 
 #include "ownership_liveness.hpp"
 
+#include <unordered_set>
 #include <vector>
 
 namespace zir {
@@ -73,6 +74,44 @@ size_t releaseInsertionIndex(const BasicBlock &block, size_t resultIndex) {
   return index;
 }
 
+bool transfersOwnership(const Instruction &instruction,
+                        const std::shared_ptr<Value> &value) {
+  switch (instruction.getOpCode()) {
+  case OpCode::Store: {
+    const auto &store = static_cast<const StoreInst &>(instruction);
+    return store.getSource() == value &&
+           store.getSourceOwnership() == ValueOwnership::Owned;
+  }
+  case OpCode::Ret: {
+    const auto &ret = static_cast<const ReturnInst &>(instruction);
+    return ret.getValue() == value &&
+           ret.getValueOwnership() == ValueOwnership::Owned;
+  }
+  case OpCode::Cast: {
+    const auto &cast = static_cast<const CastInst &>(instruction);
+    return cast.getSource() == value && cast.getResult() &&
+           (cast.getResult()->getOwnership() == ValueOwnership::Owned ||
+            (cast.getTargetType() && cast.getTargetType()->getIntrinsicKind() ==
+                                         IntrinsicTypeKind::StringView));
+  }
+  case OpCode::Call: {
+    const auto &call = static_cast<const CallInst &>(instruction);
+    for (size_t i = 0; i < call.getArguments().size(); ++i) {
+      if (call.getArguments()[i] == value &&
+          i < call.getArgumentOwnerships().size() &&
+          call.getArgumentOwnerships()[i] == ValueOwnership::Owned) {
+        return true;
+      }
+    }
+    return false;
+  }
+  case OpCode::Release:
+    return static_cast<const ReleaseInst &>(instruction).getValue() == value;
+  default:
+    return false;
+  }
+}
+
 } // namespace
 
 void lowerDeadOwnedResults(Module &module) {
@@ -87,16 +126,33 @@ void lowerDeadOwnedResults(Module &module) {
       }
       auto &instructions = blockOwner->instructions;
       std::vector<std::pair<size_t, std::shared_ptr<Value>>> releases;
+      std::vector<std::shared_ptr<Value>> ownedResults;
+      std::unordered_set<const Value *> seenResults;
       for (size_t i = 0; i < instructions.size(); ++i) {
         if (!instructions[i]) {
           continue;
         }
         const auto result = instructionResult(*instructions[i]);
-        if (!ownsManagedValue(result) ||
-            liveness.isLiveAfter(*blockOwner, i, result)) {
+        if (!ownsManagedValue(result)) {
           continue;
         }
-        releases.emplace_back(releaseInsertionIndex(*blockOwner, i), result);
+        if (seenResults.insert(result.get()).second) {
+          ownedResults.push_back(result);
+        }
+        if (!liveness.isLiveAfter(*blockOwner, i, result)) {
+          releases.emplace_back(releaseInsertionIndex(*blockOwner, i), result);
+        }
+      }
+      for (size_t i = 0; i < instructions.size(); ++i) {
+        if (!instructions[i]) {
+          continue;
+        }
+        for (const auto &value : ownedResults) {
+          if (liveness.isLastUse(*blockOwner, i, value) &&
+              !transfersOwnership(*instructions[i], value)) {
+            releases.emplace_back(releaseInsertionIndex(*blockOwner, i), value);
+          }
+        }
       }
       for (auto release = releases.rbegin(); release != releases.rend();
            ++release) {

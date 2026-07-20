@@ -628,6 +628,33 @@ bool testOwnershipLoweringReleasesDeadOwnedResults() {
                 "ownership-lowered ZIR was rejected by the verifier");
 }
 
+bool testOwnershipLoweringReleasesAtLastLocalUse() {
+  Module module("ownership-last-use-lowering");
+  auto classType = std::make_shared<ClassType>("Node");
+  auto boolean = primitive(TypeKind::Bool);
+  auto function =
+      std::make_unique<Function>("valid", primitive(TypeKind::Void));
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto node = reg("node", classType);
+  node->setOwnership(ValueOwnership::Owned);
+  auto comparison = reg("comparison", boolean);
+  entry->addInstruction(std::make_unique<zir::AllocInst>(node, classType));
+  entry->addInstruction(std::make_unique<CmpInst>(
+      "eq", comparison, node, std::make_shared<Constant>("null", classType)));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  zir::lowerDeadOwnedResults(module);
+  const auto &instructions = module.getFunctions().front()->getBlocks().front()
+                                 ->getInstructions();
+  return expect(instructions.size() == 4 &&
+                    instructions[2]->getOpCode() == OpCode::Release,
+                "ownership lowering did not release at the local last use") &&
+         expect(ZirVerifier().verify(module).ok(),
+                "last-use-lowered ZIR was rejected by the verifier");
+}
+
 bool testDominanceViolation() {
   Module module("dominance-violation");
   auto i32 = primitive(TypeKind::Int32);
@@ -715,6 +742,7 @@ int main() {
   ok = testOwnershipLivenessTracksPhiEdges() && ok;
   ok = testReleaseConsumesOwnedValue() && ok;
   ok = testOwnershipLoweringReleasesDeadOwnedResults() && ok;
+  ok = testOwnershipLoweringReleasesAtLastLocalUse() && ok;
   ok = testDominanceViolation() && ok;
   ok = testPhiRequiresEveryPredecessor() && ok;
   return ok ? 0 : 1;
