@@ -258,7 +258,8 @@ EXTRA_TESTS = [
             "zap_arc_strong_refcount_overflow",
             "zap_arc_weak_refcount_overflow",
             "zap_arc_strong_refcount_underflow",
-            "zap_arc_weak_refcount_underflow"
+            "zap_arc_weak_refcount_underflow",
+            "zap_runtime_alloc"
         ]
     },
     {

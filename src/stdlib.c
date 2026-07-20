@@ -34,6 +34,53 @@ static int zap_arc_collecting = 0;
 static int zap_net_last_error = 0;
 static long zap_fs_last_error_code = 0;
 
+static void zap_runtime_out_of_memory(void) {
+  fputs("zap runtime error: out of memory\n", stderr);
+  abort();
+}
+
+void *zap_runtime_alloc(size_t size) {
+  void *allocation = malloc(size);
+  if (!allocation) {
+    zap_runtime_out_of_memory();
+  }
+  return allocation;
+}
+
+static void *zap_runtime_realloc_array(void *allocation, size_t count,
+                                       size_t element_size) {
+  if (count != 0 && element_size > SIZE_MAX / count) {
+    zap_runtime_out_of_memory();
+  }
+  void *resized = realloc(allocation, count * element_size);
+  if (!resized) {
+    zap_runtime_out_of_memory();
+  }
+  return resized;
+}
+
+static void *zap_runtime_calloc_array(size_t count, size_t element_size) {
+  if (count != 0 && element_size > SIZE_MAX / count) {
+    zap_runtime_out_of_memory();
+  }
+  void *allocation = calloc(count, element_size);
+  if (!allocation) {
+    zap_runtime_out_of_memory();
+  }
+  return allocation;
+}
+
+static size_t zap_runtime_next_capacity(size_t capacity,
+                                        size_t initial_capacity) {
+  if (capacity == 0) {
+    return initial_capacity;
+  }
+  if (capacity > SIZE_MAX / 2) {
+    zap_runtime_out_of_memory();
+  }
+  return capacity * 2;
+}
+
 void zap_arc_strong_refcount_overflow(void) {
   fputs("zap runtime error: strong ARC reference count overflow\n", stderr);
   abort();
@@ -64,13 +111,9 @@ void zap_arc_add_possible_root(void *object) {
   }
 
   if (zap_arc_root_count == zap_arc_root_capacity) {
-    size_t next_capacity =
-        zap_arc_root_capacity == 0 ? 16 : zap_arc_root_capacity * 2;
-    void **next =
-        (void **)realloc(zap_arc_roots, next_capacity * sizeof(void *));
-    if (!next) {
-      return;
-    }
+    size_t next_capacity = zap_runtime_next_capacity(zap_arc_root_capacity, 16);
+    void **next = (void **)zap_runtime_realloc_array(
+        zap_arc_roots, next_capacity, sizeof(void *));
     zap_arc_roots = next;
     zap_arc_root_capacity = next_capacity;
   }
@@ -111,12 +154,11 @@ static size_t zap_arc_hash_ptr(void *p) {
   return (size_t)x;
 }
 
-static int zap_arc_ptrmap_init(zap_arc_ptrmap_t *m, size_t cap) {
+static void zap_arc_ptrmap_init(zap_arc_ptrmap_t *m, size_t cap) {
   m->cap = cap;
   m->len = 0;
-  m->keys = (void **)calloc(cap, sizeof(void *));
-  m->vals = (uint32_t *)calloc(cap, sizeof(uint32_t));
-  return m->keys != NULL && m->vals != NULL;
+  m->keys = (void **)zap_runtime_calloc_array(cap, sizeof(void *));
+  m->vals = (uint32_t *)zap_runtime_calloc_array(cap, sizeof(uint32_t));
 }
 
 static void zap_arc_ptrmap_clear(zap_arc_ptrmap_t *m) {
@@ -140,15 +182,11 @@ static int zap_arc_ptrmap_get(const zap_arc_ptrmap_t *m, void *key,
   return 0;
 }
 
-static int zap_arc_ptrmap_grow(zap_arc_ptrmap_t *m) {
-  size_t ncap = m->cap * 2;
-  void **nkeys = (void **)calloc(ncap, sizeof(void *));
-  uint32_t *nvals = (uint32_t *)calloc(ncap, sizeof(uint32_t));
-  if (!nkeys || !nvals) {
-    free(nkeys);
-    free(nvals);
-    return 0;
-  }
+static void zap_arc_ptrmap_grow(zap_arc_ptrmap_t *m) {
+  size_t ncap = zap_runtime_next_capacity(m->cap, 16);
+  void **nkeys = (void **)zap_runtime_calloc_array(ncap, sizeof(void *));
+  uint32_t *nvals =
+      (uint32_t *)zap_runtime_calloc_array(ncap, sizeof(uint32_t));
   size_t nmask = ncap - 1;
   for (size_t i = 0; i < m->cap; ++i) {
     if (!m->keys[i]) {
@@ -166,48 +204,41 @@ static int zap_arc_ptrmap_grow(zap_arc_ptrmap_t *m) {
   m->keys = nkeys;
   m->vals = nvals;
   m->cap = ncap;
-  return 1;
 }
 
-static int zap_arc_ptrmap_put(zap_arc_ptrmap_t *m, void *key, uint32_t value) {
-  if ((m->len + 1) * 2 >= m->cap && !zap_arc_ptrmap_grow(m)) {
-    return 0;
+static void zap_arc_ptrmap_put(zap_arc_ptrmap_t *m, void *key, uint32_t value) {
+  if ((m->len + 1) * 2 >= m->cap) {
+    zap_arc_ptrmap_grow(m);
   }
   size_t mask = m->cap - 1;
   size_t i = zap_arc_hash_ptr(key) & mask;
   while (m->keys[i]) {
     if (m->keys[i] == key) {
       m->vals[i] = value;
-      return 1;
+      return;
     }
     i = (i + 1) & mask;
   }
   m->keys[i] = key;
   m->vals[i] = value;
   m->len++;
-  return 1;
 }
 
-static int zap_arc_ws_push(void ***ws, size_t *count, size_t *cap,
-                           zap_arc_ptrmap_t *map, void *object) {
+static void zap_arc_ws_push(void ***ws, size_t *count, size_t *cap,
+                            zap_arc_ptrmap_t *map, void *object) {
   uint32_t existing;
   if (zap_arc_ptrmap_get(map, object, &existing)) {
-    return 1;
+    return;
   }
   if (*count == *cap) {
-    size_t ncap = *cap == 0 ? 32 : *cap * 2;
-    void **next = (void **)realloc(*ws, ncap * sizeof(void *));
-    if (!next) {
-      return 0;
-    }
+    size_t ncap = zap_runtime_next_capacity(*cap, 32);
+    void **next =
+        (void **)zap_runtime_realloc_array(*ws, ncap, sizeof(void *));
     *ws = next;
     *cap = ncap;
   }
-  if (!zap_arc_ptrmap_put(map, object, (uint32_t)*count)) {
-    return 0;
-  }
+  zap_arc_ptrmap_put(map, object, (uint32_t)*count);
   (*ws)[(*count)++] = object;
-  return 1;
 }
 
 static void **zap_arc_snap = NULL;
@@ -220,31 +251,24 @@ static uint32_t *zap_arc_stack = NULL;
 static size_t zap_arc_scratch_cap = 0;
 static zap_arc_ptrmap_t zap_arc_map = {NULL, NULL, 0, 0};
 
-static int zap_arc_ensure_scratch(size_t n) {
+static void zap_arc_ensure_scratch(size_t n) {
   if (n <= zap_arc_scratch_cap) {
-    return 1;
+    return;
   }
   size_t ncap = zap_arc_scratch_cap ? zap_arc_scratch_cap : 32;
   while (ncap < n) {
-    ncap *= 2;
+    ncap = zap_runtime_next_capacity(ncap, 32);
   }
-  int *ni = (int *)realloc(zap_arc_incoming, ncap * sizeof(int));
-  if (ni) {
-    zap_arc_incoming = ni;
-  }
-  uint8_t *nr = (uint8_t *)realloc(zap_arc_reachable, ncap * sizeof(uint8_t));
-  if (nr) {
-    zap_arc_reachable = nr;
-  }
-  uint32_t *ns = (uint32_t *)realloc(zap_arc_stack, ncap * sizeof(uint32_t));
-  if (ns) {
-    zap_arc_stack = ns;
-  }
-  if (!ni || !nr || !ns) {
-    return 0;
-  }
+  int *ni = (int *)zap_runtime_realloc_array(zap_arc_incoming, ncap,
+                                               sizeof(int));
+  uint8_t *nr = (uint8_t *)zap_runtime_realloc_array(
+      zap_arc_reachable, ncap, sizeof(uint8_t));
+  uint32_t *ns = (uint32_t *)zap_runtime_realloc_array(zap_arc_stack, ncap,
+                                                         sizeof(uint32_t));
+  zap_arc_incoming = ni;
+  zap_arc_reachable = nr;
+  zap_arc_stack = ns;
   zap_arc_scratch_cap = ncap;
-  return 1;
 }
 
 void zap_arc_cycle_collect(void) {
@@ -254,12 +278,8 @@ void zap_arc_cycle_collect(void) {
   zap_arc_collecting = 1;
 
   if (zap_arc_root_count > zap_arc_snap_cap) {
-    void **next =
-        (void **)realloc(zap_arc_snap, zap_arc_root_count * sizeof(void *));
-    if (!next) {
-      zap_arc_collecting = 0;
-      return;
-    }
+    void **next = (void **)zap_runtime_realloc_array(
+        zap_arc_snap, zap_arc_root_count, sizeof(void *));
     zap_arc_snap = next;
     zap_arc_snap_cap = zap_arc_root_count;
   }
@@ -280,18 +300,15 @@ void zap_arc_cycle_collect(void) {
     return;
   }
 
-  if (zap_arc_map.cap == 0 && !zap_arc_ptrmap_init(&zap_arc_map, 64)) {
-    zap_arc_collecting = 0;
-    return;
+  if (zap_arc_map.cap == 0) {
+    zap_arc_ptrmap_init(&zap_arc_map, 64);
   }
   zap_arc_ptrmap_clear(&zap_arc_map);
 
   size_t ws_count = 0;
   for (size_t i = 0; i < root_count; ++i) {
-    if (!zap_arc_ws_push(&zap_arc_ws, &ws_count, &zap_arc_ws_cap, &zap_arc_map,
-                         roots[i])) {
-      goto cleanup;
-    }
+    zap_arc_ws_push(&zap_arc_ws, &ws_count, &zap_arc_ws_cap, &zap_arc_map,
+                    roots[i]);
   }
   for (size_t cursor = 0; cursor < ws_count; ++cursor) {
     zap_arc_header_t *header = (zap_arc_header_t *)zap_arc_ws[cursor];
@@ -301,16 +318,14 @@ void zap_arc_cycle_collect(void) {
     for (uint32_t j = 0; j < header->metadata->strong_field_count; ++j) {
       uint32_t offset = header->metadata->strong_field_offsets[j];
       void *child = *(void **)((char *)zap_arc_ws[cursor] + offset);
-      if (child && !zap_arc_ws_push(&zap_arc_ws, &ws_count, &zap_arc_ws_cap,
-                                    &zap_arc_map, child)) {
-        goto cleanup;
+      if (child) {
+        zap_arc_ws_push(&zap_arc_ws, &ws_count, &zap_arc_ws_cap, &zap_arc_map,
+                        child);
       }
     }
   }
 
-  if (!zap_arc_ensure_scratch(ws_count)) {
-    goto cleanup;
-  }
+  zap_arc_ensure_scratch(ws_count);
   int *incoming = zap_arc_incoming;
   uint8_t *reachable = zap_arc_reachable;
   uint32_t *stack = zap_arc_stack;
@@ -374,7 +389,6 @@ void zap_arc_cycle_collect(void) {
     }
   }
 
-cleanup:
   zap_arc_collecting = 0;
 }
 
@@ -448,11 +462,11 @@ static zap_string_header_t *zap_string_header_from_ptr(const char *ptr) {
 }
 
 static char *zap_string_alloc_owned(size_t len) {
-  zap_string_header_t *header =
-      (zap_string_header_t *)malloc(sizeof(zap_string_header_t) + len + 1);
-  if (!header) {
-    return NULL;
+  if (len > SIZE_MAX - sizeof(zap_string_header_t) - 1) {
+    zap_runtime_out_of_memory();
   }
+  zap_string_header_t *header = (zap_string_header_t *)zap_runtime_alloc(
+      sizeof(zap_string_header_t) + len + 1);
   header->refs = 1;
   header->len = (int64_t)len;
   char *ptr = (char *)(header + 1);

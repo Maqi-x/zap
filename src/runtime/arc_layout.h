@@ -46,6 +46,7 @@ extern "C" {
 void zap_arc_add_possible_root(void *object);
 void zap_arc_remove_possible_root(void *object);
 void zap_arc_cycle_collect(void);
+void *zap_runtime_alloc(size_t size);
 void zap_arc_strong_refcount_overflow(void);
 void zap_arc_weak_refcount_overflow(void);
 void zap_arc_strong_refcount_underflow(void);

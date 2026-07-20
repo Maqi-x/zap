@@ -1242,18 +1242,20 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
       sizeValue = builder_.CreateIntCast(sizeValue, sizeTy, /*isSigned=*/false);
     }
 
-    auto mallocIt = functionMap_.find("malloc");
-    if (mallocIt == functionMap_.end()) {
-      auto *mallocTy = llvm::FunctionType::get(
+    auto allocationIt = functionMap_.find("zap_runtime_alloc");
+    if (allocationIt == functionMap_.end()) {
+      auto *allocationTy = llvm::FunctionType::get(
           llvm::PointerType::getUnqual(ctx_), {sizeTy},
           false);
-      auto *mallocFn = llvm::Function::Create(
-          mallocTy, llvm::Function::ExternalLinkage, "malloc", *module_);
-      mallocIt = functionMap_.emplace("malloc", mallocFn).first;
+      auto *allocationFn = llvm::Function::Create(
+          allocationTy, llvm::Function::ExternalLinkage, "zap_runtime_alloc",
+          *module_);
+      allocationIt = functionMap_.emplace("zap_runtime_alloc", allocationFn)
+                         .first;
     }
 
-    auto *rawPtr =
-        builder_.CreateCall(mallocIt->second, {sizeValue}, "class.alloc");
+    auto *rawPtr = builder_.CreateCall(allocationIt->second, {sizeValue},
+                                       "class.alloc");
     auto *typedPtr = builder_.CreateBitCast(rawPtr, ptrTy, "class.obj");
 
     auto *refCountAddr =
