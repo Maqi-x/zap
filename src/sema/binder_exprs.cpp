@@ -314,13 +314,7 @@ void Binder::visit(ConstChar &node) {
       node.value_, std::make_shared<zir::PrimitiveType>(zir::TypeKind::Char)));
 }
 
-void Binder::visit(ConstNull &node) {
-  auto expectedType = currentExpectedExpressionType();
-  bool nullIsSafeHere =
-      expectedType && expectedType->getKind() == zir::TypeKind::Class;
-
-  if (!nullIsSafeHere) {
-  }
+void Binder::visit(ConstNull &) {
   expressionStack_.push(std::make_unique<BoundLiteral>(
       "0", std::make_shared<zir::PrimitiveType>(zir::TypeKind::NullPtr)));
 }
