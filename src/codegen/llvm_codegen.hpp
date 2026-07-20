@@ -53,9 +53,6 @@ private:
   std::unordered_set<const zir::Value *> refReturnValues_;
   std::unordered_map<std::string, llvm::BasicBlock *> zirBlockMap_;
   std::unordered_map<std::string, llvm::BasicBlock *> zirBlockExitMap_;
-  std::unordered_set<const zir::Value *> zirOwnedClassValues_;
-  std::unordered_set<const zir::Value *> zirOwnedStringValues_;
-  std::unordered_set<const zir::Value *> zirOwnedAggregateValues_;
   std::unordered_set<const zir::Value *> zirClassParamAllocas_;
   std::unordered_set<const zir::Value *> zirPendingClassParamInitAllocas_;
   std::vector<std::pair<std::shared_ptr<zir::Type>, llvm::Value *>>

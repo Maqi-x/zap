@@ -410,17 +410,11 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         const bool valueIsOwned =
             storeInst.getSourceOwnership() == zir::ValueOwnership::Owned;
         emitStoreWithArc(dst, src, valueType, valueIsOwned, skipReleaseOld);
-        if (valueIsOwned) {
-          zirOwnedClassValues_.erase(storeInst.getSource().get());
-        }
       }
     } else if (valueType && isOwnedStringType(valueType)) {
       const bool valueIsOwned =
           storeInst.getSourceOwnership() == zir::ValueOwnership::Owned;
       emitStoreWithStringArc(dst, src, valueType, valueIsOwned, skipReleaseOld);
-      if (valueIsOwned) {
-        zirOwnedStringValues_.erase(storeInst.getSource().get());
-      }
     } else if (valueType && containsManagedValues(valueType)) {
       if (!skipReleaseOld) {
         auto *oldValue = builder_.CreateLoad(toLLVMType(*valueType), dst,
@@ -433,9 +427,6 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         emitManagedRetain(src, valueType);
       }
       builder_.CreateStore(src, dst);
-      if (valueIsOwned) {
-        zirOwnedAggregateValues_.erase(storeInst.getSource().get());
-      }
     } else {
       builder_.CreateStore(src, dst);
     }
@@ -471,10 +462,6 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         result = emitStringConcat(lhs, rhs, binaryInst.getLhs()->getType(),
                                   binaryInst.getRhs()->getType(),
                                   binaryInst.getResult()->getType());
-        if (binaryInst.getResult()->getOwnership() ==
-            zir::ValueOwnership::Owned) {
-          zirOwnedStringValues_.insert(binaryInst.getResult().get());
-        }
       } else if (lhsIsPointer || rhsIsPointer) {
         llvm::Value *pointerValue = lhsIsPointer ? lhs : rhs;
         llvm::Value *offsetValue = lhsIsPointer ? rhs : lhs;
@@ -721,7 +708,6 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
     const auto &callInst = static_cast<const CallInst &>(inst);
     std::vector<llvm::Value *> args;
     struct OwnedStringArgument {
-      const zir::Value *value;
       llvm::Value *loweredValue;
       std::shared_ptr<zir::Type> type;
     };
@@ -732,27 +718,12 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
             llvm::Value *loweredValue, zir::ValueOwnership ownership) {
           if (argument && isOwnedStringType(argument->getType()) &&
               ownership == zir::ValueOwnership::Owned) {
-            ownedStringArguments.push_back(
-                {argument.get(), loweredValue, argument->getType()});
+            ownedStringArguments.push_back({loweredValue, argument->getType()});
           }
         };
     auto releaseOwnedStringArguments = [&]() {
       for (const auto &argument : ownedStringArguments) {
         emitStringReleaseIfNeeded(argument.loweredValue, argument.type);
-        zirOwnedStringValues_.erase(argument.value);
-      }
-    };
-    auto markOwnedResult = [&]() {
-      if (!callInst.getResult() || callInst.getResultOwnership() !=
-                                       zir::CallInst::ResultOwnership::Owned) {
-        return;
-      }
-      if (isClassType(callInst.getResult()->getType())) {
-        zirOwnedClassValues_.insert(callInst.getResult().get());
-      } else if (isOwnedStringType(callInst.getResult()->getType())) {
-        zirOwnedStringValues_.insert(callInst.getResult().get());
-      } else if (containsManagedValues(callInst.getResult()->getType())) {
-        zirOwnedAggregateValues_.insert(callInst.getResult().get());
       }
     };
 
@@ -779,7 +750,6 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         if (callInst.returnsRef()) {
           refReturnValues_.insert(callInst.getResult().get());
         }
-        markOwnedResult();
       }
       return;
     }
@@ -1058,7 +1028,6 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
       if (callInst.returnsRef()) {
         refReturnValues_.insert(callInst.getResult().get());
       }
-      markOwnedResult();
     }
     return;
   }
@@ -1162,15 +1131,6 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
       phi->addIncoming(lowerZIRValue(incoming.second), incomingBlock);
     }
     zirValueMap_[phiInst.getResult().get()] = phi;
-    if (phiInst.getResult()->getOwnership() == zir::ValueOwnership::Owned) {
-      if (isClassType(phiInst.getResult()->getType())) {
-        zirOwnedClassValues_.insert(phiInst.getResult().get());
-      } else if (isOwnedStringType(phiInst.getResult()->getType())) {
-        zirOwnedStringValues_.insert(phiInst.getResult().get());
-      } else if (containsManagedValues(phiInst.getResult()->getType())) {
-        zirOwnedAggregateValues_.insert(phiInst.getResult().get());
-      }
-    }
     return;
   }
   case OpCode::Cast: {
@@ -1179,24 +1139,9 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
     auto *result = lowerZIRCast(source, castInst.getSource()->getType(),
                                 castInst.getTargetType());
     zirValueMap_[castInst.getResult().get()] = result;
-    if (isClassType(castInst.getTargetType())) {
-      if (castInst.getResult()->getOwnership() == zir::ValueOwnership::Owned) {
-        zirOwnedClassValues_.insert(castInst.getResult().get());
-      }
-      if (castInst.getSource()->getOwnership() == zir::ValueOwnership::Owned) {
-        zirOwnedClassValues_.erase(castInst.getSource().get());
-      }
-    } else if (isOwnedStringType(castInst.getTargetType())) {
-      if (castInst.getResult()->getOwnership() == zir::ValueOwnership::Owned) {
-        zirOwnedStringValues_.insert(castInst.getResult().get());
-      }
-      if (castInst.getSource()->getOwnership() == zir::ValueOwnership::Owned) {
-        zirOwnedStringValues_.erase(castInst.getSource().get());
-      }
-    } else if (zir::isIntrinsicStringViewType(castInst.getTargetType()) &&
-               isOwnedStringType(castInst.getSource()->getType()) &&
-               castInst.getSource()->getOwnership() ==
-                   zir::ValueOwnership::Owned) {
+    if (zir::isIntrinsicStringViewType(castInst.getTargetType()) &&
+        isOwnedStringType(castInst.getSource()->getType()) &&
+        castInst.getSource()->getOwnership() == zir::ValueOwnership::Owned) {
       auto *ownerSlot = createEntryAlloca(
           currentFn_, "zir.strview.owner",
           toLLVMType(*castInst.getSource()->getType()));
@@ -1218,7 +1163,6 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
       builder_.CreateStore(source, ownerSlot);
       zirFunctionStringLocals_.push_back(
           {castInst.getSource()->getType(), ownerSlot});
-      zirOwnedStringValues_.erase(castInst.getSource().get());
     }
     return;
   }
@@ -1227,10 +1171,6 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
     auto *result = emitWeakLock(lowerZIRRValue(weakLockInst.getWeakValue()),
                                 weakLockInst.getWeakValue()->getType());
     zirValueMap_[weakLockInst.getResult().get()] = result;
-    if (weakLockInst.getResult()->getOwnership() ==
-        zir::ValueOwnership::Owned) {
-      zirOwnedClassValues_.insert(weakLockInst.getResult().get());
-    }
     return;
   }
   case OpCode::WeakAlive: {
@@ -1333,7 +1273,6 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
     }
 
     zirValueMap_[allocInst.getResult().get()] = typedPtr;
-    zirOwnedClassValues_.insert(allocInst.getResult().get());
     return;
   }
   case OpCode::InlineAsm: {
@@ -1366,9 +1305,6 @@ void LLVMCodeGen::emitZIRFunction(const zir::Function &fn) {
   currentFn_ = functionMap_.at(fn.name);
   zirBlockMap_.clear();
   zirValueMap_.clear();
-  zirOwnedClassValues_.clear();
-  zirOwnedStringValues_.clear();
-  zirOwnedAggregateValues_.clear();
   zirClassParamAllocas_.clear();
   zirPendingClassParamInitAllocas_.clear();
   zirFunctionClassLocals_.clear();
@@ -1468,9 +1404,6 @@ void LLVMCodeGen::emitZIRFunction(const zir::Function &fn) {
   currentZIRFunction_ = nullptr;
   zirBlockMap_.clear();
   zirValueMap_.clear();
-  zirOwnedClassValues_.clear();
-  zirOwnedStringValues_.clear();
-  zirOwnedAggregateValues_.clear();
   zirBlockExitMap_.clear();
   zirClassParamAllocas_.clear();
   zirPendingClassParamInitAllocas_.clear();
