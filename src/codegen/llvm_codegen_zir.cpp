@@ -1257,29 +1257,35 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
     auto *typedPtr = builder_.CreateBitCast(rawPtr, ptrTy, "class.obj");
 
     auto *refCountAddr =
-        builder_.CreateStructGEP(objectTy, typedPtr, 0, "refcount.addr");
+        builder_.CreateStructGEP(objectTy, typedPtr, kClassStrongCountIndex,
+                                 "refcount.addr");
     builder_.CreateStore(
         llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx_), 1), refCountAddr);
     auto *weakCountAddr =
-        builder_.CreateStructGEP(objectTy, typedPtr, 1, "weakcount.addr");
+        builder_.CreateStructGEP(objectTy, typedPtr, kClassWeakCountIndex,
+                                 "weakcount.addr");
     builder_.CreateStore(
         llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx_), 0), weakCountAddr);
     auto *aliveAddr =
-        builder_.CreateStructGEP(objectTy, typedPtr, 2, "alive.addr");
+        builder_.CreateStructGEP(objectTy, typedPtr, kClassAliveIndex,
+                                 "alive.addr");
     builder_.CreateStore(llvm::ConstantInt::get(llvm::Type::getInt8Ty(ctx_), 1),
                          aliveAddr);
     auto *gcMarkAddr =
-        builder_.CreateStructGEP(objectTy, typedPtr, 3, "gcmark.addr");
+        builder_.CreateStructGEP(objectTy, typedPtr, kClassGcMarkIndex,
+                                 "gcmark.addr");
     builder_.CreateStore(llvm::ConstantInt::get(llvm::Type::getInt8Ty(ctx_), 0),
                          gcMarkAddr);
     auto *releaseFnAddr =
-        builder_.CreateStructGEP(objectTy, typedPtr, 4, "release.fn.addr");
+        builder_.CreateStructGEP(objectTy, typedPtr, kClassReleaseFnIndex,
+                                 "release.fn.addr");
     auto *releaseFnPtr = builder_.CreateBitCast(
         classReleaseFns_.at(classType->getCodegenName()),
         llvm::PointerType::getUnqual(ctx_));
     builder_.CreateStore(releaseFnPtr, releaseFnAddr);
     auto *destroyFnAddr =
-        builder_.CreateStructGEP(objectTy, typedPtr, 5, "destroy.fn.addr");
+        builder_.CreateStructGEP(objectTy, typedPtr, kClassDestroyFnIndex,
+                                 "destroy.fn.addr");
     auto *destroyFnPtr = builder_.CreateBitCast(
         classDestroyFns_.at(classType->getCodegenName()),
         llvm::PointerType::getUnqual(ctx_));

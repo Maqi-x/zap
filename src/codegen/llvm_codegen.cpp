@@ -203,6 +203,7 @@ void LLVMCodeGen::finalizeClassStruct(const zir::ClassType &ct) {
       i8PtrTy,
       i8PtrTy,
       llvm::PointerType::getUnqual(ctx_)};
+  fieldTypes.reserve(kClassHeaderFieldCount + ct.getFields().size());
   for (const auto &f : ct.getFields()) {
     fieldTypes.push_back(toLLVMAggregateFieldType(f.type));
   }
