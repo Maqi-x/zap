@@ -291,6 +291,45 @@ bool testManagedTypeClassification() {
              "array containing managed records was not classified as managed");
 }
 
+bool testPhiRequiresOwnershipMatchingIncomingValues() {
+  Module module("phi-ownership");
+  auto stringType = zir::makeStringType();
+  auto boolean = primitive(TypeKind::Bool);
+  auto function =
+      std::make_unique<Function>("broken", primitive(TypeKind::Void));
+  auto leftValue = std::make_shared<zir::Argument>("left.value", stringType);
+  auto rightValue = std::make_shared<zir::Argument>("right.value", stringType);
+  leftValue->setOwnership(ValueOwnership::Owned);
+  rightValue->setOwnership(ValueOwnership::Owned);
+  function->arguments.push_back(leftValue);
+  function->arguments.push_back(rightValue);
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CondBranchInst>(
+      std::make_shared<Constant>("true", boolean), "left", "right"));
+  auto left = std::make_unique<BasicBlock>("left");
+  left->addInstruction(std::make_unique<BranchInst>("merge"));
+  auto right = std::make_unique<BasicBlock>("right");
+  right->addInstruction(std::make_unique<BranchInst>("merge"));
+  auto merge = std::make_unique<BasicBlock>("merge");
+  auto result = reg("result", stringType);
+  merge->addInstruction(std::make_unique<PhiInst>(
+      result, std::vector<std::pair<std::string, std::shared_ptr<zir::Value>>>{
+                  {"left", leftValue}, {"right", rightValue}}));
+  merge->addInstruction(std::make_unique<ReturnInst>());
+
+  function->addBlock(std::move(entry));
+  function->addBlock(std::move(left));
+  function->addBlock(std::move(right));
+  function->addBlock(std::move(merge));
+  module.addFunction(std::move(function));
+
+  auto verification = ZirVerifier().verify(module);
+  return expect(
+      hasError(verification, VerificationErrorCode::InvalidResult),
+      "borrowed phi result with owned incoming values was not diagnosed");
+}
+
 bool testDominanceViolation() {
   Module module("dominance-violation");
   auto i32 = primitive(TypeKind::Int32);
@@ -367,6 +406,7 @@ int main() {
   ok = testWeakLockRequiresOwnedStrongResult() && ok;
   ok = testManagedCallRequiresOwnedResult() && ok;
   ok = testManagedTypeClassification() && ok;
+  ok = testPhiRequiresOwnershipMatchingIncomingValues() && ok;
   ok = testDominanceViolation() && ok;
   ok = testPhiRequiresEveryPredecessor() && ok;
   return ok ? 0 : 1;

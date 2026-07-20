@@ -708,6 +708,24 @@ private:
       error(VerificationErrorCode::InvalidPhi, &block, index,
             "phi must have one incoming value for every predecessor");
     }
+
+    ValueOwnership expectedOwnership = ValueOwnership::Borrowed;
+    if (containsManagedValues(phi.getResult()->getType()) &&
+        !phi.getIncoming().empty()) {
+      const bool allIncomingOwned = std::all_of(
+          phi.getIncoming().begin(), phi.getIncoming().end(),
+          [](const auto &incoming) {
+            return incoming.second &&
+                   incoming.second->getOwnership() == ValueOwnership::Owned;
+          });
+      if (allIncomingOwned) {
+        expectedOwnership = ValueOwnership::Owned;
+      }
+    }
+    if (phi.getResult()->getOwnership() != expectedOwnership) {
+      error(VerificationErrorCode::InvalidResult, &block, index,
+            "phi result ownership does not match incoming values");
+    }
   }
 };
 

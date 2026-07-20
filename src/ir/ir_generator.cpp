@@ -44,6 +44,22 @@ bool isTerminated(const BasicBlock *block) {
   return opcode == OpCode::Ret || opcode == OpCode::Br ||
          opcode == OpCode::CondBr;
 }
+
+ValueOwnership ownershipForPhi(
+    const std::shared_ptr<Type> &type,
+    const std::vector<std::pair<std::string, std::shared_ptr<Value>>>
+        &incoming) {
+  if (!containsManagedValues(type) || incoming.empty()) {
+    return ValueOwnership::Borrowed;
+  }
+  for (const auto &[label, value] : incoming) {
+    (void)label;
+    if (!value || value->getOwnership() != ValueOwnership::Owned) {
+      return ValueOwnership::Borrowed;
+    }
+  }
+  return ValueOwnership::Owned;
+}
 } // namespace
 
 std::shared_ptr<Value> BoundIRGenerator::lowerConstantExpression(
@@ -543,12 +559,12 @@ void BoundIRGenerator::visit(sema::BoundBinaryExpression &node) {
     currentFunction_->addBlock(std::move(mergeBlock));
     currentBlock_ = mergeBlockPtr;
 
-    auto res = createRegister(node.type);
     std::vector<std::pair<std::string, std::shared_ptr<Value>>> incoming;
     incoming.push_back(
         {leftBlockLabel, std::make_shared<Constant>("false", node.type)});
     incoming.push_back({actualRhsBlockLabel, rightVal});
 
+    auto res = createRegister(node.type, ownershipForPhi(node.type, incoming));
     currentBlock_->addInstruction(std::make_unique<PhiInst>(res, incoming));
     valueStack_.push(res);
     return;
@@ -582,12 +598,12 @@ void BoundIRGenerator::visit(sema::BoundBinaryExpression &node) {
     currentFunction_->addBlock(std::move(mergeBlock));
     currentBlock_ = mergeBlockPtr;
 
-    auto res = createRegister(node.type);
     std::vector<std::pair<std::string, std::shared_ptr<Value>>> incoming;
     incoming.push_back(
         {leftBlockLabel, std::make_shared<Constant>("true", node.type)});
     incoming.push_back({actualRhsBlockLabel, rightVal});
 
+    auto res = createRegister(node.type, ownershipForPhi(node.type, incoming));
     currentBlock_->addInstruction(std::make_unique<PhiInst>(res, incoming));
     valueStack_.push(res);
     return;
@@ -691,10 +707,10 @@ void BoundIRGenerator::visit(sema::BoundTernaryExpression &node) {
   currentFunction_->addBlock(std::move(mergeBlock));
   currentBlock_ = mergeBlockPtr;
 
-  auto res = createRegister(node.type);
   std::vector<std::pair<std::string, std::shared_ptr<Value>>> incoming;
   incoming.push_back({actualThenLabel, thenVal});
   incoming.push_back({actualElseLabel, elseVal});
+  auto res = createRegister(node.type, ownershipForPhi(node.type, incoming));
   currentBlock_->addInstruction(std::make_unique<PhiInst>(res, incoming));
   valueStack_.push(res);
 }
@@ -1295,9 +1311,9 @@ void BoundIRGenerator::visit(sema::BoundTryExpression &node) {
     return;
   }
 
-  auto result = createRegister(node.type);
   std::vector<std::pair<std::string, std::shared_ptr<Value>>> incoming;
   incoming.push_back({successFrom, successValue});
+  auto result = createRegister(node.type, ownershipForPhi(node.type, incoming));
   currentBlock_->addInstruction(std::make_unique<PhiInst>(result, incoming));
   valueStack_.push(result);
 }
@@ -1348,10 +1364,10 @@ void BoundIRGenerator::visit(sema::BoundFallbackExpression &node) {
     return;
   }
 
-  auto result = createRegister(node.type);
   std::vector<std::pair<std::string, std::shared_ptr<Value>>> incoming;
   incoming.push_back({successFrom, successValue});
   incoming.push_back({fallbackFrom, fallbackValue});
+  auto result = createRegister(node.type, ownershipForPhi(node.type, incoming));
   currentBlock_->addInstruction(std::make_unique<PhiInst>(result, incoming));
   valueStack_.push(result);
 }
@@ -1432,10 +1448,10 @@ void BoundIRGenerator::visit(sema::BoundFailableHandleExpression &node) {
     return;
   }
 
-  auto result = createRegister(node.type);
   std::vector<std::pair<std::string, std::shared_ptr<Value>>> incoming;
   incoming.push_back({successFrom, successValue});
   incoming.push_back({handlerFrom, handlerValue});
+  auto result = createRegister(node.type, ownershipForPhi(node.type, incoming));
   currentBlock_->addInstruction(std::make_unique<PhiInst>(result, incoming));
   valueStack_.push(result);
 }

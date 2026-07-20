@@ -1153,21 +1153,22 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         toLLVMType(*phiInst.getResult()->getType()),
         phiInst.getIncoming().size(),
         static_cast<const Register &>(*phiInst.getResult()).getRawName());
-    bool phiOwnsClassValue = isClassType(phiInst.getResult()->getType());
     for (const auto &incoming : phiInst.getIncoming()) {
       auto blockIt = zirBlockExitMap_.find(incoming.first);
       auto *incomingBlock = blockIt != zirBlockExitMap_.end()
                                 ? blockIt->second
                                 : zirBlockMap_.at(incoming.first);
       phi->addIncoming(lowerZIRValue(incoming.second), incomingBlock);
-      if (phiOwnsClassValue &&
-          zirOwnedClassValues_.count(incoming.second.get()) == 0) {
-        phiOwnsClassValue = false;
-      }
     }
     zirValueMap_[phiInst.getResult().get()] = phi;
-    if (phiOwnsClassValue) {
-      zirOwnedClassValues_.insert(phiInst.getResult().get());
+    if (phiInst.getResult()->getOwnership() == zir::ValueOwnership::Owned) {
+      if (isClassType(phiInst.getResult()->getType())) {
+        zirOwnedClassValues_.insert(phiInst.getResult().get());
+      } else if (isOwnedStringType(phiInst.getResult()->getType())) {
+        zirOwnedStringValues_.insert(phiInst.getResult().get());
+      } else if (containsManagedValues(phiInst.getResult()->getType())) {
+        zirOwnedAggregateValues_.insert(phiInst.getResult().get());
+      }
     }
     return;
   }
