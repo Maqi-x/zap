@@ -24,6 +24,7 @@ using zir::OpCode;
 using zir::PhiInst;
 using zir::PointerType;
 using zir::PrimitiveType;
+using zir::ReleaseInst;
 using zir::Register;
 using zir::ReturnInst;
 using zir::StoreInst;
@@ -582,6 +583,27 @@ bool testOwnershipLivenessTracksPhiEdges() {
                 "phi liveness did not transfer ownership to its result");
 }
 
+bool testReleaseConsumesOwnedValue() {
+  Module module("release-ownership");
+  auto stringType = zir::makeStringType();
+  auto function =
+      std::make_unique<Function>("broken", primitive(TypeKind::Void));
+  auto value = std::make_shared<zir::Argument>("value", stringType);
+  value->setOwnership(ValueOwnership::Owned);
+  function->arguments.push_back(value);
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<ReleaseInst>(value));
+  entry->addInstruction(std::make_unique<ReleaseInst>(value));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  const auto verification = ZirVerifier().verify(module);
+  return expect(hasError(verification, VerificationErrorCode::OwnershipViolation),
+                "double release of an owned value was not diagnosed");
+}
+
 bool testDominanceViolation() {
   Module module("dominance-violation");
   auto i32 = primitive(TypeKind::Int32);
@@ -667,6 +689,7 @@ int main() {
   ok = testPhiTransfersOwnershipOnIncomingEdge() && ok;
   ok = testPhiAllowsSeparateAlternativeOwnershipTransfers() && ok;
   ok = testOwnershipLivenessTracksPhiEdges() && ok;
+  ok = testReleaseConsumesOwnedValue() && ok;
   ok = testDominanceViolation() && ok;
   ok = testPhiRequiresEveryPredecessor() && ok;
   return ok ? 0 : 1;

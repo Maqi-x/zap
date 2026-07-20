@@ -487,6 +487,12 @@ private:
             }
             break;
           }
+          case OpCode::Release:
+            consumeOwnership(
+                states,
+                static_cast<const ReleaseInst &>(*instruction).getValue(),
+                block, i, "release", reported);
+            break;
           default:
             break;
           }
@@ -707,14 +713,25 @@ private:
     case OpCode::Call:
       verifyCall(static_cast<const CallInst &>(instruction), block, index);
       return;
-    case OpCode::Retain:
-      verifyValue(static_cast<const RetainInst &>(instruction).getValue(), block,
-                  index);
+    case OpCode::Retain: {
+      const auto &retain = static_cast<const RetainInst &>(instruction);
+      verifyValue(retain.getValue(), block, index);
+      if (!retain.getValue() ||
+          !containsManagedValues(retain.getValue()->getType())) {
+        error(VerificationErrorCode::InvalidOperand, &block, index,
+              "retain requires a managed value");
+      }
       return;
-    case OpCode::Release:
-      verifyValue(static_cast<const ReleaseInst &>(instruction).getValue(),
-                  block, index);
+    }
+    case OpCode::Release: {
+      const auto &release = static_cast<const ReleaseInst &>(instruction);
+      verifyValue(release.getValue(), block, index);
+      if (!ownsManagedValue(release.getValue())) {
+        error(VerificationErrorCode::InvalidOperand, &block, index,
+              "release requires an owned managed value");
+      }
       return;
+    }
     case OpCode::Alloc: {
       const auto &alloc = static_cast<const AllocInst &>(instruction);
       if (!alloc.getResult() || !alloc.getAllocatedType()) {

@@ -1294,9 +1294,18 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
                        asmInst.getClobbers());
     return;
   }
-  case OpCode::Retain:
-  case OpCode::Release:
-    throw std::runtime_error("ZIR opcode not lowered yet in LLVM backend");
+  case OpCode::Retain: {
+    const auto &retainInst = static_cast<const RetainInst &>(inst);
+    emitManagedRetain(lowerZIRRValue(retainInst.getValue()),
+                      retainInst.getValue()->getType());
+    return;
+  }
+  case OpCode::Release: {
+    const auto &releaseInst = static_cast<const ReleaseInst &>(inst);
+    emitManagedRelease(lowerZIRRValue(releaseInst.getValue()),
+                       releaseInst.getValue()->getType());
+    return;
+  }
   }
 }
 
