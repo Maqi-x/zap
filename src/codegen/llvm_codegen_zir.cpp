@@ -1175,23 +1175,24 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
     auto *result = lowerZIRCast(source, castInst.getSource()->getType(),
                                 castInst.getTargetType());
     zirValueMap_[castInst.getResult().get()] = result;
-    if (isClassType(castInst.getTargetType()) &&
-        zirOwnedClassValues_.count(castInst.getSource().get()) > 0) {
-      zirOwnedClassValues_.insert(castInst.getResult().get());
-      zirOwnedClassValues_.erase(castInst.getSource().get());
+    if (isClassType(castInst.getTargetType())) {
+      if (castInst.getResult()->getOwnership() == zir::ValueOwnership::Owned) {
+        zirOwnedClassValues_.insert(castInst.getResult().get());
+      }
+      if (castInst.getSource()->getOwnership() == zir::ValueOwnership::Owned) {
+        zirOwnedClassValues_.erase(castInst.getSource().get());
+      }
     } else if (isOwnedStringType(castInst.getTargetType())) {
-      const bool sourceWasOwned =
-          zirOwnedStringValues_.count(castInst.getSource().get()) > 0;
-      if (!isOwnedStringType(castInst.getSource()->getType()) ||
-          sourceWasOwned) {
+      if (castInst.getResult()->getOwnership() == zir::ValueOwnership::Owned) {
         zirOwnedStringValues_.insert(castInst.getResult().get());
       }
-      if (sourceWasOwned) {
+      if (castInst.getSource()->getOwnership() == zir::ValueOwnership::Owned) {
         zirOwnedStringValues_.erase(castInst.getSource().get());
       }
     } else if (zir::isIntrinsicStringViewType(castInst.getTargetType()) &&
                isOwnedStringType(castInst.getSource()->getType()) &&
-               zirOwnedStringValues_.count(castInst.getSource().get()) > 0) {
+               castInst.getSource()->getOwnership() ==
+                   zir::ValueOwnership::Owned) {
       auto *ownerSlot = createEntryAlloca(
           currentFn_, "zir.strview.owner",
           toLLVMType(*castInst.getSource()->getType()));

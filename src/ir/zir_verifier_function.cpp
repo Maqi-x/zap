@@ -529,12 +529,24 @@ private:
     case OpCode::Cast: {
       const auto &cast = static_cast<const CastInst &>(instruction);
       verifyValue(cast.getSource(), block, index);
-      if (!cast.getResult() || !cast.getTargetType()) {
+      if (!cast.getResult() || !cast.getTargetType() || !cast.getSource()) {
         error(VerificationErrorCode::InvalidResult, &block, index,
-              "cast requires a result and target type");
+              "cast requires a source, result, and target type");
       } else {
         expectSameType(cast.getResult()->getType(), cast.getTargetType(), block,
                        index, "cast result type");
+        const auto expectedOwnership =
+            cast.getTargetType()->getIntrinsicKind() ==
+                    IntrinsicTypeKind::String
+                ? ValueOwnership::Owned
+            : containsManagedValues(cast.getTargetType()) &&
+                    cast.getSource()->getOwnership() == ValueOwnership::Owned
+                ? ValueOwnership::Owned
+                : ValueOwnership::Borrowed;
+        if (cast.getResult()->getOwnership() != expectedOwnership) {
+          error(VerificationErrorCode::InvalidResult, &block, index,
+                "cast result ownership does not match source and target");
+        }
       }
       return;
     }

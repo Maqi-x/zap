@@ -9,6 +9,7 @@ namespace {
 
 using zir::BasicBlock;
 using zir::BranchInst;
+using zir::CastInst;
 using zir::ClassType;
 using zir::CmpInst;
 using zir::CondBranchInst;
@@ -372,6 +373,29 @@ bool testStoreRequiresOwnershipMatchingSource() {
                 "borrowed store of an owned value was not diagnosed");
 }
 
+bool testCastRequiresOwnershipMatchingSourceAndTarget() {
+  Module module("cast-ownership");
+  auto strongType = std::make_shared<ClassType>("Node");
+  auto weakType = std::make_shared<ClassType>(*strongType);
+  weakType->setWeak(true);
+  auto function =
+      std::make_unique<Function>("broken", primitive(TypeKind::Void));
+  auto source = std::make_shared<zir::Argument>("source", strongType);
+  source->setOwnership(ValueOwnership::Owned);
+  function->arguments.push_back(source);
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto result = reg("result", weakType);
+  entry->addInstruction(std::make_unique<CastInst>(result, source, weakType));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  auto verification = ZirVerifier().verify(module);
+  return expect(hasError(verification, VerificationErrorCode::InvalidResult),
+                "borrowed managed cast result was not diagnosed");
+}
+
 bool testDominanceViolation() {
   Module module("dominance-violation");
   auto i32 = primitive(TypeKind::Int32);
@@ -451,6 +475,7 @@ int main() {
   ok = testPhiRequiresOwnershipMatchingIncomingValues() && ok;
   ok = testReturnRequiresOwnershipMatchingValue() && ok;
   ok = testStoreRequiresOwnershipMatchingSource() && ok;
+  ok = testCastRequiresOwnershipMatchingSourceAndTarget() && ok;
   ok = testDominanceViolation() && ok;
   ok = testPhiRequiresEveryPredecessor() && ok;
   return ok ? 0 : 1;
