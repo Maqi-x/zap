@@ -476,6 +476,16 @@ private:
         expectAssignable(returnInstruction.getValue()->getType(),
                          expectedReturnType, block, index,
                          "return value type");
+        if (returnInstruction.getValueOwnership() !=
+            returnInstruction.getValue()->getOwnership()) {
+          error(VerificationErrorCode::InvalidReturn, &block, index,
+                "return ownership does not match its value");
+        }
+        if (function_.returnsRef &&
+            returnInstruction.getValueOwnership() == ValueOwnership::Owned) {
+          error(VerificationErrorCode::InvalidReturn, &block, index,
+                "ref return cannot transfer ownership");
+        }
       }
       return;
     }

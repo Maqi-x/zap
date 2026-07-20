@@ -699,18 +699,14 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
     if (returnInst.getValue()) {
       auto *retValue = lowerZIRRValue(returnInst.getValue());
       auto retType = returnInst.getValue()->getType();
-      if (isClassType(retType)) {
-        if (zirOwnedClassValues_.count(returnInst.getValue().get()) == 0) {
+      if (returnInst.getValueOwnership() == zir::ValueOwnership::Borrowed) {
+        if (isClassType(retType)) {
           emitRetainIfNeeded(retValue, retType);
-        }
-      } else if (isOwnedStringType(retType)) {
-        if (zirOwnedStringValues_.count(returnInst.getValue().get()) == 0) {
+        } else if (isOwnedStringType(retType)) {
           retValue = emitStringRetainIfNeeded(retValue, retType);
+        } else if (containsManagedValues(retType)) {
+          emitManagedRetain(retValue, retType);
         }
-      } else if (containsManagedValues(retType) &&
-                 zirOwnedAggregateValues_.count(
-                     returnInst.getValue().get()) == 0) {
-        emitManagedRetain(retValue, retType);
       }
       emitZIRFunctionReleases();
       builder_.CreateRet(retValue);

@@ -271,11 +271,16 @@ public:
 
 class ReturnInst : public Instruction {
   std::shared_ptr<Value> value;
+  ValueOwnership valueOwnership_;
 
 public:
-  ReturnInst(std::shared_ptr<Value> v = nullptr) : value(std::move(v)) {}
+  explicit ReturnInst(std::shared_ptr<Value> v = nullptr)
+      : ReturnInst(v, v ? v->getOwnership() : ValueOwnership::Borrowed) {}
+  ReturnInst(std::shared_ptr<Value> v, ValueOwnership valueOwnership)
+      : value(std::move(v)), valueOwnership_(valueOwnership) {}
   OpCode getOpCode() const override { return OpCode::Ret; }
   const std::shared_ptr<Value> &getValue() const { return value; }
+  ValueOwnership getValueOwnership() const { return valueOwnership_; }
   std::string toString() const override {
     if (value)
       return "ret " + value->getTypeName() + " " + value->getName();
