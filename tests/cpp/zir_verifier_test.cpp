@@ -349,6 +349,29 @@ bool testReturnRequiresOwnershipMatchingValue() {
                 "borrowed return of an owned value was not diagnosed");
 }
 
+bool testStoreRequiresOwnershipMatchingSource() {
+  Module module("store-ownership");
+  auto stringType = zir::makeStringType();
+  auto function =
+      std::make_unique<Function>("broken", primitive(TypeKind::Void));
+  auto value = std::make_shared<zir::Argument>("value", stringType);
+  value->setOwnership(ValueOwnership::Owned);
+  function->arguments.push_back(value);
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto slot = reg("slot", std::make_shared<PointerType>(stringType));
+  entry->addInstruction(std::make_unique<zir::AllocaInst>(slot, stringType));
+  entry->addInstruction(std::make_unique<StoreInst>(
+      value, slot, StoreMode::Assign, ValueOwnership::Borrowed));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  auto verification = ZirVerifier().verify(module);
+  return expect(hasError(verification, VerificationErrorCode::InvalidOperand),
+                "borrowed store of an owned value was not diagnosed");
+}
+
 bool testDominanceViolation() {
   Module module("dominance-violation");
   auto i32 = primitive(TypeKind::Int32);
@@ -427,6 +450,7 @@ int main() {
   ok = testManagedTypeClassification() && ok;
   ok = testPhiRequiresOwnershipMatchingIncomingValues() && ok;
   ok = testReturnRequiresOwnershipMatchingValue() && ok;
+  ok = testStoreRequiresOwnershipMatchingSource() && ok;
   ok = testDominanceViolation() && ok;
   ok = testPhiRequiresEveryPredecessor() && ok;
   return ok ? 0 : 1;

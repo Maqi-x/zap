@@ -60,6 +60,19 @@ ValueOwnership ownershipForPhi(
   }
   return ValueOwnership::Owned;
 }
+
+ValueOwnership ownershipForCast(const std::shared_ptr<Value> &source,
+                                const std::shared_ptr<Type> &targetType) {
+  if (!targetType || !containsManagedValues(targetType)) {
+    return ValueOwnership::Borrowed;
+  }
+  if (targetType->getIntrinsicKind() == IntrinsicTypeKind::String) {
+    return ValueOwnership::Owned;
+  }
+  return source && source->getOwnership() == ValueOwnership::Owned
+             ? ValueOwnership::Owned
+             : ValueOwnership::Borrowed;
+}
 } // namespace
 
 std::shared_ptr<Value> BoundIRGenerator::lowerConstantExpression(
@@ -617,7 +630,15 @@ void BoundIRGenerator::visit(sema::BoundBinaryExpression &node) {
   auto right = valueStack_.top();
   valueStack_.pop();
 
-  auto reg = createRegister(node.type);
+  const bool ownsStringConcat =
+      node.op == "+" && containsManagedValues(node.type) &&
+      (node.left->type->getIntrinsicKind() == IntrinsicTypeKind::String ||
+       node.right->type->getIntrinsicKind() == IntrinsicTypeKind::String ||
+       node.left->type->getKind() == TypeKind::Char ||
+       node.right->type->getKind() == TypeKind::Char);
+  auto reg =
+      createRegister(node.type, ownsStringConcat ? ValueOwnership::Owned
+                                                 : ValueOwnership::Borrowed);
   bool isUnsigned = node.left->type->isUnsigned();
   if (node.op == "==" || node.op == "!=" || node.op == "<" ||
       (node.op == ">") || (node.op == "<=") || (node.op == ">=")) {
@@ -1874,7 +1895,7 @@ void BoundIRGenerator::visit(sema::BoundCast &node) {
     return;
   }
 
-  auto res = createRegister(node.type);
+  auto res = createRegister(node.type, ownershipForCast(src, node.type));
   currentBlock_->addInstruction(
       std::make_unique<CastInst>(res, src, node.type));
   valueStack_.push(res);

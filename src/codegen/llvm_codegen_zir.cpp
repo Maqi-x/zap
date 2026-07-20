@@ -407,16 +407,16 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         zirPendingClassParamInitAllocas_.erase(
             storeInst.getDestination().get());
       } else {
-        bool valueIsOwned =
-            zirOwnedClassValues_.count(storeInst.getSource().get()) > 0;
+        const bool valueIsOwned =
+            storeInst.getSourceOwnership() == zir::ValueOwnership::Owned;
         emitStoreWithArc(dst, src, valueType, valueIsOwned, skipReleaseOld);
         if (valueIsOwned) {
           zirOwnedClassValues_.erase(storeInst.getSource().get());
         }
       }
     } else if (valueType && isOwnedStringType(valueType)) {
-      bool valueIsOwned =
-          zirOwnedStringValues_.count(storeInst.getSource().get()) > 0;
+      const bool valueIsOwned =
+          storeInst.getSourceOwnership() == zir::ValueOwnership::Owned;
       emitStoreWithStringArc(dst, src, valueType, valueIsOwned, skipReleaseOld);
       if (valueIsOwned) {
         zirOwnedStringValues_.erase(storeInst.getSource().get());
@@ -428,7 +428,7 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         emitManagedRelease(oldValue, valueType);
       }
       const bool valueIsOwned =
-          zirOwnedAggregateValues_.count(storeInst.getSource().get()) > 0;
+          storeInst.getSourceOwnership() == zir::ValueOwnership::Owned;
       if (!valueIsOwned) {
         emitManagedRetain(src, valueType);
       }
@@ -471,7 +471,8 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         result = emitStringConcat(lhs, rhs, binaryInst.getLhs()->getType(),
                                   binaryInst.getRhs()->getType(),
                                   binaryInst.getResult()->getType());
-        if (isOwnedStringType(binaryInst.getResult()->getType())) {
+        if (binaryInst.getResult()->getOwnership() ==
+            zir::ValueOwnership::Owned) {
           zirOwnedStringValues_.insert(binaryInst.getResult().get());
         }
       } else if (lhsIsPointer || rhsIsPointer) {

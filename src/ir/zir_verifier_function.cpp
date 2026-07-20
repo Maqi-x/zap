@@ -348,6 +348,10 @@ private:
       } else {
         expectAssignable(store.getSource()->getType(), pointer->getBaseType(),
                          block, index, "stored value type");
+        if (store.getSourceOwnership() != store.getSource()->getOwnership()) {
+          error(VerificationErrorCode::InvalidOperand, &block, index,
+                "store ownership does not match its source value");
+        }
       }
       return;
     }
