@@ -1,0 +1,53 @@
+global var destroyed: Int = 0;
+
+struct ParentLink {
+    children: [1]Child;
+}
+
+struct ChildLink {
+    parents: [1]Parent;
+}
+
+class Parent {
+    priv link: ParentLink;
+
+    pub fun setChild(child: Child) {
+        self.link = ParentLink { children: { child } };
+    }
+
+    fun deinit() {
+        destroyed = destroyed + 1;
+    }
+}
+
+class Child {
+    priv link: ChildLink;
+
+    pub fun setParent(parent: Parent) {
+        self.link = ChildLink { parents: { parent } };
+    }
+
+    fun deinit() {
+        destroyed = destroyed + 10;
+    }
+}
+
+fun makeCycle() Int {
+    var parent: Parent = new Parent();
+    var child: Child = new Child();
+    parent.setChild(child);
+    child.setParent(parent);
+    return 0;
+}
+
+fun main() Int {
+    if (makeCycle() != 0) {
+        return 1;
+    }
+
+    if (destroyed != 11) {
+        return 2;
+    }
+
+    return 0;
+}

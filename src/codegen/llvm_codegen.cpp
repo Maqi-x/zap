@@ -28,6 +28,32 @@ bool isStringType(const std::shared_ptr<zir::Type> &type) {
   return zir::isIntrinsicStringType(type);
 }
 
+void collectStrongReferencedClasses(
+    const std::shared_ptr<zir::Type> &type,
+    std::unordered_set<std::string> &classNames) {
+  if (!type) {
+    return;
+  }
+
+  if (type->getKind() == zir::TypeKind::Class) {
+    auto classType = std::static_pointer_cast<zir::ClassType>(type);
+    if (!classType->isWeak()) {
+      classNames.insert(classType->getCodegenName());
+    }
+    return;
+  }
+
+  if (type->getKind() == zir::TypeKind::Record) {
+    const auto &record = static_cast<const zir::RecordType &>(*type);
+    for (const auto &field : record.getFields()) {
+      collectStrongReferencedClasses(field.type, classNames);
+    }
+  } else if (type->getKind() == zir::TypeKind::Array) {
+    collectStrongReferencedClasses(
+        static_cast<const zir::ArrayType &>(*type).getBaseType(), classNames);
+  }
+}
+
 std::string lowerGccAsmTemplateToLLVM(const std::string &assembly) {
   std::string lowered;
   lowered.reserve(assembly.size());
@@ -233,19 +259,16 @@ void LLVMCodeGen::computeCyclicClasses(const zir::Module &module) {
     auto &out = edges[name];
     for (auto cur = cls; cur; cur = cur->getBase()) {
       for (const auto &field : cur->getFields()) {
-        if (!field.type || field.type->getKind() != zir::TypeKind::Class) {
-          continue;
-        }
-        auto fieldClass = std::static_pointer_cast<zir::ClassType>(field.type);
-        if (fieldClass->isWeak()) {
-          continue;
-        }
-        auto it = subtypesOf.find(fieldClass->getCodegenName());
-        if (it == subtypesOf.end()) {
-          continue;
-        }
-        for (const auto &sub : it->second) {
-          out.insert(sub);
+        std::unordered_set<std::string> referencedClasses;
+        collectStrongReferencedClasses(field.type, referencedClasses);
+        for (const auto &referencedClass : referencedClasses) {
+          auto it = subtypesOf.find(referencedClass);
+          if (it == subtypesOf.end()) {
+            continue;
+          }
+          for (const auto &sub : it->second) {
+            out.insert(sub);
+          }
         }
       }
     }

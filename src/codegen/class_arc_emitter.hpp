@@ -1,7 +1,9 @@
 #pragma once
 
 #include "../ir/type.hpp"
+#include <cstdint>
 #include <memory>
+#include <vector>
 
 namespace llvm {
 class Function;
@@ -37,6 +39,10 @@ public:
 private:
   llvm::Function *getOrCreateRefcountFailureFunction(const char *name);
   void emitRefcountFailure(const char *name);
+  void ensureNestedClassArcSupport(const std::shared_ptr<zir::Type> &type);
+  void collectStrongReferenceOffsets(const std::shared_ptr<zir::Type> &type,
+                                     uint64_t baseOffset,
+                                     std::vector<uint32_t> &offsets);
 
   LLVMCodeGen &codegen_;
 };

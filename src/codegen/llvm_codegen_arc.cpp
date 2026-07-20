@@ -56,6 +56,10 @@ void LLVMCodeGen::emitManagedRetain(
     (void)emitStringRetainIfNeeded(value, type);
     return;
   }
+  if (isWeakClassType(type)) {
+    emitRetainWeakIfNeeded(value, type);
+    return;
+  }
   if (isClassType(type)) {
     emitRetainIfNeeded(value, type);
     return;
@@ -90,6 +94,10 @@ void LLVMCodeGen::emitManagedRelease(
   }
   if (isOwnedStringType(type)) {
     emitStringReleaseIfNeeded(value, type);
+    return;
+  }
+  if (isWeakClassType(type)) {
+    emitReleaseWeakIfNeeded(value, type);
     return;
   }
   if (isClassType(type)) {

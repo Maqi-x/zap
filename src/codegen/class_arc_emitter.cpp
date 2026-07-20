@@ -2,9 +2,12 @@
 #include "class_layout.hpp"
 #include "llvm_codegen.hpp"
 #include <llvm/IR/BasicBlock.h>
+#include <llvm/IR/DataLayout.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Type.h>
+#include <limits>
+#include <stdexcept>
 
 namespace codegen {
 
@@ -28,6 +31,73 @@ ClassArcEmitter::getOrCreateRefcountFailureFunction(const char *name) {
 void ClassArcEmitter::emitRefcountFailure(const char *name) {
   codegen_.builder_.CreateCall(getOrCreateRefcountFailureFunction(name));
   codegen_.builder_.CreateUnreachable();
+}
+
+void ClassArcEmitter::ensureNestedClassArcSupport(
+    const std::shared_ptr<zir::Type> &type) {
+  if (!type) {
+    return;
+  }
+
+  switch (type->getKind()) {
+  case zir::TypeKind::Class:
+    ensureClassArcSupport(std::static_pointer_cast<zir::ClassType>(type));
+    return;
+  case zir::TypeKind::Record: {
+    const auto &record = static_cast<const zir::RecordType &>(*type);
+    for (const auto &field : record.getFields()) {
+      ensureNestedClassArcSupport(field.type);
+    }
+    return;
+  }
+  case zir::TypeKind::Array:
+    ensureNestedClassArcSupport(
+        static_cast<const zir::ArrayType &>(*type).getBaseType());
+    return;
+  default:
+    return;
+  }
+}
+
+void ClassArcEmitter::collectStrongReferenceOffsets(
+    const std::shared_ptr<zir::Type> &type, uint64_t baseOffset,
+    std::vector<uint32_t> &offsets) {
+  if (!type) {
+    return;
+  }
+
+  if (type->getKind() == zir::TypeKind::Class) {
+    if (!isWeakClassType(type)) {
+      if (baseOffset > std::numeric_limits<uint32_t>::max()) {
+        throw std::runtime_error("ARC field offset exceeds runtime ABI");
+      }
+      offsets.push_back(static_cast<uint32_t>(baseOffset));
+    }
+    return;
+  }
+
+  if (type->getKind() == zir::TypeKind::Record) {
+    const auto &record = static_cast<const zir::RecordType &>(*type);
+    auto *recordTy = llvm::cast<llvm::StructType>(codegen_.toLLVMType(*type));
+    const auto *layout = codegen_.module_->getDataLayout().getStructLayout(recordTy);
+    for (size_t i = 0; i < record.getFields().size(); ++i) {
+      collectStrongReferenceOffsets(
+          record.getFields()[i].type, baseOffset + layout->getElementOffset(i),
+          offsets);
+    }
+    return;
+  }
+
+  if (type->getKind() == zir::TypeKind::Array) {
+    const auto &array = static_cast<const zir::ArrayType &>(*type);
+    auto *arrayTy = llvm::cast<llvm::ArrayType>(codegen_.toLLVMType(*type));
+    uint64_t elementSize =
+        codegen_.module_->getDataLayout().getTypeAllocSize(arrayTy->getElementType());
+    for (size_t i = 0; i < array.getSize(); ++i) {
+      collectStrongReferenceOffsets(array.getBaseType(),
+                                    baseOffset + i * elementSize, offsets);
+    }
+  }
 }
 
 bool ClassArcEmitter::isClassType(
@@ -478,10 +548,7 @@ void ClassArcEmitter::ensureClassArcSupport(
   codegen_.classDestroyFns_[classType->getCodegenName()] = destroyHelper;
 
   for (const auto &field : classType->getFields()) {
-    if (field.type && field.type->getKind() == zir::TypeKind::Class) {
-      ensureClassArcSupport(
-          std::static_pointer_cast<zir::ClassType>(field.type));
-    }
+    ensureNestedClassArcSupport(field.type);
   }
 
   if (!codegen_.classVTables_.count(classType->getCodegenName())) {
@@ -527,13 +594,11 @@ void ClassArcEmitter::ensureClassArcSupport(
     auto *layout = codegen_.module_->getDataLayout().getStructLayout(objectTy);
     for (size_t i = 0; i < classType->getFields().size(); ++i) {
       const auto &field = classType->getFields()[i];
-      if (!field.type || field.type->getKind() != zir::TypeKind::Class ||
-          isWeakClassType(field.type)) {
-        continue;
-      }
-      strongFieldOffsets.push_back(
-          static_cast<uint32_t>(layout->getElementOffset(
-              static_cast<unsigned>(i + kClassFieldStartIndex))));
+      collectStrongReferenceOffsets(
+          field.type,
+          layout->getElementOffset(static_cast<unsigned>(
+              i + kClassFieldStartIndex)),
+          strongFieldOffsets);
     }
 
     auto *i32Ty = llvm::Type::getInt32Ty(codegen_.ctx_);
@@ -611,7 +676,7 @@ void ClassArcEmitter::ensureClassArcSupport(
 
   for (size_t i = 0; i < classType->getFields().size(); ++i) {
     const auto &field = classType->getFields()[i];
-    if (!field.type || field.type->getKind() != zir::TypeKind::Class) {
+    if (!field.type || !codegen_.containsManagedValues(field.type)) {
       continue;
     }
     auto *fieldAddr = codegen_.builder_.CreateStructGEP(
@@ -619,11 +684,7 @@ void ClassArcEmitter::ensureClassArcSupport(
         static_cast<unsigned>(i + kClassFieldStartIndex));
     auto *fieldValue = codegen_.builder_.CreateLoad(
         codegen_.toLLVMType(*field.type), fieldAddr, field.name);
-    if (isWeakClassType(field.type)) {
-      emitReleaseWeakIfNeeded(fieldValue, field.type);
-    } else {
-      emitReleaseIfNeeded(fieldValue, field.type);
-    }
+    codegen_.emitManagedRelease(fieldValue, field.type);
   }
 
   auto *weakAddr = codegen_.builder_.CreateStructGEP(
