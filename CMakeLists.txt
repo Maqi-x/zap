@@ -77,6 +77,7 @@ target_compile_options(zap_type_layout PRIVATE -Wall -Wextra)
 target_link_libraries(zap_type_layout PUBLIC zap_type_system)
 
 add_library(zap_zir_verifier STATIC
+    src/ir/ownership_lowering.cpp
     src/ir/ownership_liveness.cpp
     src/ir/zir_verifier.cpp
     src/ir/zir_verifier_function.cpp

@@ -4,6 +4,7 @@
 #include "driver/process.hpp"
 #include "frontend/module_loader.hpp"
 #include "ir/ir_generator.hpp"
+#include "ir/ownership_lowering.hpp"
 #include "ir/zir_verifier.hpp"
 #include "lexer/lexer.hpp"
 #include "parser/parser.hpp"
@@ -418,6 +419,7 @@ std::unique_ptr<zir::Module> generateZIRModule(sema::BoundRootNode &node) {
   if (!module) {
     return nullptr;
   }
+  zir::lowerDeadOwnedResults(*module);
   auto verification = zir::ZirVerifier().verify(*module);
   if (!verification) {
     throw std::runtime_error("ZIR verification failed:\n" +

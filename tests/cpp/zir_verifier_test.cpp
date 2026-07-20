@@ -1,5 +1,6 @@
 #include "ir/string_type.hpp"
 #include "ir/ownership_liveness.hpp"
+#include "ir/ownership_lowering.hpp"
 #include "ir/zir_verifier.hpp"
 
 #include <iostream>
@@ -604,6 +605,29 @@ bool testReleaseConsumesOwnedValue() {
                 "double release of an owned value was not diagnosed");
 }
 
+bool testOwnershipLoweringReleasesDeadOwnedResults() {
+  Module module("ownership-lowering");
+  auto classType = std::make_shared<ClassType>("Node");
+  auto function =
+      std::make_unique<Function>("valid", primitive(TypeKind::Void));
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto result = reg("node", classType);
+  result->setOwnership(ValueOwnership::Owned);
+  entry->addInstruction(std::make_unique<zir::AllocInst>(result, classType));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  zir::lowerDeadOwnedResults(module);
+  const auto &instructions = module.getFunctions().front()->getBlocks().front()
+                                 ->getInstructions();
+  return expect(instructions.size() == 3 &&
+                    instructions[1]->getOpCode() == OpCode::Release,
+                "ownership lowering did not release a dead owned result") &&
+         expect(ZirVerifier().verify(module).ok(),
+                "ownership-lowered ZIR was rejected by the verifier");
+}
+
 bool testDominanceViolation() {
   Module module("dominance-violation");
   auto i32 = primitive(TypeKind::Int32);
@@ -690,6 +714,7 @@ int main() {
   ok = testPhiAllowsSeparateAlternativeOwnershipTransfers() && ok;
   ok = testOwnershipLivenessTracksPhiEdges() && ok;
   ok = testReleaseConsumesOwnedValue() && ok;
+  ok = testOwnershipLoweringReleasesDeadOwnedResults() && ok;
   ok = testDominanceViolation() && ok;
   ok = testPhiRequiresEveryPredecessor() && ok;
   return ok ? 0 : 1;
