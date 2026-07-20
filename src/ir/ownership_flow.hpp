@@ -50,9 +50,9 @@ private:
 
   const Module &module_;
   const Function &function_;
-  const BlockEdges &predecessors_;
-  const BlockEdges &successors_;
-  const std::unordered_set<const BasicBlock *> &reachable_;
+  BlockEdges predecessors_;
+  BlockEdges successors_;
+  std::unordered_set<const BasicBlock *> reachable_;
   OwnershipEdgeStates edgeStates_;
 };
 

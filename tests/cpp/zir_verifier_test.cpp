@@ -1,4 +1,5 @@
 #include "ir/string_type.hpp"
+#include "ir/ownership_flow.hpp"
 #include "ir/ownership_liveness.hpp"
 #include "ir/ownership_lowering.hpp"
 #include "ir/zir_verifier.hpp"
@@ -22,6 +23,8 @@ using zir::FunctionReference;
 using zir::LoadInst;
 using zir::Module;
 using zir::OpCode;
+using zir::OwnershipFlowAnalysis;
+using zir::OwnershipFlowState;
 using zir::PhiInst;
 using zir::PointerType;
 using zir::PrimitiveType;
@@ -586,6 +589,94 @@ bool testOwnershipLivenessTracksPhiEdges() {
                 "phi liveness did not transfer ownership to its result");
 }
 
+bool testOwnershipFlowTracksEdgesMergesAndLoops() {
+  auto classType = std::make_shared<ClassType>("Node");
+  auto boolean = primitive(TypeKind::Bool);
+  Module module("ownership-flow");
+
+  auto branchFunction =
+      std::make_unique<Function>("branch", primitive(TypeKind::Void));
+  auto value = std::make_shared<zir::Argument>("value", classType);
+  value->setOwnership(ValueOwnership::Owned);
+  branchFunction->arguments.push_back(value);
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CondBranchInst>(
+      std::make_shared<Constant>("true", boolean), "left", "right"));
+  auto left = std::make_unique<BasicBlock>("left");
+  left->addInstruction(std::make_unique<ReleaseInst>(value));
+  left->addInstruction(std::make_unique<BranchInst>("exit"));
+  auto right = std::make_unique<BasicBlock>("right");
+  right->addInstruction(std::make_unique<BranchInst>("exit"));
+  auto exit = std::make_unique<BasicBlock>("exit");
+  exit->addInstruction(std::make_unique<ReturnInst>());
+  auto *entryBlock = entry.get();
+  auto *leftBlock = left.get();
+  auto *rightBlock = right.get();
+  auto *exitBlock = exit.get();
+  branchFunction->addBlock(std::move(entry));
+  branchFunction->addBlock(std::move(left));
+  branchFunction->addBlock(std::move(right));
+  branchFunction->addBlock(std::move(exit));
+  OwnershipFlowAnalysis::BlockEdges predecessors{{entryBlock, {}},
+                                                  {leftBlock, {entryBlock}},
+                                                  {rightBlock, {entryBlock}},
+                                                  {exitBlock,
+                                                   {leftBlock, rightBlock}}};
+  OwnershipFlowAnalysis::BlockEdges successors{{entryBlock,
+                                                {leftBlock, rightBlock}},
+                                               {leftBlock, {exitBlock}},
+                                               {rightBlock, {exitBlock}},
+                                               {exitBlock, {}}};
+  OwnershipFlowAnalysis branchAnalysis(
+      module, *branchFunction, predecessors, successors,
+      {entryBlock, leftBlock, rightBlock, exitBlock});
+  const auto branchViolations = branchAnalysis.analyze();
+
+  auto loopFunction =
+      std::make_unique<Function>("loop", primitive(TypeKind::Void));
+  auto loopEntry = std::make_unique<BasicBlock>("entry");
+  auto node = reg("node", classType);
+  node->setOwnership(ValueOwnership::Owned);
+  loopEntry->addInstruction(std::make_unique<zir::AllocInst>(node, classType));
+  loopEntry->addInstruction(std::make_unique<BranchInst>("loop"));
+  auto loop = std::make_unique<BasicBlock>("loop");
+  loop->addInstruction(std::make_unique<CondBranchInst>(
+      std::make_shared<Constant>("true", boolean), "loop", "exit"));
+  auto loopExit = std::make_unique<BasicBlock>("exit");
+  loopExit->addInstruction(std::make_unique<ReturnInst>());
+  auto *loopEntryBlock = loopEntry.get();
+  auto *loopBlock = loop.get();
+  auto *loopExitBlock = loopExit.get();
+  loopFunction->addBlock(std::move(loopEntry));
+  loopFunction->addBlock(std::move(loop));
+  loopFunction->addBlock(std::move(loopExit));
+  OwnershipFlowAnalysis::BlockEdges loopPredecessors{
+      {loopEntryBlock, {}}, {loopBlock, {loopEntryBlock, loopBlock}},
+      {loopExitBlock, {loopBlock}}};
+  OwnershipFlowAnalysis::BlockEdges loopSuccessors{
+      {loopEntryBlock, {loopBlock}}, {loopBlock, {loopBlock, loopExitBlock}},
+      {loopExitBlock, {}}};
+  OwnershipFlowAnalysis loopAnalysis(
+      module, *loopFunction, loopPredecessors, loopSuccessors,
+      {loopEntryBlock, loopBlock, loopExitBlock});
+  const auto loopViolations = loopAnalysis.analyze();
+
+  return expect(branchViolations.empty(),
+                "ownership flow reported a false branch transfer violation") &&
+         expect(branchAnalysis.stateOnEdge(*leftBlock, *exitBlock, value) ==
+                    OwnershipFlowState::Consumed &&
+                    branchAnalysis.stateOnEdge(*rightBlock, *exitBlock, value) ==
+                        OwnershipFlowState::Available,
+                "ownership flow did not preserve per-edge branch states") &&
+         expect(loopViolations.empty(),
+                "ownership flow reported a false loop transfer violation") &&
+         expect(loopAnalysis.stateOnEdge(*loopBlock, *loopBlock, node) ==
+                    OwnershipFlowState::Available &&
+                    loopAnalysis.stateOnEdge(*loopBlock, *loopExitBlock, node) ==
+                        OwnershipFlowState::Available,
+                "ownership flow did not reach a stable loop state");
+}
+
 bool testReleaseConsumesOwnedValue() {
   Module module("release-ownership");
   auto stringType = zir::makeStringType();
@@ -822,6 +913,7 @@ int main() {
   ok = testPhiTransfersOwnershipOnIncomingEdge() && ok;
   ok = testPhiAllowsSeparateAlternativeOwnershipTransfers() && ok;
   ok = testOwnershipLivenessTracksPhiEdges() && ok;
+  ok = testOwnershipFlowTracksEdgesMergesAndLoops() && ok;
   ok = testReleaseConsumesOwnedValue() && ok;
   ok = testOwnershipLoweringReleasesDeadOwnedResults() && ok;
   ok = testOwnershipLoweringReleasesAtLastLocalUse() && ok;

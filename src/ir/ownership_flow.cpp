@@ -169,7 +169,9 @@ std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
           function_.getBlocks().front().get() == &block) {
         states = entryStates;
       } else {
-        for (const auto *predecessor : predecessors_.at(&block)) {
+        const auto predecessors = predecessors_.find(&block);
+        if (predecessors != predecessors_.end()) {
+          for (const auto *predecessor : predecessors->second) {
           if (reachable_.count(predecessor) == 0) {
             continue;
           }
@@ -183,6 +185,7 @@ std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
           }
           for (const auto &[value, state] : destinationStates->second) {
             states[value] |= state;
+          }
           }
         }
       }
@@ -236,7 +239,11 @@ std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
           states[result.get()] = available;
         }
       }
-      for (const auto *successor : successors_.at(&block)) {
+      const auto successors = successors_.find(&block);
+      if (successors == successors_.end()) {
+        continue;
+      }
+      for (const auto *successor : successors->second) {
         auto edgeState = states;
         for (size_t i = 0; i < successor->getInstructions().size(); ++i) {
           const auto &instruction = successor->getInstructions()[i];
