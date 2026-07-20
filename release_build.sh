@@ -262,33 +262,6 @@ install_core() {
   ln -sfn "$install_root/zap-lsp" "$bin_dir/zap-lsp"
 }
 
-install_lazy_spec() {
-  local install_root=$1
-  local target_root="${XDG_CONFIG_HOME:-$HOME/.config}/nvim/lua/plugins"
-  local target_file="$target_root/zap.lua"
-
-  mkdir -p "$target_root"
-  cat > "$target_file" <<LUA_EOF
-return {
-  {
-    dir = "$install_root/lsp/nvim",
-    name = "zap.nvim",
-    lazy = false,
-  },
-}
-LUA_EOF
-  success "Created lazy.nvim spec at $target_file"
-}
-
-install_init_lua() {
-  local install_root=$1
-  local init_lua="${XDG_CONFIG_HOME:-$HOME/.config}/nvim/init.lua"
-  local line="vim.opt.runtimepath:append(\"$install_root/lsp/nvim\")"
-
-  ensure_line "$line" "$init_lua"
-  success "Updated $init_lua"
-}
-
 install_vscode_extension() {
   local install_root=$1
   local cli=$2
@@ -304,7 +277,6 @@ require_path "$SCRIPT_DIR/zapc"
 require_path "$SCRIPT_DIR/zap-lsp"
 require_path "$SCRIPT_DIR/stdlib.o"
 require_path "$SCRIPT_DIR/std"
-require_path "$SCRIPT_DIR/lsp/nvim"
 require_path "$SCRIPT_DIR/lsp/vscode/zap/zap-0.0.1.vsix"
 
 printf '%sPackage root:%s %s\n\n' "$C_DIM" "$C_RESET" "$SCRIPT_DIR"
@@ -328,7 +300,7 @@ info "Installing Zap runtime into $INSTALL_ROOT"
 info "Creating command symlinks in $BIN_DIR"
 maybe_confirm_reinstall "$INSTALL_ROOT"
 install_core "$INSTALL_ROOT" "$BIN_DIR"
-success "Installed zapc, zap-lsp, stdlib.o, std/, and bundled LSP assets"
+success "Installed zapc, zap-lsp, stdlib.o, std/, and bundled VS Code assets"
 
 if printf '%s' ":$PATH:" | grep -Fq ":$BIN_DIR:"; then
   success "$BIN_DIR is already in PATH"
@@ -340,20 +312,6 @@ else
   else
     warn "Skipped PATH update. You may need to add $BIN_DIR manually."
   fi
-fi
-
-printf '\n'
-if confirm "Install Neovim support?" Y; then
-  NVIM_CHOICE=$(choose "Neovim setup" \
-    "lazy.nvim spec" \
-    "Append runtimepath to init.lua" \
-    "Skip editor config")
-  printf '\n'
-  case "$NVIM_CHOICE" in
-    1) install_lazy_spec "$INSTALL_ROOT" ;;
-    2) install_init_lua "$INSTALL_ROOT" ;;
-    3) warn "Skipped Neovim config" ;;
-  esac
 fi
 
 printf '\n'
