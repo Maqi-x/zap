@@ -207,6 +207,13 @@ public:
 };
 
 class CallInst : public Instruction {
+public:
+  enum class ResultOwnership {
+    Borrowed,
+    Owned,
+  };
+
+private:
   std::shared_ptr<Value> result;
   std::string funcName;
   std::shared_ptr<Value> calleeValue; // non-null for indirect calls
@@ -214,27 +221,33 @@ class CallInst : public Instruction {
   std::vector<bool> argIsRef;
   std::shared_ptr<Value> variadicPack;
   bool returnsRef_ = false;
+  ResultOwnership resultOwnership_ = ResultOwnership::Borrowed;
 
 public:
   CallInst(std::shared_ptr<Value> res, std::string name,
            std::vector<std::shared_ptr<Value>> arguments,
            std::vector<bool> argumentIsRef = {},
-           std::shared_ptr<Value> pack = nullptr, bool returnsRef = false)
+           std::shared_ptr<Value> pack = nullptr, bool returnsRef = false,
+           ResultOwnership resultOwnership = ResultOwnership::Borrowed)
       : result(std::move(res)), funcName(std::move(name)),
         args(std::move(arguments)), argIsRef(std::move(argumentIsRef)),
-        variadicPack(std::move(pack)), returnsRef_(returnsRef) {}
+        variadicPack(std::move(pack)), returnsRef_(returnsRef),
+        resultOwnership_(resultOwnership) {}
   // Indirect call constructor
   CallInst(std::shared_ptr<Value> res, std::shared_ptr<Value> callee,
            std::vector<std::shared_ptr<Value>> arguments,
-           bool returnsRef = false)
+           bool returnsRef = false,
+           ResultOwnership resultOwnership = ResultOwnership::Borrowed)
       : result(std::move(res)), calleeValue(std::move(callee)),
-        args(std::move(arguments)), returnsRef_(returnsRef) {}
+        args(std::move(arguments)), returnsRef_(returnsRef),
+        resultOwnership_(resultOwnership) {}
   OpCode getOpCode() const override { return OpCode::Call; }
   const std::shared_ptr<Value> &getResult() const { return result; }
   const std::string &getFunctionName() const { return funcName; }
   const std::shared_ptr<Value> &getCalleeValue() const { return calleeValue; }
   bool isIndirect() const { return calleeValue != nullptr; }
   bool returnsRef() const { return returnsRef_; }
+  ResultOwnership getResultOwnership() const { return resultOwnership_; }
   const std::vector<std::shared_ptr<Value>> &getArguments() const {
     return args;
   }

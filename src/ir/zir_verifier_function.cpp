@@ -621,6 +621,14 @@ private:
       }
       expectSameType(call.getResult()->getType(), expectedReturnType, block,
                      index, "call result type");
+      const auto expectedOwnership =
+          call.getResultOwnership() == CallInst::ResultOwnership::Owned
+              ? ValueOwnership::Owned
+              : ValueOwnership::Borrowed;
+      if (call.getResult()->getOwnership() != expectedOwnership) {
+        error(VerificationErrorCode::InvalidResult, &block, index,
+              "call result ownership does not match call metadata");
+      }
     }
     if (!call.getArgumentIsRef().empty() &&
         call.getArgumentIsRef().size() != call.getArguments().size()) {

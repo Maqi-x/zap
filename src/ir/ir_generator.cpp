@@ -723,10 +723,15 @@ void BoundIRGenerator::visit(sema::BoundFunctionCall &node) {
                         ? std::static_pointer_cast<zir::Type>(
                               std::make_shared<PointerType>(node.type))
                         : node.type;
-  auto reg = createRegister(resultType);
+  const bool ownsResult = !node.symbol->returnsRef &&
+                          node.type->getKind() == TypeKind::Class;
+  auto reg = createRegister(resultType, ownsResult ? ValueOwnership::Owned
+                                                    : ValueOwnership::Borrowed);
   currentBlock_->addInstruction(std::make_unique<CallInst>(
       reg, node.symbol->linkName, args, node.argumentIsRef, variadicPack,
-      node.symbol->returnsRef));
+      node.symbol->returnsRef,
+      ownsResult ? CallInst::ResultOwnership::Owned
+                 : CallInst::ResultOwnership::Borrowed));
 
   // If ref-returning function is used as value (not address), load it
   if (node.symbol->returnsRef && !evaluateAsAddress_) {
