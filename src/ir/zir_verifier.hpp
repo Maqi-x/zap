@@ -27,6 +27,7 @@ enum class VerificationErrorCode {
   InvalidCall,
   InvalidPhi,
   InvalidReturn,
+  OwnershipViolation,
 };
 
 struct VerificationError {

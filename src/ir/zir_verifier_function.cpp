@@ -34,6 +34,7 @@ public:
     collectDefinitionsAndEdges();
     computeDominators();
     verifyInstructions();
+    verifyOwnershipTransfers();
   }
 
 private:
@@ -56,6 +57,12 @@ private:
   std::unordered_set<const BasicBlock *> reachable_;
   std::unordered_map<const BasicBlock *, std::unordered_set<const BasicBlock *>>
       dominators_;
+
+  enum OwnershipState : unsigned char {
+    OwnershipAvailable = 1 << 0,
+    OwnershipConsumed = 1 << 1,
+  };
+  using OwnershipStates = std::unordered_map<const Value *, unsigned char>;
 
   void error(VerificationErrorCode code, const BasicBlock *block,
              std::optional<size_t> instructionIndex, std::string message) {
@@ -294,6 +301,175 @@ private:
         const auto &instruction = block.getInstructions()[i];
         if (instruction) {
           verifyInstruction(*instruction, block, i);
+        }
+      }
+    }
+  }
+
+  static bool ownsManagedValue(const std::shared_ptr<Value> &value) {
+    return value && value->getOwnership() == ValueOwnership::Owned &&
+           containsManagedValues(value->getType());
+  }
+
+  bool isBorrowedMethodSelf(const CallInst &call, size_t argumentIndex) const {
+    if (call.isIndirect() || argumentIndex != 0) {
+      return false;
+    }
+    const auto *callee = module_.findFunction(call.getFunctionName());
+    return callee && !callee->ownerTypeCodegenName.empty() &&
+           !callee->getArguments().empty() && callee->getArguments().front() &&
+           callee->getArguments().front()->getRawName() == "self";
+  }
+
+  static bool transfersThroughCast(const CastInst &cast) {
+    if (!ownsManagedValue(cast.getSource()) || !cast.getTargetType()) {
+      return false;
+    }
+    return cast.getResult() &&
+           (cast.getResult()->getOwnership() == ValueOwnership::Owned ||
+            cast.getTargetType()->getIntrinsicKind() ==
+                IntrinsicTypeKind::StringView);
+  }
+
+  bool transfersThroughCallArgument(const CallInst &call,
+                                    size_t argumentIndex) const {
+    if (argumentIndex >= call.getArguments().size() ||
+        argumentIndex >= call.getArgumentOwnerships().size() ||
+        !ownsManagedValue(call.getArguments()[argumentIndex]) ||
+        call.getArgumentOwnerships()[argumentIndex] != ValueOwnership::Owned ||
+        (argumentIndex < call.getArgumentIsRef().size() &&
+         call.getArgumentIsRef()[argumentIndex])) {
+      return false;
+    }
+    const auto &type = call.getArguments()[argumentIndex]->getType();
+    if (type->getIntrinsicKind() == IntrinsicTypeKind::String) {
+      return true;
+    }
+    return !call.isIndirect() && type->getKind() == TypeKind::Class &&
+           !isBorrowedMethodSelf(call, argumentIndex);
+  }
+
+  void consumeOwnership(OwnershipStates &states,
+                        const std::shared_ptr<Value> &value,
+                        const BasicBlock &block, size_t instructionIndex,
+                        const char *operation,
+                        std::unordered_set<std::string> &reported) {
+    if (!ownsManagedValue(value)) {
+      return;
+    }
+    auto &state = states[value.get()];
+    if (state == 0) {
+      state = OwnershipAvailable;
+    }
+    if ((state & OwnershipConsumed) != 0) {
+      const auto key = block.label + ":" + std::to_string(instructionIndex) +
+                       ":" + value->getName();
+      if (reported.insert(key).second) {
+        error(VerificationErrorCode::OwnershipViolation, &block,
+              instructionIndex,
+              std::string("owned value is transferred more than once by ") +
+                  operation + ": " + value->getName());
+      }
+    }
+    state = OwnershipConsumed;
+  }
+
+  OwnershipStates mergeOwnershipStates(
+      const BasicBlock &block, const OwnershipStates &entryStates,
+      const std::unordered_map<const BasicBlock *, OwnershipStates> &outStates)
+      const {
+    if (!function_.getBlocks().empty() &&
+        function_.getBlocks().front().get() == &block) {
+      return entryStates;
+    }
+    OwnershipStates merged;
+    for (const auto *predecessor : predecessors_.at(&block)) {
+      if (reachable_.count(predecessor) == 0) {
+        continue;
+      }
+      const auto stateIt = outStates.find(predecessor);
+      if (stateIt == outStates.end()) {
+        continue;
+      }
+      for (const auto &[value, state] : stateIt->second) {
+        merged[value] |= state;
+      }
+    }
+    return merged;
+  }
+
+  void verifyOwnershipTransfers() {
+    OwnershipStates entryStates;
+    for (const auto &argument : function_.getArguments()) {
+      if (ownsManagedValue(argument)) {
+        entryStates[argument.get()] = OwnershipAvailable;
+      }
+    }
+
+    std::unordered_map<const BasicBlock *, OwnershipStates> outStates;
+    std::unordered_set<std::string> reported;
+    bool changed = true;
+    while (changed) {
+      changed = false;
+      for (const auto &blockOwner : function_.getBlocks()) {
+        if (!blockOwner || reachable_.count(blockOwner.get()) == 0) {
+          continue;
+        }
+        const auto &block = *blockOwner;
+        auto states = mergeOwnershipStates(block, entryStates, outStates);
+        for (size_t i = 0; i < block.getInstructions().size(); ++i) {
+          const auto &instruction = block.getInstructions()[i];
+          if (!instruction) {
+            continue;
+          }
+          switch (instruction->getOpCode()) {
+          case OpCode::Store: {
+            const auto &store = static_cast<const StoreInst &>(*instruction);
+            if (store.getSourceOwnership() == ValueOwnership::Owned) {
+              consumeOwnership(states, store.getSource(), block, i, "store",
+                               reported);
+            }
+            break;
+          }
+          case OpCode::Ret: {
+            const auto &ret = static_cast<const ReturnInst &>(*instruction);
+            if (ret.getValueOwnership() == ValueOwnership::Owned) {
+              consumeOwnership(states, ret.getValue(), block, i, "return",
+                               reported);
+            }
+            break;
+          }
+          case OpCode::Cast: {
+            const auto &cast = static_cast<const CastInst &>(*instruction);
+            if (transfersThroughCast(cast)) {
+              consumeOwnership(states, cast.getSource(), block, i, "cast",
+                               reported);
+            }
+            break;
+          }
+          case OpCode::Call: {
+            const auto &call = static_cast<const CallInst &>(*instruction);
+            for (size_t argumentIndex = 0;
+                 argumentIndex < call.getArguments().size(); ++argumentIndex) {
+              if (transfersThroughCallArgument(call, argumentIndex)) {
+                consumeOwnership(states, call.getArguments()[argumentIndex],
+                                 block, i, "call", reported);
+              }
+            }
+            break;
+          }
+          default:
+            break;
+          }
+
+          if (const auto result = instructionResult(*instruction);
+              ownsManagedValue(result)) {
+            states[result.get()] = OwnershipAvailable;
+          }
+        }
+        if (outStates[&block] != states) {
+          outStates[&block] = std::move(states);
+          changed = true;
         }
       }
     }

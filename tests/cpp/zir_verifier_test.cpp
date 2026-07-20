@@ -424,6 +424,44 @@ bool testCallRequiresOwnershipMatchingArguments() {
       "borrowed call metadata for an owned argument was not diagnosed");
 }
 
+bool testOwnershipTransferAcrossControlFlow() {
+  Module module("ownership-control-flow");
+  auto classType = std::make_shared<ClassType>("Node");
+  auto boolean = primitive(TypeKind::Bool);
+  auto function = std::make_unique<Function>("broken", classType);
+  auto value = std::make_shared<zir::Argument>("value", classType);
+  value->setOwnership(ValueOwnership::Owned);
+  function->arguments.push_back(value);
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CondBranchInst>(
+      std::make_shared<Constant>("true", boolean), "consume", "skip"));
+
+  auto consume = std::make_unique<BasicBlock>("consume");
+  auto slot = reg("slot", std::make_shared<PointerType>(classType));
+  consume->addInstruction(std::make_unique<zir::AllocaInst>(slot, classType));
+  consume->addInstruction(
+      std::make_unique<StoreInst>(value, slot, StoreMode::Assign));
+  consume->addInstruction(std::make_unique<BranchInst>("merge"));
+
+  auto skip = std::make_unique<BasicBlock>("skip");
+  skip->addInstruction(std::make_unique<BranchInst>("merge"));
+
+  auto merge = std::make_unique<BasicBlock>("merge");
+  merge->addInstruction(std::make_unique<ReturnInst>(value));
+
+  function->addBlock(std::move(entry));
+  function->addBlock(std::move(consume));
+  function->addBlock(std::move(skip));
+  function->addBlock(std::move(merge));
+  module.addFunction(std::move(function));
+
+  auto verification = ZirVerifier().verify(module);
+  return expect(
+      hasError(verification, VerificationErrorCode::OwnershipViolation),
+      "double ownership transfer across control flow was not diagnosed");
+}
+
 bool testDominanceViolation() {
   Module module("dominance-violation");
   auto i32 = primitive(TypeKind::Int32);
@@ -505,6 +543,7 @@ int main() {
   ok = testStoreRequiresOwnershipMatchingSource() && ok;
   ok = testCastRequiresOwnershipMatchingSourceAndTarget() && ok;
   ok = testCallRequiresOwnershipMatchingArguments() && ok;
+  ok = testOwnershipTransferAcrossControlFlow() && ok;
   ok = testDominanceViolation() && ok;
   ok = testPhiRequiresEveryPredecessor() && ok;
   return ok ? 0 : 1;
