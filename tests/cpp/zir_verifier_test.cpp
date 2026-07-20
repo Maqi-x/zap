@@ -1,4 +1,5 @@
 #include "ir/string_type.hpp"
+#include "ir/ownership_liveness.hpp"
 #include "ir/zir_verifier.hpp"
 
 #include <iostream>
@@ -541,6 +542,46 @@ bool testPhiAllowsSeparateAlternativeOwnershipTransfers() {
                     verification.format());
 }
 
+bool testOwnershipLivenessTracksPhiEdges() {
+  auto classType = std::make_shared<ClassType>("Node");
+  auto boolean = primitive(TypeKind::Bool);
+  auto function = std::make_unique<Function>("liveness", classType);
+  auto value = std::make_shared<zir::Argument>("value", classType);
+  value->setOwnership(ValueOwnership::Owned);
+  function->arguments.push_back(value);
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CondBranchInst>(
+      std::make_shared<Constant>("true", boolean), "left", "right"));
+  auto left = std::make_unique<BasicBlock>("left");
+  left->addInstruction(std::make_unique<BranchInst>("merge"));
+  auto right = std::make_unique<BasicBlock>("right");
+  right->addInstruction(std::make_unique<BranchInst>("merge"));
+  auto merge = std::make_unique<BasicBlock>("merge");
+  auto result = reg("result", classType);
+  result->setOwnership(ValueOwnership::Owned);
+  merge->addInstruction(std::make_unique<PhiInst>(
+      result, std::vector<std::pair<std::string, std::shared_ptr<zir::Value>>>{
+                  {"left", value}, {"right", value}}));
+  merge->addInstruction(std::make_unique<ReturnInst>(result));
+
+  auto *leftBlock = left.get();
+  auto *rightBlock = right.get();
+  auto *mergeBlock = merge.get();
+  function->addBlock(std::move(entry));
+  function->addBlock(std::move(left));
+  function->addBlock(std::move(right));
+  function->addBlock(std::move(merge));
+
+  const auto liveness = zir::analyzeOwnershipLiveness(*function);
+  return expect(liveness.isLiveOnEdge(*leftBlock, *mergeBlock, value) &&
+                    liveness.isLiveOnEdge(*rightBlock, *mergeBlock, value),
+                "owned phi inputs were not live on their incoming edges") &&
+         expect(!liveness.isLiveAtBlockEntry(*mergeBlock, value) &&
+                    liveness.isLiveAfter(*mergeBlock, 0, result),
+                "phi liveness did not transfer ownership to its result");
+}
+
 bool testDominanceViolation() {
   Module module("dominance-violation");
   auto i32 = primitive(TypeKind::Int32);
@@ -625,6 +666,7 @@ int main() {
   ok = testOwnershipTransferAcrossControlFlow() && ok;
   ok = testPhiTransfersOwnershipOnIncomingEdge() && ok;
   ok = testPhiAllowsSeparateAlternativeOwnershipTransfers() && ok;
+  ok = testOwnershipLivenessTracksPhiEdges() && ok;
   ok = testDominanceViolation() && ok;
   ok = testPhiRequiresEveryPredecessor() && ok;
   return ok ? 0 : 1;
