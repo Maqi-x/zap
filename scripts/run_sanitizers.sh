@@ -10,7 +10,8 @@ cmake -S "$repo_dir" -B "$build_dir" \
   -DCMAKE_C_COMPILER="${CC:-clang}" \
   -DCMAKE_CXX_COMPILER="${CXX:-clang++}" \
   -DINCLUDE_LSP=OFF \
-  -DZAP_ENABLE_SANITIZERS=ON
+  -DZAP_ENABLE_SANITIZERS=ON \
+  -DZAP_ENABLE_RUNTIME_INSTRUMENTATION=ON
 cmake --build "$build_dir" --parallel
 
 leak_detection="${ZAP_DETECT_LEAKS:-1}"

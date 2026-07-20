@@ -39,6 +39,9 @@ public:
 private:
   llvm::Function *getOrCreateRefcountFailureFunction(const char *name);
   void emitRefcountFailure(const char *name);
+#if defined(ZAP_RUNTIME_INSTRUMENTATION)
+  void emitRuntimeOwnershipEvent(const char *name);
+#endif
   void ensureNestedClassArcSupport(const std::shared_ptr<zir::Type> &type);
   void collectStrongReferenceOffsets(const std::shared_ptr<zir::Type> &type,
                                      uint64_t baseOffset,

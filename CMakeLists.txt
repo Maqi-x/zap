@@ -17,6 +17,14 @@ if(ZAP_ENABLE_SANITIZERS)
     add_link_options(-fsanitize=address,undefined)
 endif()
 
+option(ZAP_ENABLE_RUNTIME_INSTRUMENTATION
+       "Emit test-only runtime ownership instrumentation" OFF)
+
+set(ZAP_STDLIB_COMPILE_DEFINITIONS)
+if(ZAP_ENABLE_RUNTIME_INSTRUMENTATION)
+    list(APPEND ZAP_STDLIB_COMPILE_DEFINITIONS -DZAP_RUNTIME_INSTRUMENTATION=1)
+endif()
+
 # Accept the system LLVM version and handle API differences in code when needed.
 find_package(LLVM REQUIRED CONFIG)
 
@@ -84,8 +92,10 @@ target_compile_options(zapc PRIVATE -Wall -Wextra)
 
 add_custom_command(
     OUTPUT ${CMAKE_BINARY_DIR}/stdlib.o
-    COMMAND ${CMAKE_C_COMPILER} -c ${CMAKE_SOURCE_DIR}/src/stdlib.c -o ${CMAKE_BINARY_DIR}/stdlib.o
+    COMMAND ${CMAKE_C_COMPILER} ${ZAP_STDLIB_COMPILE_DEFINITIONS} -c ${CMAKE_SOURCE_DIR}/src/stdlib.c -o ${CMAKE_BINARY_DIR}/stdlib.o
     DEPENDS ${CMAKE_SOURCE_DIR}/src/stdlib.c
+            ${CMAKE_SOURCE_DIR}/src/runtime/arc_layout.h
+            ${CMAKE_SOURCE_DIR}/src/runtime/string_layout.h
     COMMENT "Compiling stdlib.c"
 )
 
@@ -121,6 +131,9 @@ target_compile_definitions(zapc PRIVATE ${LLVM_DEFINITIONS})
 target_compile_definitions(zapc PRIVATE ZAPC_STDLIB_PATH="${CMAKE_BINARY_DIR}/stdlib.o")
 target_compile_definitions(zapc PRIVATE ZAPC_CORE_DIR="${CMAKE_SOURCE_DIR}/core")
 target_compile_definitions(zapc PRIVATE ZAPC_STDLIB_DIR="${CMAKE_SOURCE_DIR}/std")
+if(ZAP_ENABLE_RUNTIME_INSTRUMENTATION)
+    target_compile_definitions(zapc PRIVATE ZAP_RUNTIME_INSTRUMENTATION=1)
+endif()
 
 include(cmake/doxygen.cmake)
 
@@ -145,6 +158,27 @@ if(BUILD_TESTING)
     target_link_libraries(zap-zir-verifier-tests PRIVATE zap_zir_verifier)
     target_compile_options(zap-zir-verifier-tests PRIVATE -Wall -Wextra)
     add_test(NAME zir-verifier COMMAND zap-zir-verifier-tests)
+
+    add_executable(zap-runtime-instrumentation-tests
+        tests/cpp/runtime_instrumentation_test.c
+        src/stdlib.c
+    )
+    target_include_directories(zap-runtime-instrumentation-tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
+    target_compile_definitions(zap-runtime-instrumentation-tests PRIVATE ZAP_RUNTIME_INSTRUMENTATION=1)
+    target_compile_options(zap-runtime-instrumentation-tests PRIVATE -Wall -Wextra)
+    target_link_libraries(zap-runtime-instrumentation-tests PRIVATE m)
+    add_test(NAME runtime-instrumentation COMMAND zap-runtime-instrumentation-tests)
+
+    if(ZAP_ENABLE_RUNTIME_INSTRUMENTATION)
+        add_test(
+            NAME runtime-instrumentation-ir
+            COMMAND ${CMAKE_COMMAND}
+                -DZAPC=$<TARGET_FILE:zapc>
+                -DINPUT=${CMAKE_SOURCE_DIR}/tests/class_arc_test.zp
+                -DOUTPUT=${CMAKE_BINARY_DIR}/runtime-instrumentation.ll
+                -P ${CMAKE_SOURCE_DIR}/tests/cmake/check_runtime_instrumentation_ir.cmake
+        )
+    endif()
 endif()
 
 option(INCLUDE_LSP "Should the LSP binary be compiled" ON)

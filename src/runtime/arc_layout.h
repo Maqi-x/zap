@@ -36,6 +36,19 @@ typedef struct zap_arc_header_t {
   void **vtable;
 } zap_arc_header_t;
 
+#if defined(ZAP_RUNTIME_INSTRUMENTATION)
+typedef struct zap_runtime_ownership_counters_t {
+  uint64_t allocations;
+  uint64_t strong_retain_calls;
+  uint64_t strong_release_calls;
+  uint64_t destroy_calls;
+  uint64_t candidate_roots;
+  uint64_t collection_runs;
+  uint64_t visited_objects;
+  uint64_t reclaimed_objects;
+} zap_runtime_ownership_counters_t;
+#endif
+
 #if defined(__cplusplus)
 #define ZAP_ARC_STATIC_ASSERT(condition, message) static_assert(condition, message)
 extern "C" {
@@ -51,6 +64,15 @@ void zap_arc_strong_refcount_overflow(void);
 void zap_arc_weak_refcount_overflow(void);
 void zap_arc_strong_refcount_underflow(void);
 void zap_arc_weak_refcount_underflow(void);
+
+#if defined(ZAP_RUNTIME_INSTRUMENTATION)
+void zap_runtime_ownership_reset_counters(void);
+void zap_runtime_ownership_snapshot_counters(
+    zap_runtime_ownership_counters_t *out);
+void zap_runtime_ownership_note_strong_retain(void);
+void zap_runtime_ownership_note_strong_release(void);
+void zap_runtime_ownership_note_destroy(void);
+#endif
 
 #if defined(__cplusplus)
 }

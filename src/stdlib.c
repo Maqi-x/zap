@@ -34,6 +34,34 @@ static int zap_arc_collecting = 0;
 static int zap_net_last_error = 0;
 static long zap_fs_last_error_code = 0;
 
+#if defined(ZAP_RUNTIME_INSTRUMENTATION)
+static zap_runtime_ownership_counters_t zap_runtime_ownership_counters;
+
+void zap_runtime_ownership_reset_counters(void) {
+  memset(&zap_runtime_ownership_counters, 0,
+         sizeof(zap_runtime_ownership_counters));
+}
+
+void zap_runtime_ownership_snapshot_counters(
+    zap_runtime_ownership_counters_t *out) {
+  if (out) {
+    *out = zap_runtime_ownership_counters;
+  }
+}
+
+void zap_runtime_ownership_note_strong_retain(void) {
+  ++zap_runtime_ownership_counters.strong_retain_calls;
+}
+
+void zap_runtime_ownership_note_strong_release(void) {
+  ++zap_runtime_ownership_counters.strong_release_calls;
+}
+
+void zap_runtime_ownership_note_destroy(void) {
+  ++zap_runtime_ownership_counters.destroy_calls;
+}
+#endif
+
 static void zap_runtime_out_of_memory(void) {
   fputs("zap runtime error: out of memory\n", stderr);
   abort();
@@ -50,6 +78,9 @@ void *zap_runtime_alloc(size_t size) {
   if (!allocation) {
     zap_runtime_out_of_memory();
   }
+#if defined(ZAP_RUNTIME_INSTRUMENTATION)
+  ++zap_runtime_ownership_counters.allocations;
+#endif
   return allocation;
 }
 
@@ -126,6 +157,9 @@ void zap_arc_add_possible_root(void *object) {
 
   header->gc_mark |= ZAP_ARC_GC_BUFFERED;
   zap_arc_roots[zap_arc_root_count++] = object;
+#if defined(ZAP_RUNTIME_INSTRUMENTATION)
+  ++zap_runtime_ownership_counters.candidate_roots;
+#endif
 }
 
 void zap_arc_remove_possible_root(void *object) {
@@ -285,6 +319,9 @@ void zap_arc_cycle_collect(void) {
     return;
   }
   zap_arc_collecting = 1;
+#if defined(ZAP_RUNTIME_INSTRUMENTATION)
+  ++zap_runtime_ownership_counters.collection_runs;
+#endif
 
   if (zap_arc_root_count > zap_arc_snap_cap) {
     void **next = (void **)zap_runtime_realloc_array(
@@ -333,6 +370,10 @@ void zap_arc_cycle_collect(void) {
       }
     }
   }
+
+#if defined(ZAP_RUNTIME_INSTRUMENTATION)
+  zap_runtime_ownership_counters.visited_objects += ws_count;
+#endif
 
   zap_arc_ensure_scratch(ws_count);
   int *incoming = zap_arc_incoming;
@@ -389,6 +430,9 @@ void zap_arc_cycle_collect(void) {
     }
     header->gc_mark = ZAP_ARC_GC_GARBAGE;
     header->strong_count = 1;
+#if defined(ZAP_RUNTIME_INSTRUMENTATION)
+    ++zap_runtime_ownership_counters.reclaimed_objects;
+#endif
   }
   for (size_t i = 0; i < ws_count; ++i) {
     zap_arc_header_t *header = (zap_arc_header_t *)zap_arc_ws[i];
