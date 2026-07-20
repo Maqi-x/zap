@@ -1,3 +1,4 @@
+#include "ir/string_type.hpp"
 #include "ir/zir_verifier.hpp"
 
 #include <iostream>
@@ -13,6 +14,8 @@ using zir::CmpInst;
 using zir::CondBranchInst;
 using zir::Constant;
 using zir::Function;
+using zir::FunctionPointerType;
+using zir::FunctionReference;
 using zir::LoadInst;
 using zir::Module;
 using zir::OpCode;
@@ -247,6 +250,47 @@ bool testWeakLockRequiresOwnedStrongResult() {
                 "borrowed weak.lock result was not diagnosed");
 }
 
+bool testManagedCallRequiresOwnedResult() {
+  Module module("managed-call-ownership");
+  auto stringType = zir::makeStringType();
+  auto functionType = std::make_shared<FunctionPointerType>(
+      std::vector<std::shared_ptr<Type>>{}, stringType);
+  auto callee =
+      std::make_shared<FunctionReference>("make_string", functionType);
+  auto function =
+      std::make_unique<Function>("broken", primitive(TypeKind::Void));
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto result = reg("text", stringType);
+  entry->addInstruction(std::make_unique<zir::CallInst>(
+      result, callee, std::vector<std::shared_ptr<zir::Value>>{}, false,
+      zir::CallInst::ResultOwnership::Owned));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  auto verification = ZirVerifier().verify(module);
+  return expect(hasError(verification, VerificationErrorCode::InvalidResult),
+                "borrowed managed call result was not diagnosed");
+}
+
+bool testManagedTypeClassification() {
+  auto stringType = zir::makeStringType();
+  auto stringViewType = zir::makeStringViewType();
+  auto record = std::make_shared<zir::RecordType>("TextBox");
+  record->addField("text", stringType);
+  auto array = std::make_shared<zir::ArrayType>(record, 2);
+
+  return expect(zir::containsManagedValues(stringType),
+                "String was not classified as managed") &&
+         expect(!zir::containsManagedValues(stringViewType),
+                "StringView was classified as managed") &&
+         expect(zir::containsManagedValues(record),
+                "record containing String was not classified as managed") &&
+         expect(
+             zir::containsManagedValues(array),
+             "array containing managed records was not classified as managed");
+}
+
 bool testDominanceViolation() {
   Module module("dominance-violation");
   auto i32 = primitive(TypeKind::Int32);
@@ -321,6 +365,8 @@ int main() {
   ok = testStoreModeRendering() && ok;
   ok = testAllocRequiresOwnedResult() && ok;
   ok = testWeakLockRequiresOwnedStrongResult() && ok;
+  ok = testManagedCallRequiresOwnedResult() && ok;
+  ok = testManagedTypeClassification() && ok;
   ok = testDominanceViolation() && ok;
   ok = testPhiRequiresEveryPredecessor() && ok;
   return ok ? 0 : 1;

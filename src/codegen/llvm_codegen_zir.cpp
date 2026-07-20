@@ -745,6 +745,19 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         zirOwnedStringValues_.erase(argument.value);
       }
     };
+    auto markOwnedResult = [&]() {
+      if (!callInst.getResult() || callInst.getResultOwnership() !=
+                                       zir::CallInst::ResultOwnership::Owned) {
+        return;
+      }
+      if (isClassType(callInst.getResult()->getType())) {
+        zirOwnedClassValues_.insert(callInst.getResult().get());
+      } else if (isOwnedStringType(callInst.getResult()->getType())) {
+        zirOwnedStringValues_.insert(callInst.getResult().get());
+      } else if (containsManagedValues(callInst.getResult()->getType())) {
+        zirOwnedAggregateValues_.insert(callInst.getResult().get());
+      }
+    };
 
     if (callInst.isIndirect()) {
       auto *calleePtr = lowerZIRRValue(callInst.getCalleeValue());
@@ -766,13 +779,8 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         zirValueMap_[callInst.getResult().get()] = call;
         if (callInst.returnsRef()) {
           refReturnValues_.insert(callInst.getResult().get());
-        } else if (isClassType(callInst.getResult()->getType())) {
-          zirOwnedClassValues_.insert(callInst.getResult().get());
-        } else if (isOwnedStringType(callInst.getResult()->getType())) {
-          zirOwnedStringValues_.insert(callInst.getResult().get());
-        } else if (containsManagedValues(callInst.getResult()->getType())) {
-          zirOwnedAggregateValues_.insert(callInst.getResult().get());
         }
+        markOwnedResult();
       }
       return;
     }
@@ -1049,13 +1057,7 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
       if (callInst.returnsRef()) {
         refReturnValues_.insert(callInst.getResult().get());
       }
-      if (isClassType(callInst.getResult()->getType())) {
-        zirOwnedClassValues_.insert(callInst.getResult().get());
-      } else if (isOwnedStringType(callInst.getResult()->getType())) {
-        zirOwnedStringValues_.insert(callInst.getResult().get());
-      } else if (containsManagedValues(callInst.getResult()->getType())) {
-        zirOwnedAggregateValues_.insert(callInst.getResult().get());
-      }
+      markOwnedResult();
     }
     return;
   }

@@ -342,4 +342,28 @@ public:
   const std::shared_ptr<Type> &getReturnType() const { return returnType; }
 };
 
+inline bool containsManagedValues(const std::shared_ptr<Type> &type) {
+  if (!type) {
+    return false;
+  }
+  if (type->getKind() == TypeKind::Class ||
+      type->getIntrinsicKind() == IntrinsicTypeKind::String) {
+    return true;
+  }
+  if (type->getKind() == TypeKind::Record) {
+    const auto &record = static_cast<const RecordType &>(*type);
+    for (const auto &field : record.getFields()) {
+      if (containsManagedValues(field.type)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  if (type->getKind() == TypeKind::Array) {
+    const auto &array = static_cast<const ArrayType &>(*type);
+    return containsManagedValues(array.getBaseType());
+  }
+  return false;
+}
+
 } // namespace zir

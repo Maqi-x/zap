@@ -723,8 +723,8 @@ void BoundIRGenerator::visit(sema::BoundFunctionCall &node) {
                         ? std::static_pointer_cast<zir::Type>(
                               std::make_shared<PointerType>(node.type))
                         : node.type;
-  const bool ownsResult = !node.symbol->returnsRef &&
-                          node.type->getKind() == TypeKind::Class;
+  const bool ownsResult =
+      !node.symbol->returnsRef && containsManagedValues(node.type);
   auto reg = createRegister(resultType, ownsResult ? ValueOwnership::Owned
                                                     : ValueOwnership::Borrowed);
   currentBlock_->addInstruction(std::make_unique<CallInst>(
@@ -762,9 +762,13 @@ void BoundIRGenerator::visit(sema::BoundIndirectCall &node) {
     valueStack_.pop();
   }
 
-  auto reg = createRegister(node.type);
-  currentBlock_->addInstruction(
-      std::make_unique<CallInst>(reg, calleeVal, std::move(args)));
+  const bool ownsResult = containsManagedValues(node.type);
+  auto reg = createRegister(node.type, ownsResult ? ValueOwnership::Owned
+                                                  : ValueOwnership::Borrowed);
+  currentBlock_->addInstruction(std::make_unique<CallInst>(
+      reg, calleeVal, std::move(args), false,
+      ownsResult ? CallInst::ResultOwnership::Owned
+                 : CallInst::ResultOwnership::Borrowed));
   valueStack_.push(reg);
 }
 

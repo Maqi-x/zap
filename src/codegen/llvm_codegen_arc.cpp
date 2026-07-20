@@ -27,24 +27,7 @@ bool LLVMCodeGen::isOwnedStringType(
 
 bool LLVMCodeGen::containsManagedValues(
     const std::shared_ptr<zir::Type> &type) const {
-  if (!type) {
-    return false;
-  }
-  if (isOwnedStringType(type) || isClassType(type)) {
-    return true;
-  }
-  if (type->getKind() == zir::TypeKind::Record) {
-    const auto &record = static_cast<const zir::RecordType &>(*type);
-    for (const auto &field : record.getFields()) {
-      if (containsManagedValues(field.type)) {
-        return true;
-      }
-    }
-  } else if (type->getKind() == zir::TypeKind::Array) {
-    const auto &array = static_cast<const zir::ArrayType &>(*type);
-    return containsManagedValues(array.getBaseType());
-  }
-  return false;
+  return zir::containsManagedValues(type);
 }
 
 void LLVMCodeGen::emitManagedRetain(
