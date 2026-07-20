@@ -22,6 +22,7 @@ using zir::Register;
 using zir::ReturnInst;
 using zir::StoreInst;
 using zir::StoreMode;
+using zir::ValueOwnership;
 using zir::Type;
 using zir::TypeKind;
 using zir::VerificationErrorCode;
@@ -206,6 +207,22 @@ bool testStoreModeRendering() {
   return true;
 }
 
+bool testAllocRequiresOwnedResult() {
+  Module module("alloc-ownership");
+  auto classType = std::make_shared<zir::ClassType>("Node");
+  auto function =
+      std::make_unique<Function>("broken", primitive(TypeKind::Void));
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto result = reg("node", classType);
+  entry->addInstruction(std::make_unique<zir::AllocInst>(result, classType));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+  auto verification = ZirVerifier().verify(module);
+  return expect(hasError(verification, VerificationErrorCode::InvalidResult),
+                "borrowed alloc result was not diagnosed");
+}
+
 bool testDominanceViolation() {
   Module module("dominance-violation");
   auto i32 = primitive(TypeKind::Int32);
@@ -278,6 +295,7 @@ int main() {
   ok = testUseBeforeDefinition() && ok;
   ok = testStoreTypeMismatch() && ok;
   ok = testStoreModeRendering() && ok;
+  ok = testAllocRequiresOwnedResult() && ok;
   ok = testDominanceViolation() && ok;
   ok = testPhiRequiresEveryPredecessor() && ok;
   return ok ? 0 : 1;

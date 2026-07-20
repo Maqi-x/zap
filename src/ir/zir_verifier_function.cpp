@@ -498,6 +498,10 @@ private:
       } else {
         expectSameType(alloc.getResult()->getType(), alloc.getAllocatedType(),
                        block, index, "alloc result type");
+        if (alloc.getResult()->getOwnership() != ValueOwnership::Owned) {
+          error(VerificationErrorCode::InvalidResult, &block, index,
+                "alloc result must be owned");
+        }
       }
       return;
     }

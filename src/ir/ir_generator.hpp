@@ -73,7 +73,9 @@ private:
   std::shared_ptr<Value> lastResultValue_ = nullptr;
   bool evaluateAsAddress_ = false;
   std::shared_ptr<Value> compoundTargetAddr_ = nullptr;
-  std::shared_ptr<Value> createRegister(std::shared_ptr<Type> type);
+  std::shared_ptr<Value>
+  createRegister(std::shared_ptr<Type> type,
+                 ValueOwnership ownership = ValueOwnership::Borrowed);
   std::string createBlockLabel(const std::string &prefix);
   std::shared_ptr<Value>
   lowerConstantExpression(const sema::BoundExpression &expression);

@@ -764,8 +764,12 @@ void BoundIRGenerator::visit(sema::BoundIndirectCall &node) {
 }
 
 std::shared_ptr<Value>
-BoundIRGenerator::createRegister(std::shared_ptr<Type> type) {
-  return std::make_shared<Register>(std::to_string(nextRegisterId_++), type);
+BoundIRGenerator::createRegister(std::shared_ptr<Type> type,
+                                 ValueOwnership ownership) {
+  auto result =
+      std::make_shared<Register>(std::to_string(nextRegisterId_++), type);
+  result->setOwnership(ownership);
+  return result;
 }
 
 std::string BoundIRGenerator::createBlockLabel(const std::string &prefix) {
@@ -1852,7 +1856,7 @@ void BoundIRGenerator::visit(sema::BoundCast &node) {
 }
 
 void BoundIRGenerator::visit(sema::BoundNewExpression &node) {
-  auto result = createRegister(node.type);
+  auto result = createRegister(node.type, ValueOwnership::Owned);
   currentBlock_->addInstruction(
       std::make_unique<AllocInst>(result, node.classType));
 

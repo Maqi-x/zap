@@ -18,13 +18,22 @@ enum class ValueKind {
   Global
 };
 
+enum class ValueOwnership {
+  Borrowed,
+  Owned,
+};
+
 class Value {
+  ValueOwnership ownership_ = ValueOwnership::Borrowed;
+
 public:
   virtual ~Value() = default;
   virtual ValueKind getKind() const = 0;
   virtual std::string getName() const = 0;
   virtual std::shared_ptr<Type> getType() const = 0;
   std::string getTypeName() const { return getType()->toString(); }
+  ValueOwnership getOwnership() const { return ownership_; }
+  void setOwnership(ValueOwnership ownership) { ownership_ = ownership; }
 };
 
 class GlobalAddress : public Value {
