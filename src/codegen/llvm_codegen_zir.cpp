@@ -388,10 +388,19 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
     auto dstType = storeInst.getDestination()->getType();
     auto ptrType = std::dynamic_pointer_cast<zir::PointerType>(dstType);
     auto valueType = ptrType ? ptrType->getBaseType() : nullptr;
-    bool skipReleaseOld = storeInst.initStore();
-    if (storeInst.bypassArc()) {
+    bool skipReleaseOld = false;
+    switch (storeInst.getMode()) {
+    case zir::StoreMode::RawAssign:
+    case zir::StoreMode::RawInitialize:
       builder_.CreateStore(src, dst);
-    } else if (valueType && isClassType(valueType)) {
+      return;
+    case zir::StoreMode::Assign:
+      break;
+    case zir::StoreMode::Initialize:
+      skipReleaseOld = true;
+      break;
+    }
+    if (valueType && isClassType(valueType)) {
       if (zirPendingClassParamInitAllocas_.count(
               storeInst.getDestination().get()) > 0) {
         builder_.CreateStore(src, dst);

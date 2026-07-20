@@ -109,27 +109,43 @@ public:
   }
 };
 
+enum class StoreMode {
+  Assign,
+  Initialize,
+  RawAssign,
+  RawInitialize,
+};
+
 class StoreInst : public Instruction {
   std::shared_ptr<Value> src, dest;
-  // Emit a plain store with no ARC retain/release.
-  bool bypassArc_;
-  // Destination is freshly allocated: retain a borrowed value but do not
-  // release the (garbage) previous contents.
-  bool initStore_;
+  StoreMode mode_;
 
 public:
-  StoreInst(std::shared_ptr<Value> s, std::shared_ptr<Value> d,
-            bool bypassArc = false, bool initStore = false)
-      : src(std::move(s)), dest(std::move(d)), bypassArc_(bypassArc),
-        initStore_(initStore) {}
+  StoreInst(std::shared_ptr<Value> s, std::shared_ptr<Value> d, StoreMode mode)
+      : src(std::move(s)), dest(std::move(d)), mode_(mode) {}
   OpCode getOpCode() const override { return OpCode::Store; }
   const std::shared_ptr<Value> &getSource() const { return src; }
   const std::shared_ptr<Value> &getDestination() const { return dest; }
-  bool bypassArc() const { return bypassArc_; }
-  bool initStore() const { return initStore_; }
+  StoreMode getMode() const { return mode_; }
   std::string toString() const override {
-    return "store " + src->getTypeName() + " " + src->getName() + ", " +
-           dest->getTypeName() + " " + dest->getName();
+    const char *modeName = "invalid";
+    switch (mode_) {
+    case StoreMode::Assign:
+      modeName = "assign";
+      break;
+    case StoreMode::Initialize:
+      modeName = "initialize";
+      break;
+    case StoreMode::RawAssign:
+      modeName = "raw_assign";
+      break;
+    case StoreMode::RawInitialize:
+      modeName = "raw_initialize";
+      break;
+    }
+    return "store." + std::string(modeName) + " " + src->getTypeName() +
+           " " + src->getName() + ", " + dest->getTypeName() + " " +
+           dest->getName();
   }
 };
 

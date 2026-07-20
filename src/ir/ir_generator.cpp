@@ -221,7 +221,8 @@ void BoundIRGenerator::visit(sema::BoundFunctionDeclaration &node) {
     auto allocaReg = createRegister(std::make_shared<PointerType>(spillType));
     currentBlock_->addInstruction(
         std::make_unique<AllocaInst>(allocaReg, spillType));
-    currentBlock_->addInstruction(std::make_unique<StoreInst>(arg, allocaReg));
+    currentBlock_->addInstruction(
+        std::make_unique<StoreInst>(arg, allocaReg, StoreMode::Assign));
 
     symbolMap_[paramSymbol] = allocaReg;
   }
@@ -295,7 +296,8 @@ void BoundIRGenerator::visit(sema::BoundBlock &node) {
         continue;
       }
       currentBlock_->addInstruction(std::make_unique<StoreInst>(
-          std::make_shared<Constant>("null", (*it)->type), symbolIt->second));
+          std::make_shared<Constant>("null", (*it)->type), symbolIt->second,
+          StoreMode::Assign));
     }
   }
 }
@@ -344,7 +346,8 @@ void BoundIRGenerator::visit(sema::BoundVariableDeclaration &node) {
       evaluateAsAddress_ = old;
       auto addr = valueStack_.top();
       valueStack_.pop();
-      currentBlock_->addInstruction(std::make_unique<StoreInst>(addr, refReg));
+      currentBlock_->addInstruction(
+          std::make_unique<StoreInst>(addr, refReg, StoreMode::Assign));
     }
     return;
   }
@@ -358,7 +361,8 @@ void BoundIRGenerator::visit(sema::BoundVariableDeclaration &node) {
     auto val = valueStack_.top();
     valueStack_.pop();
 
-    currentBlock_->addInstruction(std::make_unique<StoreInst>(val, reg));
+    currentBlock_->addInstruction(
+        std::make_unique<StoreInst>(val, reg, StoreMode::Assign));
   }
 }
 
@@ -405,7 +409,7 @@ void BoundIRGenerator::visit(sema::BoundFailStatement &node) {
   currentBlock_->addInstruction(std::make_unique<StoreInst>(
       std::make_shared<Constant>(
           "false", std::make_shared<PrimitiveType>(TypeKind::Bool)),
-      okAddr));
+      okAddr, StoreMode::Assign));
 
   auto valueAddr = createRegister(std::make_shared<PointerType>(valueType));
   currentBlock_->addInstruction(std::make_unique<GetElementPtrInst>(
@@ -414,7 +418,7 @@ void BoundIRGenerator::visit(sema::BoundFailStatement &node) {
     // The value field is unused on the error path; zero it without ARC.
     currentBlock_->addInstruction(std::make_unique<StoreInst>(
         std::make_shared<Constant>("0", valueType), valueAddr,
-        /*bypassArc=*/true));
+        StoreMode::RawInitialize));
   }
 
   auto errAddr = createRegister(std::make_shared<PointerType>(errorType));
@@ -422,10 +426,11 @@ void BoundIRGenerator::visit(sema::BoundFailStatement &node) {
       errAddr, allocaReg, FailableTypeLayout::ErrorField));
   if (errValue) {
     currentBlock_->addInstruction(
-        std::make_unique<StoreInst>(errValue, errAddr));
+        std::make_unique<StoreInst>(errValue, errAddr, StoreMode::Assign));
   } else {
     currentBlock_->addInstruction(std::make_unique<StoreInst>(
-        std::make_shared<Constant>("0", errorType), errAddr));
+        std::make_shared<Constant>("0", errorType), errAddr,
+        StoreMode::Assign));
   }
 
   auto loaded = createRegister(failableType);
@@ -450,7 +455,8 @@ void BoundIRGenerator::visit(sema::BoundAssignment &node) {
   valueStack_.pop();
 
   compoundTargetAddr_ = oldCompoundTargetAddr;
-  currentBlock_->addInstruction(std::make_unique<StoreInst>(val, target));
+  currentBlock_->addInstruction(
+      std::make_unique<StoreInst>(val, target, StoreMode::Assign));
 }
 
 void BoundIRGenerator::visit(sema::BoundCompoundTargetLoad &node) {
@@ -918,7 +924,7 @@ void BoundIRGenerator::visit(sema::BoundArrayLiteral &node) {
     currentBlock_->addInstruction(std::make_unique<GetElementPtrInst>(
         elementAddr, allocaReg, static_cast<int>(i)));
     currentBlock_->addInstruction(
-        std::make_unique<StoreInst>(value, elementAddr));
+        std::make_unique<StoreInst>(value, elementAddr, StoreMode::Assign));
   }
 
   auto result = createRegister(arrayType);
@@ -1148,7 +1154,7 @@ void BoundIRGenerator::visit(sema::BoundStructLiteral &node) {
       currentBlock_->addInstruction(std::make_unique<GetElementPtrInst>(
           fieldAddr, allocaReg, fieldIndex));
       currentBlock_->addInstruction(std::make_unique<StoreInst>(
-          val, fieldAddr, /*bypassArc=*/false, /*initStore=*/true));
+          val, fieldAddr, StoreMode::Initialize));
     }
   }
 
@@ -1170,7 +1176,7 @@ void BoundIRGenerator::visit(sema::BoundTaggedUnionLiteral &node) {
       std::make_unique<GetElementPtrInst>(tagAddr, allocaReg, 0));
   auto tagValue = std::make_shared<Constant>(std::to_string(node.tag), tagType);
   currentBlock_->addInstruction(std::make_unique<StoreInst>(
-      tagValue, tagAddr, /*bypassArc=*/true, /*initStore=*/true));
+      tagValue, tagAddr, StoreMode::RawInitialize));
 
   if (node.payload) {
     node.payload->accept(*this);
@@ -1181,7 +1187,7 @@ void BoundIRGenerator::visit(sema::BoundTaggedUnionLiteral &node) {
     currentBlock_->addInstruction(
         std::make_unique<GetElementPtrInst>(payloadAddr, allocaReg, 1));
     currentBlock_->addInstruction(std::make_unique<StoreInst>(
-        payload, payloadAddr, /*bypassArc=*/false, /*initStore=*/true));
+        payload, payloadAddr, StoreMode::Initialize));
   }
 
   auto result = createRegister(taggedUnionType);
@@ -1242,7 +1248,7 @@ void BoundIRGenerator::visit(sema::BoundTryExpression &node) {
   currentBlock_->addInstruction(std::make_unique<StoreInst>(
       std::make_shared<Constant>(
           "false", std::make_shared<PrimitiveType>(TypeKind::Bool)),
-      okAddr));
+      okAddr, StoreMode::Assign));
 
   auto valueAddr =
       createRegister(std::make_shared<PointerType>(propagatedValueType));
@@ -1250,14 +1256,16 @@ void BoundIRGenerator::visit(sema::BoundTryExpression &node) {
       valueAddr, propagatedAlloca, FailableTypeLayout::ValueField));
   if (propagatedValueType && propagatedValueType->getKind() != TypeKind::Void) {
     currentBlock_->addInstruction(std::make_unique<StoreInst>(
-        std::make_shared<Constant>("0", propagatedValueType), valueAddr));
+        std::make_shared<Constant>("0", propagatedValueType), valueAddr,
+        StoreMode::Assign));
   }
 
   auto errAddr =
       createRegister(std::make_shared<PointerType>(propagatedErrorType));
   currentBlock_->addInstruction(std::make_unique<GetElementPtrInst>(
       errAddr, propagatedAlloca, FailableTypeLayout::ErrorField));
-  currentBlock_->addInstruction(std::make_unique<StoreInst>(failErr, errAddr));
+  currentBlock_->addInstruction(
+      std::make_unique<StoreInst>(failErr, errAddr, StoreMode::Assign));
 
   auto propagatedValue = createRegister(propagatedType);
   currentBlock_->addInstruction(
@@ -1372,7 +1380,7 @@ void BoundIRGenerator::visit(sema::BoundFailableHandleExpression &node) {
     currentBlock_->addInstruction(
         std::make_unique<AllocaInst>(errAlloca, node.errorSymbol->type));
     currentBlock_->addInstruction(
-        std::make_unique<StoreInst>(errValue, errAlloca));
+        std::make_unique<StoreInst>(errValue, errAlloca, StoreMode::Assign));
     symbolMap_[node.errorSymbol] = errAlloca;
   }
 
@@ -1751,7 +1759,7 @@ void BoundIRGenerator::visit(sema::BoundCast &node) {
     currentBlock_->addInstruction(
         std::make_unique<GetElementPtrInst>(dataFieldAddr, viewAddr, 0));
     currentBlock_->addInstruction(
-        std::make_unique<StoreInst>(data, dataFieldAddr));
+        std::make_unique<StoreInst>(data, dataFieldAddr, StoreMode::Assign));
 
     auto lenType = viewType->getFields()[1].type;
     auto lenFieldAddr = createRegister(std::make_shared<PointerType>(lenType));
@@ -1760,7 +1768,7 @@ void BoundIRGenerator::visit(sema::BoundCast &node) {
     currentBlock_->addInstruction(std::make_unique<StoreInst>(
         std::make_shared<Constant>(std::to_string(arrayType->getSize()),
                                    lenType),
-        lenFieldAddr));
+        lenFieldAddr, StoreMode::Assign));
 
     auto result = createRegister(node.type);
     currentBlock_->addInstruction(std::make_unique<LoadInst>(result, viewAddr));

@@ -21,6 +21,7 @@ using zir::PrimitiveType;
 using zir::Register;
 using zir::ReturnInst;
 using zir::StoreInst;
+using zir::StoreMode;
 using zir::Type;
 using zir::TypeKind;
 using zir::VerificationErrorCode;
@@ -57,7 +58,7 @@ std::unique_ptr<Function> validFunction() {
   entry->addInstruction(
       std::make_unique<zir::AllocaInst>(slot, i32));
   entry->addInstruction(std::make_unique<StoreInst>(
-      std::make_shared<Constant>("4", i32), slot));
+      std::make_shared<Constant>("4", i32), slot, zir::StoreMode::Assign));
   entry->addInstruction(std::make_unique<LoadInst>(loaded, slot));
   entry->addInstruction(std::make_unique<CmpInst>(
       "eq", condition, loaded, std::make_shared<Constant>("4", i32)));
@@ -175,13 +176,34 @@ bool testStoreTypeMismatch() {
   auto slot = reg("slot", std::make_shared<PointerType>(i32));
   entry->addInstruction(std::make_unique<zir::AllocaInst>(slot, i32));
   entry->addInstruction(std::make_unique<StoreInst>(
-      std::make_shared<Constant>("1", i64), slot));
+      std::make_shared<Constant>("1", i64), slot, zir::StoreMode::Assign));
   entry->addInstruction(std::make_unique<ReturnInst>());
   function->addBlock(std::move(entry));
   module.addFunction(std::move(function));
   auto result = ZirVerifier().verify(module);
   return expect(hasError(result, VerificationErrorCode::TypeMismatch),
                 "store type mismatch was not diagnosed");
+}
+
+bool testStoreModeRendering() {
+  auto i32 = primitive(TypeKind::Int32);
+  auto slot = reg("slot", std::make_shared<PointerType>(i32));
+  auto value = std::make_shared<Constant>("1", i32);
+  const std::vector<std::pair<StoreMode, std::string>> cases = {
+      {StoreMode::Assign, "store.assign"},
+      {StoreMode::Initialize, "store.initialize"},
+      {StoreMode::RawAssign, "store.raw_assign"},
+      {StoreMode::RawInitialize, "store.raw_initialize"},
+  };
+  for (const auto &[mode, prefix] : cases) {
+    StoreInst store(value, slot, mode);
+    const std::string rendered = store.toString();
+    if (!expect(rendered.compare(0, prefix.size(), prefix) == 0,
+                "store mode is missing from ZIR rendering")) {
+      return false;
+    }
+  }
+  return true;
 }
 
 bool testDominanceViolation() {
@@ -255,6 +277,7 @@ int main() {
   ok = testInstructionAfterTerminator() && ok;
   ok = testUseBeforeDefinition() && ok;
   ok = testStoreTypeMismatch() && ok;
+  ok = testStoreModeRendering() && ok;
   ok = testDominanceViolation() && ok;
   ok = testPhiRequiresEveryPredecessor() && ok;
   return ok ? 0 : 1;
