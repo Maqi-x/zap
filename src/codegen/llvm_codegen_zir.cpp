@@ -224,7 +224,7 @@ LLVMCodeGen::lowerZIRCast(llvm::Value *src,
     return ptr->getType() == destTy ? ptr : builder_.CreateBitCast(ptr, destTy);
   }
   if (srcTy->isPointerTy() && isStringType(targetType)) {
-    auto *i8PtrTy = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_));
+    auto *i8PtrTy = llvm::PointerType::getUnqual(ctx_);
     auto *cstrPtr =
         srcTy == i8PtrTy ? src : builder_.CreateBitCast(src, i8PtrTy);
     std::vector<llvm::Type *> fromCStrParams = {i8PtrTy};
@@ -899,7 +899,7 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
     }
     if (hasVariadicParameter) {
       auto *elemTy = toLLVMType(*variadicElementType);
-      auto *elemPtrTy = llvm::PointerType::getUnqual(elemTy);
+      auto *elemPtrTy = llvm::PointerType::getUnqual(ctx_);
       size_t explicitVariadicCount =
           callInst.getArguments().size() - fixedParamCount;
 
@@ -1007,12 +1007,12 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
       if (classType) {
         auto *objectTy = structCache_.at(classType->getCodegenName() + ".obj");
         auto *selfPtr = builder_.CreateBitCast(
-            args[0], llvm::PointerType::getUnqual(objectTy), "zir.method.self");
+            args[0], llvm::PointerType::getUnqual(ctx_), "zir.method.self");
         auto *vtableAddr = builder_.CreateStructGEP(
             objectTy, selfPtr, kClassVTableIndex, "zir.method.vtable.addr");
         auto *i8PtrTy =
-            llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_));
-        auto *vtablePtrTy = llvm::PointerType::getUnqual(i8PtrTy);
+            llvm::PointerType::getUnqual(ctx_);
+        auto *vtablePtrTy = llvm::PointerType::getUnqual(ctx_);
         auto *vtablePtr =
             builder_.CreateLoad(vtablePtrTy, vtableAddr, "zir.method.vtable");
         auto *slotAddr = builder_.CreateInBoundsGEP(
@@ -1023,7 +1023,7 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         auto *fnRaw =
             builder_.CreateLoad(i8PtrTy, slotAddr, "zir.method.fn.raw");
         auto *fnPtr = builder_.CreateBitCast(
-            fnRaw, llvm::PointerType::getUnqual(calleeTy), "zir.method.fn");
+            fnRaw, llvm::PointerType::getUnqual(ctx_), "zir.method.fn");
         call = builder_.CreateCall(calleeTy, fnPtr, args);
       }
     }
@@ -1241,7 +1241,7 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
     auto mallocIt = functionMap_.find("malloc");
     if (mallocIt == functionMap_.end()) {
       auto *mallocTy = llvm::FunctionType::get(
-          llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_)), {sizeTy},
+          llvm::PointerType::getUnqual(ctx_), {sizeTy},
           false);
       auto *mallocFn = llvm::Function::Create(
           mallocTy, llvm::Function::ExternalLinkage, "malloc", *module_);
@@ -1272,24 +1272,23 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         builder_.CreateStructGEP(objectTy, typedPtr, 4, "release.fn.addr");
     auto *releaseFnPtr = builder_.CreateBitCast(
         classReleaseFns_.at(classType->getCodegenName()),
-        llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_)));
+        llvm::PointerType::getUnqual(ctx_));
     builder_.CreateStore(releaseFnPtr, releaseFnAddr);
     auto *destroyFnAddr =
         builder_.CreateStructGEP(objectTy, typedPtr, 5, "destroy.fn.addr");
     auto *destroyFnPtr = builder_.CreateBitCast(
         classDestroyFns_.at(classType->getCodegenName()),
-        llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_)));
+        llvm::PointerType::getUnqual(ctx_));
     builder_.CreateStore(destroyFnPtr, destroyFnAddr);
     auto *metadataAddr = builder_.CreateStructGEP(
         objectTy, typedPtr, kClassMetadataIndex, "metadata.addr");
     auto *metadataPtr = builder_.CreateBitCast(
         classMetadataGlobals_.at(classType->getCodegenName()),
-        llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_)));
+        llvm::PointerType::getUnqual(ctx_));
     builder_.CreateStore(metadataPtr, metadataAddr);
     auto *vtableAddr = builder_.CreateStructGEP(
         objectTy, typedPtr, kClassVTableIndex, "vtable.addr");
-    auto *i8PtrTy = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_));
-    auto *vtablePtrTy = llvm::PointerType::getUnqual(i8PtrTy);
+    auto *vtablePtrTy = llvm::PointerType::getUnqual(ctx_);
     auto *vtableGlobal = classVTables_.at(classType->getCodegenName());
     auto *zero = llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx_), 0);
     llvm::Constant *vtableIndices[] = {zero, zero};
@@ -1354,8 +1353,7 @@ void LLVMCodeGen::emitZIRFunction(const zir::Function &fn) {
   auto llvmArgIt = currentFn_->arg_begin();
   if (!freestanding_ && fn.name == "main") {
     auto *i32Ty = llvm::Type::getInt32Ty(ctx_);
-    auto *i8PtrTy = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_));
-    auto *argvTy = llvm::PointerType::getUnqual(i8PtrTy);
+    auto *argvTy = llvm::PointerType::getUnqual(ctx_);
 
     llvmArgIt->setName("argc");
     llvm::Value *argcValue = &*llvmArgIt++;

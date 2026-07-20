@@ -45,7 +45,7 @@ void ClassArcEmitter::emitRetainIfNeeded(
   auto *objectTy =
       codegen_.structCache_.at(classType->getCodegenName() + ".obj");
   auto *typedPtr = codegen_.builder_.CreateBitCast(
-      value, llvm::PointerType::getUnqual(objectTy), "arc.retain.cast");
+      value, llvm::PointerType::getUnqual(codegen_.ctx_), "arc.retain.cast");
   auto *countAddr = codegen_.builder_.CreateStructGEP(
       objectTy, typedPtr, kClassStrongCountIndex, "arc.retain.count.addr");
   auto *count = codegen_.builder_.CreateLoad(
@@ -82,7 +82,7 @@ void ClassArcEmitter::emitReleaseIfNeeded(
   auto *objectTy =
       codegen_.structCache_.at(classType->getCodegenName() + ".obj");
   auto *typedPtr = codegen_.builder_.CreateBitCast(
-      value, llvm::PointerType::getUnqual(objectTy), "arc.release.cast");
+      value, llvm::PointerType::getUnqual(codegen_.ctx_), "arc.release.cast");
   auto *gcMarkAddr = codegen_.builder_.CreateStructGEP(
       objectTy, typedPtr, kClassGcMarkIndex, "arc.release.gcmark.addr");
   auto *gcMark = codegen_.builder_.CreateLoad(
@@ -103,14 +103,14 @@ void ClassArcEmitter::emitReleaseIfNeeded(
   auto *releaseAddr = codegen_.builder_.CreateStructGEP(
       objectTy, typedPtr, kClassReleaseFnIndex, "arc.release.fn.addr");
   auto *releaseFn = codegen_.builder_.CreateLoad(
-      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(codegen_.ctx_)),
+      llvm::PointerType::getUnqual(codegen_.ctx_),
       releaseAddr, "arc.release.fn");
   auto *rawObject = codegen_.builder_.CreateBitCast(
       typedPtr,
-      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(codegen_.ctx_)));
+      llvm::PointerType::getUnqual(codegen_.ctx_));
   auto *releaseTy = llvm::FunctionType::get(
       llvm::Type::getVoidTy(codegen_.ctx_),
-      {llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(codegen_.ctx_))},
+      {llvm::PointerType::getUnqual(codegen_.ctx_)},
       false);
   codegen_.builder_.CreateCall(releaseTy, releaseFn, {rawObject});
   codegen_.builder_.CreateBr(contBB);
@@ -144,7 +144,7 @@ void ClassArcEmitter::emitRetainWeakIfNeeded(
   auto *objectTy =
       codegen_.structCache_.at(classType->getCodegenName() + ".obj");
   auto *typedPtr = codegen_.builder_.CreateBitCast(
-      value, llvm::PointerType::getUnqual(objectTy), "arc.weak.retain.cast");
+      value, llvm::PointerType::getUnqual(codegen_.ctx_), "arc.weak.retain.cast");
   auto *countAddr = codegen_.builder_.CreateStructGEP(
       objectTy, typedPtr, kClassWeakCountIndex, "arc.weak.count.addr");
   auto *count = codegen_.builder_.CreateLoad(
@@ -186,7 +186,7 @@ void ClassArcEmitter::emitReleaseWeakIfNeeded(
   auto *objectTy =
       codegen_.structCache_.at(classType->getCodegenName() + ".obj");
   auto *typedPtr = codegen_.builder_.CreateBitCast(
-      value, llvm::PointerType::getUnqual(objectTy), "arc.weak.release.cast");
+      value, llvm::PointerType::getUnqual(codegen_.ctx_), "arc.weak.release.cast");
   auto *weakAddr = codegen_.builder_.CreateStructGEP(
       objectTy, typedPtr, kClassWeakCountIndex, "arc.weak.release.count.addr");
   auto *weakCount =
@@ -217,7 +217,7 @@ void ClassArcEmitter::emitReleaseWeakIfNeeded(
   codegen_.builder_.SetInsertPoint(freeBB);
   auto *rawObject = codegen_.builder_.CreateBitCast(
       typedPtr,
-      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(codegen_.ctx_)));
+      llvm::PointerType::getUnqual(codegen_.ctx_));
   if (codegen_.functionMap_.count("zap_arc_remove_possible_root") == 0) {
     auto *removeTy = llvm::FunctionType::get(
         llvm::Type::getVoidTy(codegen_.ctx_), {rawObject->getType()}, false);
@@ -268,7 +268,7 @@ ClassArcEmitter::emitWeakAlive(llvm::Value *value,
 
   codegen_.builder_.SetInsertPoint(nonNullBB);
   auto *typedPtr = codegen_.builder_.CreateBitCast(
-      value, llvm::PointerType::getUnqual(objectTy), "arc.weak.alive.cast");
+      value, llvm::PointerType::getUnqual(codegen_.ctx_), "arc.weak.alive.cast");
   auto *aliveAddr = codegen_.builder_.CreateStructGEP(
       objectTy, typedPtr, kClassAliveIndex, "arc.weak.alive.addr");
   auto *aliveValue = codegen_.builder_.CreateLoad(
@@ -322,7 +322,7 @@ ClassArcEmitter::emitWeakLock(llvm::Value *value,
 
   codegen_.builder_.SetInsertPoint(aliveCheckBB);
   auto *typedPtr = codegen_.builder_.CreateBitCast(
-      value, llvm::PointerType::getUnqual(objectTy), "arc.weak.lock.cast");
+      value, llvm::PointerType::getUnqual(codegen_.ctx_), "arc.weak.lock.cast");
   auto *aliveAddr = codegen_.builder_.CreateStructGEP(
       objectTy, typedPtr, kClassAliveIndex, "arc.weak.lock.alive.addr");
   auto *aliveValue = codegen_.builder_.CreateLoad(
@@ -399,7 +399,7 @@ void ClassArcEmitter::ensureClassArcSupport(
   auto *objectTy =
       codegen_.structCache_.at(classType->getCodegenName() + ".obj");
   auto *rawPtrTy =
-      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(codegen_.ctx_));
+      llvm::PointerType::getUnqual(codegen_.ctx_);
   auto *helperTy = llvm::FunctionType::get(llvm::Type::getVoidTy(codegen_.ctx_),
                                            {rawPtrTy}, false);
   auto *releaseHelper = llvm::Function::Create(
@@ -435,7 +435,7 @@ void ClassArcEmitter::ensureClassArcSupport(
         codegen_.classVirtualMethodFns_.find(classType->getCodegenName());
     if (methodsIt != codegen_.classVirtualMethodFns_.end()) {
       auto *i8PtrTy =
-          llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(codegen_.ctx_));
+          llvm::PointerType::getUnqual(codegen_.ctx_);
       for (const auto &[slot, fn] : methodsIt->second) {
         if (slot >= static_cast<int>(entries.size())) {
           entries.resize(static_cast<size_t>(slot + 1),
@@ -446,7 +446,7 @@ void ClassArcEmitter::ensureClassArcSupport(
     }
 
     auto *i8PtrTy =
-        llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(codegen_.ctx_));
+        llvm::PointerType::getUnqual(codegen_.ctx_);
     auto *vtableTy =
         llvm::ArrayType::get(i8PtrTy, static_cast<uint64_t>(entries.size()));
     auto *init = llvm::ConstantArray::get(vtableTy, entries);
@@ -471,7 +471,7 @@ void ClassArcEmitter::ensureClassArcSupport(
     }
 
     auto *i32Ty = llvm::Type::getInt32Ty(codegen_.ctx_);
-    auto *i32PtrTy = llvm::PointerType::getUnqual(i32Ty);
+    auto *i32PtrTy = llvm::PointerType::getUnqual(codegen_.ctx_);
     llvm::Constant *offsetPtr = llvm::ConstantPointerNull::get(i32PtrTy);
     if (!strongFieldOffsets.empty()) {
       std::vector<llvm::Constant *> offsetConstants;
@@ -529,7 +529,7 @@ void ClassArcEmitter::ensureClassArcSupport(
 
   codegen_.builder_.SetInsertPoint(destroyBodyBB);
   auto *destroyTypedObject = codegen_.builder_.CreateBitCast(
-      destroyRawObject, llvm::PointerType::getUnqual(objectTy), "object");
+      destroyRawObject, llvm::PointerType::getUnqual(codegen_.ctx_), "object");
   auto *aliveAddr = codegen_.builder_.CreateStructGEP(
       objectTy, destroyTypedObject, kClassAliveIndex, "alive.addr");
   codegen_.builder_.CreateStore(
@@ -620,7 +620,7 @@ void ClassArcEmitter::ensureClassArcSupport(
 
   codegen_.builder_.SetInsertPoint(decrementedBB);
   auto *typedObject = codegen_.builder_.CreateBitCast(
-      rawObject, llvm::PointerType::getUnqual(objectTy), "object");
+      rawObject, llvm::PointerType::getUnqual(codegen_.ctx_), "object");
   auto *countAddr = codegen_.builder_.CreateStructGEP(
       objectTy, typedObject, kClassStrongCountIndex, "refcount.addr");
   auto *count = codegen_.builder_.CreateLoad(
@@ -639,7 +639,7 @@ void ClassArcEmitter::ensureClassArcSupport(
   auto *destroyAddr = codegen_.builder_.CreateStructGEP(
       objectTy, typedObject, kClassDestroyFnIndex, "destroy.addr");
   auto *destroyFn = codegen_.builder_.CreateLoad(
-      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(codegen_.ctx_)),
+      llvm::PointerType::getUnqual(codegen_.ctx_),
       destroyAddr, "destroy.fn");
   auto *destroyTy = llvm::FunctionType::get(
       llvm::Type::getVoidTy(codegen_.ctx_), {rawPtrTy}, false);

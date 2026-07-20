@@ -193,7 +193,7 @@ void LLVMCodeGen::finalizeClassStruct(const zir::ClassType &ct) {
   if (!objectTy->isOpaque()) {
     return;
   }
-  auto *i8PtrTy = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_));
+  auto *i8PtrTy = llvm::PointerType::getUnqual(ctx_);
   std::vector<llvm::Type *> fieldTypes = {
       llvm::Type::getInt64Ty(ctx_),
       llvm::Type::getInt64Ty(ctx_),
@@ -202,7 +202,7 @@ void LLVMCodeGen::finalizeClassStruct(const zir::ClassType &ct) {
       i8PtrTy,
       i8PtrTy,
       i8PtrTy,
-      llvm::PointerType::getUnqual(i8PtrTy)};
+      llvm::PointerType::getUnqual(ctx_)};
   for (const auto &f : ct.getFields()) {
     fieldTypes.push_back(toLLVMAggregateFieldType(f.type));
   }
@@ -432,10 +432,10 @@ llvm::Type *LLVMCodeGen::toLLVMType(const zir::Type &ty) {
     if (baseTy->isVoidTy()) {
       baseTy = llvm::Type::getInt8Ty(ctx_);
     }
-    return llvm::PointerType::getUnqual(baseTy);
+    return llvm::PointerType::getUnqual(ctx_);
   }
   case zir::TypeKind::NullPtr:
-    return llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_));
+    return llvm::PointerType::getUnqual(ctx_);
   case zir::TypeKind::Enum:
     if (static_cast<const zir::EnumType &>(ty).hasReprC)
       return llvm::Type::getInt32Ty(ctx_);
@@ -490,7 +490,7 @@ llvm::Type *LLVMCodeGen::toLLVMType(const zir::Type &ty) {
       structCache_[cacheKey] = structTy;
       std::vector<llvm::Type *> fieldTypes;
       fieldTypes.push_back(
-          llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_)));
+          llvm::PointerType::getUnqual(ctx_));
       fieldTypes.push_back(llvm::Type::getInt64Ty(ctx_));
       structTy->setBody(fieldTypes, rt.isPacked);
       return structTy;
@@ -504,23 +504,14 @@ llvm::Type *LLVMCodeGen::toLLVMType(const zir::Type &ty) {
     structTy->setBody(fieldTypes, rt.isPacked);
     return structTy;
   }
-  case zir::TypeKind::Class: {
-    const auto &ct = static_cast<const zir::ClassType &>(ty);
-    return llvm::PointerType::getUnqual(getOrCreateClassStruct(ct));
-  }
+  case zir::TypeKind::Class:
+    return llvm::PointerType::getUnqual(ctx_);
   case zir::TypeKind::Array: {
     const auto &at = static_cast<const zir::ArrayType &>(ty);
     return llvm::ArrayType::get(toLLVMType(*at.getBaseType()), at.getSize());
   }
-  case zir::TypeKind::FunctionPointer: {
-    const auto &ft = static_cast<const zir::FunctionPointerType &>(ty);
-    std::vector<llvm::Type *> paramTypes;
-    for (const auto &p : ft.getParams())
-      paramTypes.push_back(toLLVMType(*p));
-    auto *fnTy = llvm::FunctionType::get(toLLVMType(*ft.getReturnType()),
-                                         paramTypes, false);
-    return llvm::PointerType::getUnqual(fnTy);
-  }
+  case zir::TypeKind::FunctionPointer:
+    return llvm::PointerType::getUnqual(ctx_);
   }
   throw std::runtime_error("Unknown ZIR type: " + ty.toString());
 }
@@ -537,21 +528,19 @@ llvm::FunctionType *LLVMCodeGen::buildFunctionType(const zir::Function &fn) {
   std::vector<llvm::Type *> paramTypes;
   if (!freestanding_ && fn.name == "main") {
     paramTypes.push_back(llvm::Type::getInt32Ty(ctx_));
-    paramTypes.push_back(llvm::PointerType::getUnqual(
-        llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx_))));
+    paramTypes.push_back(llvm::PointerType::getUnqual(ctx_));
   }
   for (const auto &param : fn.getArguments()) {
     if (param->isVariadicPack()) {
       paramTypes.push_back(llvm::Type::getInt32Ty(ctx_));
-      paramTypes.push_back(llvm::PointerType::getUnqual(
-          toLLVMType(*param->getVariadicElementType())));
+      paramTypes.push_back(llvm::PointerType::getUnqual(ctx_));
       continue;
     }
     paramTypes.push_back(toLLVMType(*param->getType()));
   }
   llvm::Type *retTy = toLLVMType(*fn.getReturnType());
   if (fn.returnsRef)
-    retTy = llvm::PointerType::getUnqual(retTy);
+    retTy = llvm::PointerType::getUnqual(ctx_);
   return llvm::FunctionType::get(retTy, paramTypes, fn.isCVariadic);
 }
 
@@ -626,9 +615,9 @@ LLVMCodeGen::emitStringConcat(llvm::Value *lhs, llvm::Value *rhs,
   auto concatIt = functionMap_.find("string_concat_ptrlen");
   if (concatIt == functionMap_.end()) {
     std::vector<llvm::Type *> params = {
-        llvm::PointerType::getUnqual(i8Ty), i64Ty,
-        llvm::PointerType::getUnqual(i8Ty), i64Ty};
-    auto *ft = llvm::FunctionType::get(llvm::PointerType::getUnqual(i8Ty),
+        llvm::PointerType::getUnqual(ctx_), i64Ty,
+        llvm::PointerType::getUnqual(ctx_), i64Ty};
+    auto *ft = llvm::FunctionType::get(llvm::PointerType::getUnqual(ctx_),
                                        params, false);
     auto *fn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage,
                                       "string_concat_ptrlen", *module_);
