@@ -694,6 +694,49 @@ bool testCallBorrowAllowsOwnedValueToBeReleasedAfterward() {
                 "borrowed call of an owned value was rejected");
 }
 
+bool testOwnershipLoweringReleasesOnDeadCfgEdge() {
+  Module module("ownership-edge-lowering");
+  auto classType = std::make_shared<ClassType>("Node");
+  auto boolean = primitive(TypeKind::Bool);
+  auto function =
+      std::make_unique<Function>("valid", primitive(TypeKind::Void));
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto node = reg("node", classType);
+  node->setOwnership(ValueOwnership::Owned);
+  entry->addInstruction(std::make_unique<zir::AllocInst>(node, classType));
+  entry->addInstruction(std::make_unique<CondBranchInst>(
+      std::make_shared<Constant>("true", boolean), "live", "dead"));
+
+  auto live = std::make_unique<BasicBlock>("live");
+  auto comparison = reg("comparison", boolean);
+  live->addInstruction(std::make_unique<CmpInst>(
+      "eq", comparison, node, std::make_shared<Constant>("null", classType)));
+  live->addInstruction(std::make_unique<ReturnInst>());
+
+  auto dead = std::make_unique<BasicBlock>("dead");
+  dead->addInstruction(std::make_unique<ReturnInst>());
+
+  function->addBlock(std::move(entry));
+  function->addBlock(std::move(live));
+  function->addBlock(std::move(dead));
+  module.addFunction(std::move(function));
+
+  zir::lowerDeadOwnedResults(module);
+  const auto &blocks = module.getFunctions().front()->getBlocks();
+  const auto &branch = static_cast<const CondBranchInst &>(
+      *blocks.front()->getInstructions().back());
+  auto *releaseBlock = module.getFunctions().front()->findBlock(
+      branch.getFalseLabel());
+  return expect(blocks.size() == 4 && releaseBlock &&
+                    releaseBlock->getInstructions().size() == 2 &&
+                    releaseBlock->getInstructions().front()->getOpCode() ==
+                        OpCode::Release,
+                "ownership lowering did not split the dead CFG edge") &&
+         expect(ZirVerifier().verify(module).ok(),
+                "edge-lowered ZIR was rejected by the verifier");
+}
+
 bool testDominanceViolation() {
   Module module("dominance-violation");
   auto i32 = primitive(TypeKind::Int32);
@@ -783,6 +826,7 @@ int main() {
   ok = testOwnershipLoweringReleasesDeadOwnedResults() && ok;
   ok = testOwnershipLoweringReleasesAtLastLocalUse() && ok;
   ok = testCallBorrowAllowsOwnedValueToBeReleasedAfterward() && ok;
+  ok = testOwnershipLoweringReleasesOnDeadCfgEdge() && ok;
   ok = testDominanceViolation() && ok;
   ok = testPhiRequiresEveryPredecessor() && ok;
   return ok ? 0 : 1;

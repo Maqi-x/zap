@@ -193,6 +193,7 @@ public:
   BranchInst(std::string t) : target(std::move(t)) {}
   OpCode getOpCode() const override { return OpCode::Br; }
   const std::string &getTarget() const { return target; }
+  void setTarget(std::string value) { target = std::move(value); }
   std::string toString() const override { return "br label %" + target; }
 };
 
@@ -207,6 +208,14 @@ public:
   const std::shared_ptr<Value> &getCondition() const { return cond; }
   const std::string &getTrueLabel() const { return trueL; }
   const std::string &getFalseLabel() const { return falseL; }
+  void replaceTarget(const std::string &from, std::string to) {
+    if (trueL == from) {
+      trueL = to;
+    }
+    if (falseL == from) {
+      falseL = std::move(to);
+    }
+  }
   std::string toString() const override {
     return "br i1 " + cond->getName() + ", label %" + trueL + ", label %" +
            falseL;
@@ -414,6 +423,15 @@ public:
   const std::vector<std::pair<std::string, std::shared_ptr<Value>>> &
   getIncoming() const {
     return incoming;
+  }
+  void replaceIncomingLabel(const std::string &from, std::string to) {
+    for (auto &[label, value] : incoming) {
+      (void)value;
+      if (label == from) {
+        label = std::move(to);
+        return;
+      }
+    }
   }
   std::string toString() const override {
     std::string s = result->getName() + " = phi " + result->getTypeName() + " ";

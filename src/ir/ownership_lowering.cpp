@@ -161,6 +161,91 @@ void lowerDeadOwnedResults(Module &module) {
                             std::make_unique<ReleaseInst>(release->second));
       }
     }
+
+    std::unordered_set<std::string> labels;
+    for (const auto &blockOwner : function->getBlocks()) {
+      if (blockOwner) {
+        labels.insert(blockOwner->label);
+      }
+    }
+    size_t edgeIndex = 0;
+    std::vector<std::unique_ptr<BasicBlock>> edgeBlocks;
+    for (const auto &sourceOwner : function->getBlocks()) {
+      if (!sourceOwner || sourceOwner->getInstructions().empty()) {
+        continue;
+      }
+      auto &source = *sourceOwner;
+      const auto &terminator = source.getInstructions().back();
+      if (!terminator || (terminator->getOpCode() != OpCode::Br &&
+                          terminator->getOpCode() != OpCode::CondBr)) {
+        continue;
+      }
+      std::vector<std::string> targets;
+      if (terminator->getOpCode() == OpCode::Br) {
+        targets.push_back(static_cast<const BranchInst &>(*terminator).getTarget());
+      } else {
+        const auto &branch = static_cast<const CondBranchInst &>(*terminator);
+        targets.push_back(branch.getTrueLabel());
+        if (branch.getFalseLabel() != branch.getTrueLabel()) {
+          targets.push_back(branch.getFalseLabel());
+        }
+      }
+      for (const auto &targetLabel : targets) {
+        auto *destination = function->findBlock(targetLabel);
+        if (!destination) {
+          continue;
+        }
+        std::vector<std::shared_ptr<Value>> releases;
+        for (const auto &instruction : source.getInstructions()) {
+          if (!instruction) {
+            continue;
+          }
+          const auto value = instructionResult(*instruction);
+          if (!ownsManagedValue(value) ||
+              liveness.isLiveOnEdge(source, *destination, value)) {
+            continue;
+          }
+          bool transferred = false;
+          for (const auto &use : source.getInstructions()) {
+            if (use && transfersOwnership(*use, value)) {
+              transferred = true;
+              break;
+            }
+          }
+          if (!transferred) {
+            releases.push_back(value);
+          }
+        }
+        if (releases.empty()) {
+          continue;
+        }
+        std::string edgeLabel;
+        do {
+          edgeLabel = "ownership.release." + std::to_string(edgeIndex++);
+        } while (!labels.insert(edgeLabel).second);
+        auto edge = std::make_unique<BasicBlock>(edgeLabel);
+        for (const auto &value : releases) {
+          edge->addInstruction(std::make_unique<ReleaseInst>(value));
+        }
+        edge->addInstruction(std::make_unique<BranchInst>(targetLabel));
+        if (terminator->getOpCode() == OpCode::Br) {
+          static_cast<BranchInst &>(*terminator).setTarget(edgeLabel);
+        } else {
+          static_cast<CondBranchInst &>(*terminator).replaceTarget(targetLabel,
+                                                                     edgeLabel);
+        }
+        for (const auto &instruction : destination->getInstructions()) {
+          if (instruction && instruction->getOpCode() == OpCode::Phi) {
+            static_cast<PhiInst &>(*instruction).replaceIncomingLabel(
+                source.label, edgeLabel);
+          }
+        }
+        edgeBlocks.push_back(std::move(edge));
+      }
+    }
+    for (auto &edge : edgeBlocks) {
+      function->addBlock(std::move(edge));
+    }
   }
 }
 
