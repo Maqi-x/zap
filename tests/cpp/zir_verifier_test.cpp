@@ -413,10 +413,12 @@ bool testCallRequiresOwnershipMatchingArguments() {
       std::vector<std::shared_ptr<Type>>{stringType},
       primitive(TypeKind::Void));
   auto callee = std::make_shared<FunctionReference>("callee", calleeType);
+  argument->setOwnership(ValueOwnership::Borrowed);
   entry->addInstruction(std::make_unique<zir::CallInst>(
       nullptr, callee, std::vector<std::shared_ptr<zir::Value>>{argument},
       false, zir::CallInst::ResultOwnership::Borrowed,
-      std::vector<ValueOwnership>{ValueOwnership::Borrowed}));
+      std::vector<zir::CallInst::ArgumentMode>{
+          zir::CallInst::ArgumentMode::Transfer}));
   entry->addInstruction(std::make_unique<ReturnInst>());
   function->addBlock(std::move(entry));
   module.addFunction(std::move(function));
@@ -424,7 +426,7 @@ bool testCallRequiresOwnershipMatchingArguments() {
   auto verification = ZirVerifier().verify(module);
   return expect(
       hasError(verification, VerificationErrorCode::InvalidCall),
-      "borrowed call metadata for an owned argument was not diagnosed");
+      "transfer of a borrowed call argument was not diagnosed");
 }
 
 bool testOwnershipTransferAcrossControlFlow() {
@@ -655,6 +657,43 @@ bool testOwnershipLoweringReleasesAtLastLocalUse() {
                 "last-use-lowered ZIR was rejected by the verifier");
 }
 
+bool testCallBorrowAllowsOwnedValueToBeReleasedAfterward() {
+  Module module("call-borrow-ownership");
+  auto classType = std::make_shared<ClassType>("Node");
+
+  auto make = std::make_unique<Function>("make", classType);
+  module.addExternalFunction(std::move(make));
+  auto consume =
+      std::make_unique<Function>("consume", primitive(TypeKind::Void));
+  consume->arguments.push_back(
+      std::make_shared<zir::Argument>("value", classType));
+  module.addExternalFunction(std::move(consume));
+
+  auto function =
+      std::make_unique<Function>("valid", primitive(TypeKind::Void));
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto value = reg("value", classType);
+  value->setOwnership(ValueOwnership::Owned);
+  entry->addInstruction(std::make_unique<zir::CallInst>(
+      value, "make", std::vector<std::shared_ptr<zir::Value>>{},
+      std::vector<bool>{}, nullptr, false,
+      zir::CallInst::ResultOwnership::Owned));
+  entry->addInstruction(std::make_unique<zir::CallInst>(
+      nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{value}));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  zir::lowerDeadOwnedResults(module);
+  const auto &instructions = module.getFunctions().front()->getBlocks().front()
+                                 ->getInstructions();
+  return expect(instructions.size() == 4 &&
+                    instructions[2]->getOpCode() == OpCode::Release,
+                "borrowed call did not preserve a later release") &&
+         expect(ZirVerifier().verify(module).ok(),
+                "borrowed call of an owned value was rejected");
+}
+
 bool testDominanceViolation() {
   Module module("dominance-violation");
   auto i32 = primitive(TypeKind::Int32);
@@ -743,6 +782,7 @@ int main() {
   ok = testReleaseConsumesOwnedValue() && ok;
   ok = testOwnershipLoweringReleasesDeadOwnedResults() && ok;
   ok = testOwnershipLoweringReleasesAtLastLocalUse() && ok;
+  ok = testCallBorrowAllowsOwnedValueToBeReleasedAfterward() && ok;
   ok = testDominanceViolation() && ok;
   ok = testPhiRequiresEveryPredecessor() && ok;
   return ok ? 0 : 1;

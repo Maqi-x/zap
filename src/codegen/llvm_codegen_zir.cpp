@@ -715,9 +715,9 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
 
     auto recordOwnedStringArgument =
         [&](const std::shared_ptr<zir::Value> &argument,
-            llvm::Value *loweredValue, zir::ValueOwnership ownership) {
+            llvm::Value *loweredValue, zir::CallInst::ArgumentMode mode) {
           if (argument && isOwnedStringType(argument->getType()) &&
-              ownership == zir::ValueOwnership::Owned) {
+              mode == zir::CallInst::ArgumentMode::Transfer) {
             ownedStringArguments.push_back({loweredValue, argument->getType()});
           }
         };
@@ -741,7 +741,7 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         auto *lowered = lowerZIRRValue(arg);
         args.push_back(lowered);
         recordOwnedStringArgument(arg, lowered,
-                                  callInst.getArgumentOwnerships()[i]);
+                                  callInst.getArgumentModes()[i]);
       }
       auto *call = builder_.CreateCall(fnTy, calleePtr, args);
       releaseOwnedStringArguments();
@@ -879,14 +879,14 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
       if (!isRef && i < fixedParamCount && !isBorrowedSelfArg &&
           !(calleeParamType && isWeakClassType(calleeParamType)) &&
           isClassType(callInst.getArguments()[i]->getType()) &&
-          callInst.getArgumentOwnerships()[i] ==
-              zir::ValueOwnership::Borrowed) {
+          callInst.getArgumentModes()[i] ==
+              zir::CallInst::ArgumentMode::Borrow) {
         emitRetainIfNeeded(arg, callInst.getArguments()[i]->getType());
       }
       args.push_back(arg);
       if (!isRef) {
         recordOwnedStringArgument(callInst.getArguments()[i], arg,
-                                  callInst.getArgumentOwnerships()[i]);
+                                  callInst.getArgumentModes()[i]);
       }
     }
     if (hasVariadicParameter) {

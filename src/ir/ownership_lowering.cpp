@@ -98,8 +98,8 @@ bool transfersOwnership(const Instruction &instruction,
     const auto &call = static_cast<const CallInst &>(instruction);
     for (size_t i = 0; i < call.getArguments().size(); ++i) {
       if (call.getArguments()[i] == value &&
-          i < call.getArgumentOwnerships().size() &&
-          call.getArgumentOwnerships()[i] == ValueOwnership::Owned) {
+          i < call.getArgumentModes().size() &&
+          call.getArgumentModes()[i] == CallInst::ArgumentMode::Transfer) {
         return true;
       }
     }
