@@ -1,5 +1,7 @@
 #include "zir_verifier_internal.hpp"
 
+#include "ownership_flow.hpp"
+
 #include <algorithm>
 #include <deque>
 #include <unordered_map>
@@ -57,15 +59,6 @@ private:
   std::unordered_set<const BasicBlock *> reachable_;
   std::unordered_map<const BasicBlock *, std::unordered_set<const BasicBlock *>>
       dominators_;
-
-  enum OwnershipState : unsigned char {
-    OwnershipAvailable = 1 << 0,
-    OwnershipConsumed = 1 << 1,
-  };
-  using OwnershipStates = std::unordered_map<const Value *, unsigned char>;
-  using OwnershipEdgeStates =
-      std::unordered_map<const BasicBlock *,
-                         std::unordered_map<const BasicBlock *, OwnershipStates>>;
 
   void error(VerificationErrorCode code, const BasicBlock *block,
              std::optional<size_t> instructionIndex, std::string message) {
@@ -324,196 +317,14 @@ private:
            callee->getArguments().front()->getRawName() == "self";
   }
 
-  static bool transfersThroughCast(const CastInst &cast) {
-    if (!ownsManagedValue(cast.getSource()) || !cast.getTargetType()) {
-      return false;
-    }
-    return cast.getResult() &&
-           (cast.getResult()->getOwnership() == ValueOwnership::Owned ||
-            cast.getTargetType()->getIntrinsicKind() ==
-                IntrinsicTypeKind::StringView);
-  }
-
-  bool transfersThroughCallArgument(const CallInst &call,
-                                    size_t argumentIndex) const {
-    if (argumentIndex >= call.getArguments().size() ||
-        argumentIndex >= call.getArgumentModes().size() ||
-        !ownsManagedValue(call.getArguments()[argumentIndex]) ||
-        call.getArgumentModes()[argumentIndex] !=
-            CallInst::ArgumentMode::Transfer ||
-        (argumentIndex < call.getArgumentIsRef().size() &&
-         call.getArgumentIsRef()[argumentIndex])) {
-      return false;
-    }
-    const auto &type = call.getArguments()[argumentIndex]->getType();
-    if (type->getIntrinsicKind() == IntrinsicTypeKind::String) {
-      return true;
-    }
-    return !call.isIndirect() && type->getKind() == TypeKind::Class &&
-           !isBorrowedMethodSelf(call, argumentIndex);
-  }
-
-  void consumeOwnership(OwnershipStates &states,
-                        const std::shared_ptr<Value> &value,
-                        const BasicBlock &block, size_t instructionIndex,
-                        const char *operation,
-                        std::unordered_set<std::string> &reported) {
-    if (!ownsManagedValue(value)) {
-      return;
-    }
-    auto &state = states[value.get()];
-    if (state == 0) {
-      state = OwnershipAvailable;
-    }
-    if ((state & OwnershipConsumed) != 0) {
-      const auto key = block.label + ":" + std::to_string(instructionIndex) +
-                       ":" + value->getName();
-      if (reported.insert(key).second) {
-        error(VerificationErrorCode::OwnershipViolation, &block,
-              instructionIndex,
-              std::string("owned value is transferred more than once by ") +
-                  operation + ": " + value->getName());
-      }
-    }
-    state = OwnershipConsumed;
-  }
-
-  OwnershipStates mergeOwnershipStates(
-      const BasicBlock &block, const OwnershipStates &entryStates,
-      const OwnershipEdgeStates &edgeStates)
-      const {
-    if (!function_.getBlocks().empty() &&
-        function_.getBlocks().front().get() == &block) {
-      return entryStates;
-    }
-    OwnershipStates merged;
-    for (const auto *predecessor : predecessors_.at(&block)) {
-      if (reachable_.count(predecessor) == 0) {
-        continue;
-      }
-      const auto sourceIt = edgeStates.find(predecessor);
-      if (sourceIt == edgeStates.end()) {
-        continue;
-      }
-      const auto destinationIt = sourceIt->second.find(&block);
-      if (destinationIt == sourceIt->second.end()) {
-        continue;
-      }
-      for (const auto &[value, state] : destinationIt->second) {
-        merged[value] |= state;
-      }
-    }
-    return merged;
-  }
-
-  void transferOwnershipToPhiResults(
-      const BasicBlock &source, const BasicBlock &destination,
-      OwnershipStates &states, std::unordered_set<std::string> &reported) {
-    for (size_t i = 0; i < destination.getInstructions().size(); ++i) {
-      const auto &instruction = destination.getInstructions()[i];
-      if (!instruction || instruction->getOpCode() != OpCode::Phi) {
-        continue;
-      }
-      const auto &phi = static_cast<const PhiInst &>(*instruction);
-      if (!ownsManagedValue(phi.getResult()) ||
-          phi.getResult()->getOwnership() != ValueOwnership::Owned) {
-        continue;
-      }
-      for (const auto &[label, value] : phi.getIncoming()) {
-        if (label == source.label) {
-          consumeOwnership(states, value, destination, i, "phi", reported);
-          break;
-        }
-      }
-    }
-  }
-
   void verifyOwnershipTransfers() {
-    OwnershipStates entryStates;
-    for (const auto &argument : function_.getArguments()) {
-      if (ownsManagedValue(argument)) {
-        entryStates[argument.get()] = OwnershipAvailable;
-      }
-    }
-
-    OwnershipEdgeStates edgeStates;
-    std::unordered_set<std::string> reported;
-    bool changed = true;
-    while (changed) {
-      changed = false;
-      for (const auto &blockOwner : function_.getBlocks()) {
-        if (!blockOwner || reachable_.count(blockOwner.get()) == 0) {
-          continue;
-        }
-        const auto &block = *blockOwner;
-        auto states = mergeOwnershipStates(block, entryStates, edgeStates);
-        for (size_t i = 0; i < block.getInstructions().size(); ++i) {
-          const auto &instruction = block.getInstructions()[i];
-          if (!instruction) {
-            continue;
-          }
-          switch (instruction->getOpCode()) {
-          case OpCode::Store: {
-            const auto &store = static_cast<const StoreInst &>(*instruction);
-            if (store.getSourceOwnership() == ValueOwnership::Owned) {
-              consumeOwnership(states, store.getSource(), block, i, "store",
-                               reported);
-            }
-            break;
-          }
-          case OpCode::Ret: {
-            const auto &ret = static_cast<const ReturnInst &>(*instruction);
-            if (ret.getValueOwnership() == ValueOwnership::Owned) {
-              consumeOwnership(states, ret.getValue(), block, i, "return",
-                               reported);
-            }
-            break;
-          }
-          case OpCode::Cast: {
-            const auto &cast = static_cast<const CastInst &>(*instruction);
-            if (transfersThroughCast(cast)) {
-              consumeOwnership(states, cast.getSource(), block, i, "cast",
-                               reported);
-            }
-            break;
-          }
-          case OpCode::Call: {
-            const auto &call = static_cast<const CallInst &>(*instruction);
-            for (size_t argumentIndex = 0;
-                 argumentIndex < call.getArguments().size(); ++argumentIndex) {
-              if (transfersThroughCallArgument(call, argumentIndex)) {
-                consumeOwnership(states, call.getArguments()[argumentIndex],
-                                 block, i, "call", reported);
-              }
-            }
-            break;
-          }
-          case OpCode::Release:
-            consumeOwnership(
-                states,
-                static_cast<const ReleaseInst &>(*instruction).getValue(),
-                block, i, "release", reported);
-            break;
-          default:
-            break;
-          }
-
-          if (const auto result = instructionResult(*instruction);
-              ownsManagedValue(result)) {
-            states[result.get()] = OwnershipAvailable;
-          }
-        }
-        for (const auto *successor : successors_.at(&block)) {
-          auto edgeState = states;
-          transferOwnershipToPhiResults(block, *successor, edgeState,
-                                        reported);
-          auto &storedState = edgeStates[&block][successor];
-          if (storedState != edgeState) {
-            storedState = std::move(edgeState);
-            changed = true;
-          }
-        }
-      }
+    OwnershipFlowAnalysis analysis(module_, function_, predecessors_,
+                                   successors_, reachable_);
+    for (const auto &violation : analysis.analyze()) {
+      error(VerificationErrorCode::OwnershipViolation, violation.block,
+            violation.instructionIndex,
+            "owned value is transferred more than once by " +
+                violation.operation + ": " + violation.value->getName());
     }
   }
 
