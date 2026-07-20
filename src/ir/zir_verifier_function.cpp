@@ -63,6 +63,9 @@ private:
     OwnershipConsumed = 1 << 1,
   };
   using OwnershipStates = std::unordered_map<const Value *, unsigned char>;
+  using OwnershipEdgeStates =
+      std::unordered_map<const BasicBlock *,
+                         std::unordered_map<const BasicBlock *, OwnershipStates>>;
 
   void error(VerificationErrorCode code, const BasicBlock *block,
              std::optional<size_t> instructionIndex, std::string message) {
@@ -376,7 +379,7 @@ private:
 
   OwnershipStates mergeOwnershipStates(
       const BasicBlock &block, const OwnershipStates &entryStates,
-      const std::unordered_map<const BasicBlock *, OwnershipStates> &outStates)
+      const OwnershipEdgeStates &edgeStates)
       const {
     if (!function_.getBlocks().empty() &&
         function_.getBlocks().front().get() == &block) {
@@ -387,15 +390,41 @@ private:
       if (reachable_.count(predecessor) == 0) {
         continue;
       }
-      const auto stateIt = outStates.find(predecessor);
-      if (stateIt == outStates.end()) {
+      const auto sourceIt = edgeStates.find(predecessor);
+      if (sourceIt == edgeStates.end()) {
         continue;
       }
-      for (const auto &[value, state] : stateIt->second) {
+      const auto destinationIt = sourceIt->second.find(&block);
+      if (destinationIt == sourceIt->second.end()) {
+        continue;
+      }
+      for (const auto &[value, state] : destinationIt->second) {
         merged[value] |= state;
       }
     }
     return merged;
+  }
+
+  void transferOwnershipToPhiResults(
+      const BasicBlock &source, const BasicBlock &destination,
+      OwnershipStates &states, std::unordered_set<std::string> &reported) {
+    for (size_t i = 0; i < destination.getInstructions().size(); ++i) {
+      const auto &instruction = destination.getInstructions()[i];
+      if (!instruction || instruction->getOpCode() != OpCode::Phi) {
+        continue;
+      }
+      const auto &phi = static_cast<const PhiInst &>(*instruction);
+      if (!ownsManagedValue(phi.getResult()) ||
+          phi.getResult()->getOwnership() != ValueOwnership::Owned) {
+        continue;
+      }
+      for (const auto &[label, value] : phi.getIncoming()) {
+        if (label == source.label) {
+          consumeOwnership(states, value, destination, i, "phi", reported);
+          break;
+        }
+      }
+    }
   }
 
   void verifyOwnershipTransfers() {
@@ -406,7 +435,7 @@ private:
       }
     }
 
-    std::unordered_map<const BasicBlock *, OwnershipStates> outStates;
+    OwnershipEdgeStates edgeStates;
     std::unordered_set<std::string> reported;
     bool changed = true;
     while (changed) {
@@ -416,7 +445,7 @@ private:
           continue;
         }
         const auto &block = *blockOwner;
-        auto states = mergeOwnershipStates(block, entryStates, outStates);
+        auto states = mergeOwnershipStates(block, entryStates, edgeStates);
         for (size_t i = 0; i < block.getInstructions().size(); ++i) {
           const auto &instruction = block.getInstructions()[i];
           if (!instruction) {
@@ -467,9 +496,15 @@ private:
             states[result.get()] = OwnershipAvailable;
           }
         }
-        if (outStates[&block] != states) {
-          outStates[&block] = std::move(states);
-          changed = true;
+        for (const auto *successor : successors_.at(&block)) {
+          auto edgeState = states;
+          transferOwnershipToPhiResults(block, *successor, edgeState,
+                                        reported);
+          auto &storedState = edgeStates[&block][successor];
+          if (storedState != edgeState) {
+            storedState = std::move(edgeState);
+            changed = true;
+          }
         }
       }
     }

@@ -462,6 +462,85 @@ bool testOwnershipTransferAcrossControlFlow() {
       "double ownership transfer across control flow was not diagnosed");
 }
 
+bool testPhiTransfersOwnershipOnIncomingEdge() {
+  Module module("phi-ownership-transfer");
+  auto classType = std::make_shared<ClassType>("Node");
+  auto boolean = primitive(TypeKind::Bool);
+  auto function = std::make_unique<Function>("broken", classType);
+  auto value = std::make_shared<zir::Argument>("value", classType);
+  value->setOwnership(ValueOwnership::Owned);
+  function->arguments.push_back(value);
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CondBranchInst>(
+      std::make_shared<Constant>("true", boolean), "left", "right"));
+
+  auto left = std::make_unique<BasicBlock>("left");
+  auto slot = reg("slot", std::make_shared<PointerType>(classType));
+  left->addInstruction(std::make_unique<zir::AllocaInst>(slot, classType));
+  left->addInstruction(
+      std::make_unique<StoreInst>(value, slot, StoreMode::Assign));
+  left->addInstruction(std::make_unique<BranchInst>("merge"));
+
+  auto right = std::make_unique<BasicBlock>("right");
+  right->addInstruction(std::make_unique<BranchInst>("merge"));
+
+  auto merge = std::make_unique<BasicBlock>("merge");
+  auto result = reg("result", classType);
+  result->setOwnership(ValueOwnership::Owned);
+  merge->addInstruction(std::make_unique<PhiInst>(
+      result, std::vector<std::pair<std::string, std::shared_ptr<zir::Value>>>{
+                  {"left", value}, {"right", value}}));
+  merge->addInstruction(std::make_unique<ReturnInst>(result));
+
+  function->addBlock(std::move(entry));
+  function->addBlock(std::move(left));
+  function->addBlock(std::move(right));
+  function->addBlock(std::move(merge));
+  module.addFunction(std::move(function));
+
+  auto verification = ZirVerifier().verify(module);
+  return expect(hasError(verification, VerificationErrorCode::OwnershipViolation),
+                "phi ownership transfer on its incoming edge was not diagnosed");
+}
+
+bool testPhiAllowsSeparateAlternativeOwnershipTransfers() {
+  Module module("phi-alternative-ownership-transfer");
+  auto classType = std::make_shared<ClassType>("Node");
+  auto boolean = primitive(TypeKind::Bool);
+  auto function = std::make_unique<Function>("valid", classType);
+  auto value = std::make_shared<zir::Argument>("value", classType);
+  value->setOwnership(ValueOwnership::Owned);
+  function->arguments.push_back(value);
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CondBranchInst>(
+      std::make_shared<Constant>("true", boolean), "left", "right"));
+  auto left = std::make_unique<BasicBlock>("left");
+  left->addInstruction(std::make_unique<BranchInst>("merge"));
+  auto right = std::make_unique<BasicBlock>("right");
+  right->addInstruction(std::make_unique<BranchInst>("merge"));
+
+  auto merge = std::make_unique<BasicBlock>("merge");
+  auto result = reg("result", classType);
+  result->setOwnership(ValueOwnership::Owned);
+  merge->addInstruction(std::make_unique<PhiInst>(
+      result, std::vector<std::pair<std::string, std::shared_ptr<zir::Value>>>{
+                  {"left", value}, {"right", value}}));
+  merge->addInstruction(std::make_unique<ReturnInst>(result));
+
+  function->addBlock(std::move(entry));
+  function->addBlock(std::move(left));
+  function->addBlock(std::move(right));
+  function->addBlock(std::move(merge));
+  module.addFunction(std::move(function));
+
+  auto verification = ZirVerifier().verify(module);
+  return expect(verification.ok(),
+                "separate phi edge ownership transfers were rejected:\n" +
+                    verification.format());
+}
+
 bool testDominanceViolation() {
   Module module("dominance-violation");
   auto i32 = primitive(TypeKind::Int32);
@@ -544,6 +623,8 @@ int main() {
   ok = testCastRequiresOwnershipMatchingSourceAndTarget() && ok;
   ok = testCallRequiresOwnershipMatchingArguments() && ok;
   ok = testOwnershipTransferAcrossControlFlow() && ok;
+  ok = testPhiTransfersOwnershipOnIncomingEdge() && ok;
+  ok = testPhiAllowsSeparateAlternativeOwnershipTransfers() && ok;
   ok = testDominanceViolation() && ok;
   ok = testPhiRequiresEveryPredecessor() && ok;
   return ok ? 0 : 1;
