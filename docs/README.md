@@ -53,6 +53,11 @@ Zap is a modern systems programming language focused on predictable performance,
 9. [Diagnostic Codes](diagnostic_codes.md)  
    Full reference for parser/semantic/warning/note diagnostic codes (`Pxxxx`, `Sxxxx`, `Wxxxx`, `Nxxxx`), including examples and maintenance guidelines.
 
+### Architecture RFCs
+
+10. [Ownership and ORC RFC](rfc/orc.md)
+    Draft design for ownership-aware ZIR and optimized reference counting. It describes the target model; it is not yet a description of released compiler behavior.
+
 ---
 
 ## Notes
