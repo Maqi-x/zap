@@ -3,7 +3,7 @@
 - Status: **Draft**
 - Date: 2026-07-20
 - Authors: Zap project
-- Eventually replaces: heuristic ARC in the LLVM backend and the eager cycle collector
+- Eventually replaces: heuristic ARC in the LLVM backend and eager cycle-collection scheduling
 
 ## Summary
 
@@ -55,7 +55,7 @@ The target model provides:
 - a public `move` keyword or builtin;
 - atomic reference counting or sharing managed objects between threads;
 - a new stable FFI ABI; and
-- automatic collection of every cycle as an implicit language guarantee.
+- synchronous cycle collection from the hot `release` path.
 
 ## Value model
 
@@ -194,16 +194,29 @@ link.
 reference requires an explicit lock and may return `null`; the exact lock API
 will be unified with the runtime ABI.
 
-The cycle collector must not run from every `release` with a nonzero count.
-The migration strategy remains open and requires a separate approved decision
-before changing the runtime:
+Zap retains automatic cycle collection through trial deletion. `weak` remains
+the preferred representation for intentional non-owning links, but an
+accidental strong cycle must not become a permanent leak.
 
-1. require `weak` to break cycles and remove the collector; or
-2. retain a trial-deletion collector as an infrequent operation outside the hot path.
+The collector is scheduled outside the hot `release` path:
 
-Regardless of the strategy, a destructor must not resurrect an object once
-destruction has begun, and `weak.lock()` must fail for a logically destroying
-object. Destruction order within a cycle must not be an API guarantee.
+1. a non-final strong `release` records a possible cycle root in the current
+   runtime context; it does not traverse the graph or start collection;
+2. collection runs at a controlled safe point after a configurable amount of
+   allocation or accumulated candidate roots, and during runtime shutdown;
+3. collection snapshots candidates and uses type trace metadata to perform
+   trial deletion only for their reachable subgraphs; and
+4. a confirmed cycle is destroyed through the normal type-specific drop glue.
+
+This makes the cost of an ordinary `release` bounded and local. Collection is
+still an explicit runtime cost, so the runtime must expose counters for
+candidate roots, collection runs, visited objects, and reclaimed objects.
+The initial implementation is single-threaded and uses one runtime context;
+future concurrent scheduling requires its own design.
+
+A destructor must not resurrect an object once destruction has begun, and
+`weak.lock()` must fail for a logically destroying object. Destruction order
+within a cycle must not be an API guarantee.
 
 ## Concurrency
 
@@ -249,7 +262,7 @@ typed ZIR
 
 ## Implementation plan
 
-1. Adopt this RFC and resolve the open cycle decision.
+1. Adopt this RFC and define the initial collection thresholds.
 2. Add test-only instrumentation for allocation, retain, release, destroy, and collection.
 3. Complete ownership metadata in ZIR for calls, casts, weak locks, and aggregates.
 4. Add ownership invariants to `ZirVerifier` and CFG tests for early return,
@@ -257,22 +270,20 @@ typed ZIR
 5. Extract ownership lowering from LLVM code generation without changing
    observable semantics.
 6. Add last-use analysis and `sink` parameters.
-7. Replace the eager collector with the strategy approved in a separate RFC.
+7. Replace the eager collector with scheduled trial deletion and complete trace
+   metadata for all managed aggregate and container types.
 
 Every stage must preserve the full suite and include regression tests that
 count runtime operations; exit code alone is not a sufficient memory test.
 
 ## Open decisions requiring approval
 
-1. Must cycles remain automatically collectible, or is `weak` the required
-   way to break them?
-2. If a collector remains, when is it scheduled and run, and what is its
-   destructor contract?
-3. Does `sink` become public syntax immediately, or initially only metadata
+1. What initial candidate-root and allocation thresholds schedule collection?
+2. Does `sink` become public syntax immediately, or initially only metadata
    for standard-library APIs and compiler intrinsics?
-4. What exact syntax and `lock` API should `weak` use after separating the
+3. What exact syntax and `lock` API should `weak` use after separating the
    reference qualifier from the class declaration?
-5. Which language features should the future concurrency model support first?
+4. Which language features should the future concurrency model support first?
 
 ## Acceptance criteria
 
@@ -282,5 +293,6 @@ The first ORC stage is complete when:
 - `ZirVerifier` checks ownership contracts for all instructions;
 - classes, `String`, records, arrays, and failable payloads share one
   copy/drop model;
-- retain/release does not run global cycle collection in the hot path; and
+- retain/release does not run global cycle collection in the hot path, and
+  scheduled trial deletion reclaims self-cycles and multi-object cycles; and
 - sanitizer tests and copy/drop counters cover CFG and lifetime behavior.
