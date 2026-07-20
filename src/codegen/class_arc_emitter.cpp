@@ -603,6 +603,10 @@ void ClassArcEmitter::ensureClassArcSupport(
 
     auto *i32Ty = llvm::Type::getInt32Ty(codegen_.ctx_);
     auto *i32PtrTy = llvm::PointerType::getUnqual(codegen_.ctx_);
+    if (strongFieldOffsets.size() > std::numeric_limits<uint32_t>::max()) {
+      throw std::runtime_error(
+          "ARC strong reference metadata exceeds runtime ABI");
+    }
     llvm::Constant *offsetPtr = llvm::ConstantPointerNull::get(i32PtrTy);
     if (!strongFieldOffsets.empty()) {
       std::vector<llvm::Constant *> offsetConstants;

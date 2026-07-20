@@ -39,6 +39,12 @@ static void zap_runtime_out_of_memory(void) {
   abort();
 }
 
+static void zap_arc_graph_limit_exceeded(void) {
+  fputs("zap runtime error: ARC collector graph exceeds uint32 index limit\n",
+        stderr);
+  abort();
+}
+
 void *zap_runtime_alloc(size_t size) {
   void *allocation = malloc(size);
   if (!allocation) {
@@ -229,6 +235,9 @@ static void zap_arc_ws_push(void ***ws, size_t *count, size_t *cap,
   uint32_t existing;
   if (zap_arc_ptrmap_get(map, object, &existing)) {
     return;
+  }
+  if (*count > UINT32_MAX) {
+    zap_arc_graph_limit_exceeded();
   }
   if (*count == *cap) {
     size_t ncap = zap_runtime_next_capacity(*cap, 32);
