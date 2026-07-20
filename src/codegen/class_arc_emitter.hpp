@@ -4,6 +4,7 @@
 #include <memory>
 
 namespace llvm {
+class Function;
 class Value;
 }
 
@@ -34,6 +35,9 @@ public:
   void ensureClassArcSupport(const std::shared_ptr<zir::ClassType> &classType);
 
 private:
+  llvm::Function *getOrCreateRefcountFailureFunction(const char *name);
+  void emitRefcountFailure(const char *name);
+
   LLVMCodeGen &codegen_;
 };
 } // namespace codegen

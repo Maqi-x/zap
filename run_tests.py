@@ -249,6 +249,19 @@ EXTRA_TESTS = [
         "output_pattern": "Value\" = type { i32, i32 }"
     },
     {
+        "file": "tests/class_weak_test.zp",
+        "type": "compile",
+        "desc": "Emit checked ARC reference counting",
+        "compile_flags": ["-S", "-emit-llvm"],
+        "output_file": "/tmp/zap-class-weak-refcount.ll",
+        "output_patterns": [
+            "zap_arc_strong_refcount_overflow",
+            "zap_arc_weak_refcount_overflow",
+            "zap_arc_strong_refcount_underflow",
+            "zap_arc_weak_refcount_underflow"
+        ]
+    },
+    {
         "file": "tests/prelude_implicit_collection_test.zp",
         "type": "compile",
         "desc": "Disabling prelude with -noprelude fails compilation",
@@ -347,7 +360,9 @@ def execute_test(test_item, zapc_path):
     stderr_pattern = test_item.get("stderr_pattern", None)
     diagnostics = test_item.get("diagnostics", [])
     output_file = test_item.get("output_file", None)
-    output_pattern = test_item.get("output_pattern", None)
+    output_patterns = test_item.get("output_patterns", [])
+    if "output_pattern" in test_item:
+        output_patterns = [test_item["output_pattern"]] + output_patterns
     
     to_cleanup = []
     
@@ -393,11 +408,12 @@ def execute_test(test_item, zapc_path):
             if output_file:
                 if not os.path.exists(output_file):
                     return False, f"Expected output file not found: {output_file}"
-                if output_pattern:
+                if output_patterns:
                     with open(output_file, "r", encoding="utf-8", errors="replace") as f:
                         output_text = f.read()
-                    if output_pattern not in output_text:
-                        return False, f"Expected output pattern '{output_pattern}' not found in {output_file}"
+                    for output_pattern in output_patterns:
+                        if output_pattern not in output_text:
+                            return False, f"Expected output pattern '{output_pattern}' not found in {output_file}"
                     
             if stderr_pattern:
                 if stderr_pattern.lower() not in res.stderr.lower():

@@ -10,6 +10,26 @@ namespace codegen {
 
 ClassArcEmitter::ClassArcEmitter(LLVMCodeGen &codegen) : codegen_(codegen) {}
 
+llvm::Function *
+ClassArcEmitter::getOrCreateRefcountFailureFunction(const char *name) {
+  auto it = codegen_.functionMap_.find(name);
+  if (it != codegen_.functionMap_.end()) {
+    return it->second;
+  }
+
+  auto *failureType =
+      llvm::FunctionType::get(llvm::Type::getVoidTy(codegen_.ctx_), {}, false);
+  auto *failureFn = llvm::Function::Create(
+      failureType, llvm::Function::ExternalLinkage, name, *codegen_.module_);
+  codegen_.functionMap_[name] = failureFn;
+  return failureFn;
+}
+
+void ClassArcEmitter::emitRefcountFailure(const char *name) {
+  codegen_.builder_.CreateCall(getOrCreateRefcountFailureFunction(name));
+  codegen_.builder_.CreateUnreachable();
+}
+
 bool ClassArcEmitter::isClassType(
     const std::shared_ptr<zir::Type> &type) const {
   return type && type->getKind() == zir::TypeKind::Class;
@@ -32,8 +52,13 @@ void ClassArcEmitter::emitRetainIfNeeded(
     return;
   }
 
-  auto *retainBB = llvm::BasicBlock::Create(codegen_.ctx_, "arc.retain.do",
+  auto *retainBB = llvm::BasicBlock::Create(codegen_.ctx_, "arc.retain.check",
                                             codegen_.currentFn_);
+  auto *incrementBB = llvm::BasicBlock::Create(codegen_.ctx_, "arc.retain.do",
+                                                codegen_.currentFn_);
+  auto *overflowBB = llvm::BasicBlock::Create(codegen_.ctx_,
+                                               "arc.retain.overflow",
+                                               codegen_.currentFn_);
   auto *contBB = llvm::BasicBlock::Create(codegen_.ctx_, "arc.retain.cont",
                                           codegen_.currentFn_);
   auto *isNull = codegen_.builder_.CreateICmpEQ(
@@ -50,6 +75,16 @@ void ClassArcEmitter::emitRetainIfNeeded(
       objectTy, typedPtr, kClassStrongCountIndex, "arc.retain.count.addr");
   auto *count = codegen_.builder_.CreateLoad(
       llvm::Type::getInt64Ty(codegen_.ctx_), countAddr, "arc.retain.count");
+  auto *maximum = llvm::ConstantInt::getSigned(
+      llvm::Type::getInt64Ty(codegen_.ctx_), INT64_MAX);
+  auto *isOverflow = codegen_.builder_.CreateICmpSGE(
+      count, maximum, "arc.retain.overflowed");
+  codegen_.builder_.CreateCondBr(isOverflow, overflowBB, incrementBB);
+
+  codegen_.builder_.SetInsertPoint(overflowBB);
+  emitRefcountFailure("zap_arc_strong_refcount_overflow");
+
+  codegen_.builder_.SetInsertPoint(incrementBB);
   auto *next = codegen_.builder_.CreateAdd(
       count, llvm::ConstantInt::get(llvm::Type::getInt64Ty(codegen_.ctx_), 1),
       "arc.retain.next");
@@ -130,8 +165,15 @@ void ClassArcEmitter::emitRetainWeakIfNeeded(
     return;
   }
 
-  auto *retainBB = llvm::BasicBlock::Create(codegen_.ctx_, "arc.weak.retain.do",
+  auto *retainBB = llvm::BasicBlock::Create(codegen_.ctx_,
+                                            "arc.weak.retain.check",
                                             codegen_.currentFn_);
+  auto *incrementBB = llvm::BasicBlock::Create(codegen_.ctx_,
+                                                "arc.weak.retain.do",
+                                                codegen_.currentFn_);
+  auto *overflowBB = llvm::BasicBlock::Create(codegen_.ctx_,
+                                               "arc.weak.retain.overflow",
+                                               codegen_.currentFn_);
   auto *contBB = llvm::BasicBlock::Create(codegen_.ctx_, "arc.weak.retain.cont",
                                           codegen_.currentFn_);
   auto *isNull = codegen_.builder_.CreateICmpEQ(
@@ -149,6 +191,16 @@ void ClassArcEmitter::emitRetainWeakIfNeeded(
       objectTy, typedPtr, kClassWeakCountIndex, "arc.weak.count.addr");
   auto *count = codegen_.builder_.CreateLoad(
       llvm::Type::getInt64Ty(codegen_.ctx_), countAddr, "arc.weak.count");
+  auto *maximum = llvm::ConstantInt::getSigned(
+      llvm::Type::getInt64Ty(codegen_.ctx_), INT64_MAX);
+  auto *isOverflow = codegen_.builder_.CreateICmpSGE(
+      count, maximum, "arc.weak.retain.overflowed");
+  codegen_.builder_.CreateCondBr(isOverflow, overflowBB, incrementBB);
+
+  codegen_.builder_.SetInsertPoint(overflowBB);
+  emitRefcountFailure("zap_arc_weak_refcount_overflow");
+
+  codegen_.builder_.SetInsertPoint(incrementBB);
   auto *next = codegen_.builder_.CreateAdd(
       count, llvm::ConstantInt::get(llvm::Type::getInt64Ty(codegen_.ctx_), 1),
       "arc.weak.next");
@@ -169,7 +221,11 @@ void ClassArcEmitter::emitReleaseWeakIfNeeded(
   }
 
   auto *releaseBB = llvm::BasicBlock::Create(
+      codegen_.ctx_, "arc.weak.release.check", codegen_.currentFn_);
+  auto *decrementBB = llvm::BasicBlock::Create(
       codegen_.ctx_, "arc.weak.release.do", codegen_.currentFn_);
+  auto *underflowBB = llvm::BasicBlock::Create(
+      codegen_.ctx_, "arc.weak.release.underflow", codegen_.currentFn_);
   auto *checkFreeBB = llvm::BasicBlock::Create(
       codegen_.ctx_, "arc.weak.release.checkfree", codegen_.currentFn_);
   auto *freeBB = llvm::BasicBlock::Create(
@@ -192,6 +248,16 @@ void ClassArcEmitter::emitReleaseWeakIfNeeded(
   auto *weakCount =
       codegen_.builder_.CreateLoad(llvm::Type::getInt64Ty(codegen_.ctx_),
                                    weakAddr, "arc.weak.release.count");
+  auto *isUnderflow = codegen_.builder_.CreateICmpSLE(
+      weakCount, llvm::ConstantInt::get(llvm::Type::getInt64Ty(codegen_.ctx_),
+                                         0),
+      "arc.weak.release.underflowed");
+  codegen_.builder_.CreateCondBr(isUnderflow, underflowBB, decrementBB);
+
+  codegen_.builder_.SetInsertPoint(underflowBB);
+  emitRefcountFailure("zap_arc_weak_refcount_underflow");
+
+  codegen_.builder_.SetInsertPoint(decrementBB);
   auto *nextWeak = codegen_.builder_.CreateSub(
       weakCount,
       llvm::ConstantInt::get(llvm::Type::getInt64Ty(codegen_.ctx_), 1),
@@ -598,7 +664,12 @@ void ClassArcEmitter::ensureClassArcSupport(
   codegen_.currentFn_ = releaseHelper;
   auto *entry = llvm::BasicBlock::Create(codegen_.ctx_, "entry", releaseHelper);
   auto *decrementedBB =
+      llvm::BasicBlock::Create(codegen_.ctx_, "arc.dec.check", releaseHelper);
+  auto *validReleaseBB =
       llvm::BasicBlock::Create(codegen_.ctx_, "arc.dec", releaseHelper);
+  auto *underflowBB = llvm::BasicBlock::Create(codegen_.ctx_,
+                                                "arc.dec.underflow",
+                                                releaseHelper);
   auto *destroyBB =
       llvm::BasicBlock::Create(codegen_.ctx_, "arc.destroy", releaseHelper);
   bool canBeCyclic =
@@ -625,6 +696,15 @@ void ClassArcEmitter::ensureClassArcSupport(
       objectTy, typedObject, kClassStrongCountIndex, "refcount.addr");
   auto *count = codegen_.builder_.CreateLoad(
       llvm::Type::getInt64Ty(codegen_.ctx_), countAddr, "refcount");
+  auto *isUnderflow = codegen_.builder_.CreateICmpSLE(
+      count, llvm::ConstantInt::get(llvm::Type::getInt64Ty(codegen_.ctx_), 0),
+      "refcount.underflowed");
+  codegen_.builder_.CreateCondBr(isUnderflow, underflowBB, validReleaseBB);
+
+  codegen_.builder_.SetInsertPoint(underflowBB);
+  emitRefcountFailure("zap_arc_strong_refcount_underflow");
+
+  codegen_.builder_.SetInsertPoint(validReleaseBB);
   auto *nextCount = codegen_.builder_.CreateSub(
       count, llvm::ConstantInt::get(llvm::Type::getInt64Ty(codegen_.ctx_), 1),
       "refcount.next");

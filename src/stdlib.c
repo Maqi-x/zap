@@ -89,6 +89,26 @@ static int zap_arc_collecting = 0;
 static int zap_net_last_error = 0;
 static long zap_fs_last_error_code = 0;
 
+void zap_arc_strong_refcount_overflow(void) {
+  fputs("zap runtime error: strong ARC reference count overflow\n", stderr);
+  abort();
+}
+
+void zap_arc_weak_refcount_overflow(void) {
+  fputs("zap runtime error: weak ARC reference count overflow\n", stderr);
+  abort();
+}
+
+void zap_arc_strong_refcount_underflow(void) {
+  fputs("zap runtime error: strong ARC reference count underflow\n", stderr);
+  abort();
+}
+
+void zap_arc_weak_refcount_underflow(void) {
+  fputs("zap runtime error: weak ARC reference count underflow\n", stderr);
+  abort();
+}
+
 void zap_arc_add_possible_root(void *object) {
   if (!object) {
     return;

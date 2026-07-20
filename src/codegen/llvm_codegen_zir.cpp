@@ -343,7 +343,11 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         zirClassParamAllocas_.insert(allocaInst.getResult().get());
         zirPendingClassParamInitAllocas_.insert(allocaInst.getResult().get());
       }
-      if (!isBorrowedSelf) {
+      const bool isBorrowedWeakParameter =
+          isParamSpill && isWeakClassType(allocaInst.getAllocatedType());
+      // Weak parameters are borrows: the caller does not transfer a weak
+      // reference, while assigning one into a field retains it explicitly.
+      if (!isBorrowedSelf && !isBorrowedWeakParameter) {
         zirFunctionClassLocals_.push_back(
             {allocaInst.getAllocatedType(), alloca});
       }
