@@ -481,6 +481,7 @@ def main():
     parser.add_argument("-j", "--jobs", type=int, default=None, help="Number of parallel test jobs (default: CPU cores - 1)")
     parser.add_argument("-l", "--list", action="store_true", help="List discovered tests and exit")
     parser.add_argument("-v", "--verbose", action="store_true", help="Print detailed failure reasons")
+    parser.add_argument("--zapc", help="Path to a prebuilt Zap compiler instead of building ./build/zapc")
     args = parser.parse_args()
 
     # Step 1: Discover test files
@@ -525,8 +526,13 @@ def main():
         print(f"{YELLOW}No matching tests found.{NC}")
         return
 
-    # Step 2: Build the compiler
-    zapc_path = build_compiler()
+    # Step 2: Build the compiler or use an explicitly selected build.
+    if args.zapc:
+        zapc_path = args.zapc
+        if not os.path.isfile(zapc_path):
+            parser.error(f"Zap compiler not found: {zapc_path}")
+    else:
+        zapc_path = build_compiler()
 
     print("--- Zap Compiler Test Suite ---")
     total_tests = len(test_suite)
