@@ -226,6 +226,7 @@ private:
   std::shared_ptr<Value> calleeValue; // non-null for indirect calls
   std::vector<std::shared_ptr<Value>> args;
   std::vector<bool> argIsRef;
+  std::vector<ValueOwnership> argumentOwnerships_;
   std::shared_ptr<Value> variadicPack;
   bool returnsRef_ = false;
   ResultOwnership resultOwnership_ = ResultOwnership::Borrowed;
@@ -235,19 +236,39 @@ public:
            std::vector<std::shared_ptr<Value>> arguments,
            std::vector<bool> argumentIsRef = {},
            std::shared_ptr<Value> pack = nullptr, bool returnsRef = false,
-           ResultOwnership resultOwnership = ResultOwnership::Borrowed)
+           ResultOwnership resultOwnership = ResultOwnership::Borrowed,
+           std::vector<ValueOwnership> argumentOwnerships = {})
       : result(std::move(res)), funcName(std::move(name)),
         args(std::move(arguments)), argIsRef(std::move(argumentIsRef)),
+        argumentOwnerships_(std::move(argumentOwnerships)),
         variadicPack(std::move(pack)), returnsRef_(returnsRef),
-        resultOwnership_(resultOwnership) {}
+        resultOwnership_(resultOwnership) {
+    if (argumentOwnerships_.empty()) {
+      argumentOwnerships_.reserve(args.size());
+      for (const auto &argument : args) {
+        argumentOwnerships_.push_back(argument ? argument->getOwnership()
+                                               : ValueOwnership::Borrowed);
+      }
+    }
+  }
   // Indirect call constructor
   CallInst(std::shared_ptr<Value> res, std::shared_ptr<Value> callee,
            std::vector<std::shared_ptr<Value>> arguments,
            bool returnsRef = false,
-           ResultOwnership resultOwnership = ResultOwnership::Borrowed)
+           ResultOwnership resultOwnership = ResultOwnership::Borrowed,
+           std::vector<ValueOwnership> argumentOwnerships = {})
       : result(std::move(res)), calleeValue(std::move(callee)),
-        args(std::move(arguments)), returnsRef_(returnsRef),
-        resultOwnership_(resultOwnership) {}
+        args(std::move(arguments)),
+        argumentOwnerships_(std::move(argumentOwnerships)),
+        returnsRef_(returnsRef), resultOwnership_(resultOwnership) {
+    if (argumentOwnerships_.empty()) {
+      argumentOwnerships_.reserve(args.size());
+      for (const auto &argument : args) {
+        argumentOwnerships_.push_back(argument ? argument->getOwnership()
+                                               : ValueOwnership::Borrowed);
+      }
+    }
+  }
   OpCode getOpCode() const override { return OpCode::Call; }
   const std::shared_ptr<Value> &getResult() const { return result; }
   const std::string &getFunctionName() const { return funcName; }
@@ -259,6 +280,9 @@ public:
     return args;
   }
   const std::vector<bool> &getArgumentIsRef() const { return argIsRef; }
+  const std::vector<ValueOwnership> &getArgumentOwnerships() const {
+    return argumentOwnerships_;
+  }
   const std::shared_ptr<Value> &getVariadicPack() const { return variadicPack; }
   std::string toString() const override {
     std::string s =

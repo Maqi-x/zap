@@ -679,6 +679,25 @@ private:
       error(VerificationErrorCode::InvalidCall, &block, index,
             "call ref-argument metadata has the wrong size");
     }
+    if (call.getArgumentOwnerships().size() != call.getArguments().size()) {
+      error(VerificationErrorCode::InvalidCall, &block, index,
+            "call argument ownership metadata has the wrong size");
+      return;
+    }
+    for (size_t i = 0; i < call.getArguments().size(); ++i) {
+      const auto &argument = call.getArguments()[i];
+      if (argument &&
+          call.getArgumentOwnerships()[i] != argument->getOwnership()) {
+        error(VerificationErrorCode::InvalidCall, &block, index,
+              "call argument ownership does not match argument " +
+                  std::to_string(i));
+      }
+      if (i < call.getArgumentIsRef().size() && call.getArgumentIsRef()[i] &&
+          call.getArgumentOwnerships()[i] != ValueOwnership::Borrowed) {
+        error(VerificationErrorCode::InvalidCall, &block, index,
+              "ref call argument cannot transfer ownership");
+      }
+    }
   }
 
   void verifyGetElementPtr(const GetElementPtrInst &gep,

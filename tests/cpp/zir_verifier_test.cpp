@@ -396,6 +396,34 @@ bool testCastRequiresOwnershipMatchingSourceAndTarget() {
                 "borrowed managed cast result was not diagnosed");
 }
 
+bool testCallRequiresOwnershipMatchingArguments() {
+  Module module("call-ownership");
+  auto stringType = zir::makeStringType();
+  auto function =
+      std::make_unique<Function>("broken", primitive(TypeKind::Void));
+  auto argument = std::make_shared<zir::Argument>("argument", stringType);
+  argument->setOwnership(ValueOwnership::Owned);
+  function->arguments.push_back(argument);
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto calleeType = std::make_shared<FunctionPointerType>(
+      std::vector<std::shared_ptr<Type>>{stringType},
+      primitive(TypeKind::Void));
+  auto callee = std::make_shared<FunctionReference>("callee", calleeType);
+  entry->addInstruction(std::make_unique<zir::CallInst>(
+      nullptr, callee, std::vector<std::shared_ptr<zir::Value>>{argument},
+      false, zir::CallInst::ResultOwnership::Borrowed,
+      std::vector<ValueOwnership>{ValueOwnership::Borrowed}));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  auto verification = ZirVerifier().verify(module);
+  return expect(
+      hasError(verification, VerificationErrorCode::InvalidCall),
+      "borrowed call metadata for an owned argument was not diagnosed");
+}
+
 bool testDominanceViolation() {
   Module module("dominance-violation");
   auto i32 = primitive(TypeKind::Int32);
@@ -476,6 +504,7 @@ int main() {
   ok = testReturnRequiresOwnershipMatchingValue() && ok;
   ok = testStoreRequiresOwnershipMatchingSource() && ok;
   ok = testCastRequiresOwnershipMatchingSourceAndTarget() && ok;
+  ok = testCallRequiresOwnershipMatchingArguments() && ok;
   ok = testDominanceViolation() && ok;
   ok = testPhiRequiresEveryPredecessor() && ok;
   return ok ? 0 : 1;

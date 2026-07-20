@@ -729,9 +729,9 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
 
     auto recordOwnedStringArgument =
         [&](const std::shared_ptr<zir::Value> &argument,
-            llvm::Value *loweredValue) {
+            llvm::Value *loweredValue, zir::ValueOwnership ownership) {
           if (argument && isOwnedStringType(argument->getType()) &&
-              zirOwnedStringValues_.count(argument.get()) > 0) {
+              ownership == zir::ValueOwnership::Owned) {
             ownedStringArguments.push_back(
                 {argument.get(), loweredValue, argument->getType()});
           }
@@ -765,10 +765,12 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         paramTypes.push_back(toLLVMType(*p));
       auto *fnTy = llvm::FunctionType::get(toLLVMType(*fpType.getReturnType()),
                                            paramTypes, false);
-      for (const auto &arg : callInst.getArguments()) {
+      for (size_t i = 0; i < callInst.getArguments().size(); ++i) {
+        const auto &arg = callInst.getArguments()[i];
         auto *lowered = lowerZIRRValue(arg);
         args.push_back(lowered);
-        recordOwnedStringArgument(arg, lowered);
+        recordOwnedStringArgument(arg, lowered,
+                                  callInst.getArgumentOwnerships()[i]);
       }
       auto *call = builder_.CreateCall(fnTy, calleePtr, args);
       releaseOwnedStringArguments();
@@ -907,12 +909,14 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
       if (!isRef && i < fixedParamCount && !isBorrowedSelfArg &&
           !(calleeParamType && isWeakClassType(calleeParamType)) &&
           isClassType(callInst.getArguments()[i]->getType()) &&
-          zirOwnedClassValues_.count(callInst.getArguments()[i].get()) == 0) {
+          callInst.getArgumentOwnerships()[i] ==
+              zir::ValueOwnership::Borrowed) {
         emitRetainIfNeeded(arg, callInst.getArguments()[i]->getType());
       }
       args.push_back(arg);
       if (!isRef) {
-        recordOwnedStringArgument(callInst.getArguments()[i], arg);
+        recordOwnedStringArgument(callInst.getArguments()[i], arg,
+                                  callInst.getArgumentOwnerships()[i]);
       }
     }
     if (hasVariadicParameter) {
