@@ -532,6 +532,24 @@ private:
           weakLock.getWeakValue()->getType()->getKind() != TypeKind::Class) {
         error(VerificationErrorCode::InvalidOperand, &block, index,
               "weak.lock requires class operands");
+      } else {
+        const auto weakType = std::static_pointer_cast<ClassType>(
+            weakLock.getWeakValue()->getType());
+        const auto resultType = std::static_pointer_cast<ClassType>(
+            weakLock.getResult()->getType());
+        if (!weakType->isWeak() || resultType->isWeak()) {
+          error(VerificationErrorCode::InvalidOperand, &block, index,
+                "weak.lock requires a weak source and strong result");
+        } else {
+          auto expectedResultType = std::make_shared<ClassType>(*weakType);
+          expectedResultType->setWeak(false);
+          expectSameType(weakLock.getResult()->getType(), expectedResultType,
+                         block, index, "weak.lock result type");
+        }
+        if (weakLock.getResult()->getOwnership() != ValueOwnership::Owned) {
+          error(VerificationErrorCode::InvalidResult, &block, index,
+                "weak.lock result must be owned");
+        }
       }
       return;
     }

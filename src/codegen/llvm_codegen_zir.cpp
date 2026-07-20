@@ -1222,7 +1222,8 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
     auto *result = emitWeakLock(lowerZIRRValue(weakLockInst.getWeakValue()),
                                 weakLockInst.getWeakValue()->getType());
     zirValueMap_[weakLockInst.getResult().get()] = result;
-    if (isClassType(weakLockInst.getResult()->getType())) {
+    if (weakLockInst.getResult()->getOwnership() ==
+        zir::ValueOwnership::Owned) {
       zirOwnedClassValues_.insert(weakLockInst.getResult().get());
     }
     return;

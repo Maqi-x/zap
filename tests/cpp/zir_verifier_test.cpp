@@ -8,6 +8,7 @@ namespace {
 
 using zir::BasicBlock;
 using zir::BranchInst;
+using zir::ClassType;
 using zir::CmpInst;
 using zir::CondBranchInst;
 using zir::Constant;
@@ -22,10 +23,11 @@ using zir::Register;
 using zir::ReturnInst;
 using zir::StoreInst;
 using zir::StoreMode;
-using zir::ValueOwnership;
 using zir::Type;
 using zir::TypeKind;
+using zir::ValueOwnership;
 using zir::VerificationErrorCode;
+using zir::WeakLockInst;
 using zir::ZirVerifier;
 
 std::shared_ptr<Type> primitive(TypeKind kind) {
@@ -223,6 +225,28 @@ bool testAllocRequiresOwnedResult() {
                 "borrowed alloc result was not diagnosed");
 }
 
+bool testWeakLockRequiresOwnedStrongResult() {
+  Module module("weak-lock-ownership");
+  auto weakType = std::make_shared<ClassType>("Node");
+  weakType->setWeak(true);
+  auto strongType = std::make_shared<ClassType>(*weakType);
+  strongType->setWeak(false);
+  auto function =
+      std::make_unique<Function>("broken", primitive(TypeKind::Void));
+  auto weakValue = std::make_shared<zir::Argument>("weak", weakType);
+  function->arguments.push_back(weakValue);
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto result = reg("locked", strongType);
+  entry->addInstruction(std::make_unique<WeakLockInst>(result, weakValue));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  auto verification = ZirVerifier().verify(module);
+  return expect(hasError(verification, VerificationErrorCode::InvalidResult),
+                "borrowed weak.lock result was not diagnosed");
+}
+
 bool testDominanceViolation() {
   Module module("dominance-violation");
   auto i32 = primitive(TypeKind::Int32);
@@ -296,6 +320,7 @@ int main() {
   ok = testStoreTypeMismatch() && ok;
   ok = testStoreModeRendering() && ok;
   ok = testAllocRequiresOwnedResult() && ok;
+  ok = testWeakLockRequiresOwnedStrongResult() && ok;
   ok = testDominanceViolation() && ok;
   ok = testPhiRequiresEveryPredecessor() && ok;
   return ok ? 0 : 1;

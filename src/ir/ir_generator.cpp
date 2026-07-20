@@ -1635,7 +1635,7 @@ void BoundIRGenerator::visit(sema::BoundWeakLockExpression &node) {
   node.weakExpression->accept(*this);
   auto weakValue = valueStack_.top();
   valueStack_.pop();
-  auto result = createRegister(node.type);
+  auto result = createRegister(node.type, ValueOwnership::Owned);
   currentBlock_->addInstruction(
       std::make_unique<WeakLockInst>(result, weakValue));
   valueStack_.push(result);
