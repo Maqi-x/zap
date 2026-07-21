@@ -22,12 +22,16 @@ public:
   const std::unordered_set<const BasicBlock *> &reachable() const {
     return reachable_;
   }
+  bool isReachable(const BasicBlock &block) const;
+  bool dominates(const BasicBlock &dominator, const BasicBlock &block) const;
 
 private:
   std::unordered_map<std::string, const BasicBlock *> blocks_;
   BlockEdges predecessors_;
   BlockEdges successors_;
   std::unordered_set<const BasicBlock *> reachable_;
+  std::unordered_map<const BasicBlock *, std::unordered_set<const BasicBlock *>>
+      dominators_;
 };
 
 } // namespace zir

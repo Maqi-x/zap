@@ -34,7 +34,6 @@ public:
 
     collectBlocks();
     collectDefinitionsAndEdges();
-    computeDominators();
     verifyInstructions();
     verifyOwnershipTransfers();
   }
@@ -51,8 +50,6 @@ private:
   TypeInterner &typeInterner_;
   std::unordered_map<const Value *, DefinitionSite> definitions_;
   std::unordered_map<std::string, const Value *> valueNames_;
-  std::unordered_map<const BasicBlock *, std::unordered_set<const BasicBlock *>>
-      dominators_;
   ControlFlowGraph cfg_;
 
   void error(VerificationErrorCode code, const BasicBlock *block,
@@ -155,51 +152,6 @@ private:
     }
   }
 
-  void computeDominators() {
-    if (function_.getBlocks().empty() || !function_.getBlocks().front()) {
-      return;
-    }
-    const auto *entry = function_.getBlocks().front().get();
-    for (const auto *block : cfg_.reachable()) {
-      dominators_[block] = cfg_.reachable();
-    }
-    dominators_[entry] = {entry};
-
-    bool changed = true;
-    while (changed) {
-      changed = false;
-      for (const auto *block : cfg_.reachable()) {
-        if (block == entry) {
-          continue;
-        }
-        std::unordered_set<const BasicBlock *> next;
-        bool firstPredecessor = true;
-        for (const auto *predecessor : cfg_.predecessors().at(block)) {
-          if (cfg_.reachable().count(predecessor) == 0) {
-            continue;
-          }
-          if (firstPredecessor) {
-            next = dominators_[predecessor];
-            firstPredecessor = false;
-          } else {
-            for (auto it = next.begin(); it != next.end();) {
-              if (dominators_[predecessor].count(*it) == 0) {
-                it = next.erase(it);
-              } else {
-                ++it;
-              }
-            }
-          }
-        }
-        next.insert(block);
-        if (next != dominators_[block]) {
-          dominators_[block] = std::move(next);
-          changed = true;
-        }
-      }
-    }
-  }
-
   bool verifyValue(const std::shared_ptr<Value> &value,
                    const BasicBlock &useBlock, size_t useIndex,
                    const BasicBlock *edgePredecessor = nullptr) {
@@ -231,9 +183,8 @@ private:
       return true;
     }
 
-    if (cfg_.reachable().count(effectiveBlock) > 0 &&
-        (cfg_.reachable().count(definition->second.block) == 0 ||
-         dominators_[effectiveBlock].count(definition->second.block) == 0)) {
+    if (cfg_.isReachable(*effectiveBlock) &&
+        !cfg_.dominates(*definition->second.block, *effectiveBlock)) {
       error(VerificationErrorCode::DominanceViolation, &useBlock, useIndex,
             "definition of " + value->getName() +
                 " does not dominate its use");

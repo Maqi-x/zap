@@ -717,7 +717,10 @@ bool testControlFlowGraphBuildsEdgesAndReachability() {
                 "control-flow graph did not preserve branch edges") &&
          expect(cfg.reachable().count(mergeBlock) != 0 &&
                     cfg.reachable().count(deadBlock) == 0,
-                "control-flow graph did not calculate reachability");
+                "control-flow graph did not calculate reachability") &&
+         expect(cfg.dominates(*entryBlock, *mergeBlock) &&
+                    !cfg.dominates(*leftBlock, *mergeBlock),
+                "control-flow graph did not calculate dominators");
 }
 
 bool testReleaseConsumesOwnedValue() {

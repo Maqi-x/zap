@@ -53,11 +53,60 @@ ControlFlowGraph::ControlFlowGraph(const Function &function) {
       }
     }
   }
+  for (const auto *block : reachable_) {
+    dominators_[block] = reachable_;
+  }
+  const auto *entry = function.getBlocks().front().get();
+  dominators_[entry] = {entry};
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    for (const auto *block : reachable_) {
+      if (block == entry) {
+        continue;
+      }
+      std::unordered_set<const BasicBlock *> dominators;
+      bool firstPredecessor = true;
+      for (const auto *predecessor : predecessors_.at(block)) {
+        if (!isReachable(*predecessor)) {
+          continue;
+        }
+        if (firstPredecessor) {
+          dominators = dominators_.at(predecessor);
+          firstPredecessor = false;
+          continue;
+        }
+        for (auto it = dominators.begin(); it != dominators.end();) {
+          if (dominators_.at(predecessor).count(*it) == 0) {
+            it = dominators.erase(it);
+          } else {
+            ++it;
+          }
+        }
+      }
+      dominators.insert(block);
+      if (dominators_[block] != dominators) {
+        dominators_[block] = std::move(dominators);
+        changed = true;
+      }
+    }
+  }
 }
 
 const BasicBlock *ControlFlowGraph::findBlock(const std::string &label) const {
   const auto block = blocks_.find(label);
   return block == blocks_.end() ? nullptr : block->second;
+}
+
+bool ControlFlowGraph::isReachable(const BasicBlock &block) const {
+  return reachable_.count(&block) != 0;
+}
+
+bool ControlFlowGraph::dominates(const BasicBlock &dominator,
+                                 const BasicBlock &block) const {
+  const auto dominators = dominators_.find(&block);
+  return dominators != dominators_.end() &&
+         dominators->second.count(&dominator) != 0;
 }
 
 } // namespace zir
