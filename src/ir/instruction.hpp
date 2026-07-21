@@ -29,6 +29,7 @@ enum class OpCode {
   Ret,
   Call,
   Retain,
+  KeepAlive,
   Release,
   Alloc,
   GetElementPtr,
@@ -334,6 +335,18 @@ public:
   const std::shared_ptr<Value> &getValue() const { return value; }
   std::string toString() const override {
     return "retain " + value->getTypeName() + " " + value->getName();
+  }
+};
+
+class KeepAliveInst : public Instruction {
+  std::shared_ptr<Value> value;
+
+public:
+  KeepAliveInst(std::shared_ptr<Value> v) : value(std::move(v)) {}
+  OpCode getOpCode() const override { return OpCode::KeepAlive; }
+  const std::shared_ptr<Value> &getValue() const { return value; }
+  std::string toString() const override {
+    return "keepalive " + value->getTypeName() + " " + value->getName();
   }
 };
 

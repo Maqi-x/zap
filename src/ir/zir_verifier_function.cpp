@@ -2,6 +2,7 @@
 
 #include "control_flow_graph.hpp"
 #include "ownership_flow.hpp"
+#include "string_type.hpp"
 
 #include <algorithm>
 #include <unordered_map>
@@ -460,6 +461,17 @@ private:
           !containsManagedValues(retain.getValue()->getType())) {
         error(VerificationErrorCode::InvalidOperand, &block, index,
               "retain requires a managed value");
+      }
+      return;
+    }
+    case OpCode::KeepAlive: {
+      const auto &keepAlive = static_cast<const KeepAliveInst &>(instruction);
+      verifyValue(keepAlive.getValue(), block, index);
+      if (!keepAlive.getValue() ||
+          keepAlive.getValue()->getOwnership() != ValueOwnership::Owned ||
+          !isIntrinsicStringType(keepAlive.getValue()->getType())) {
+        error(VerificationErrorCode::InvalidOperand, &block, index,
+              "keepalive requires an owned String value");
       }
       return;
     }

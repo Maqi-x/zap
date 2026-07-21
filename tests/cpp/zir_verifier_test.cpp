@@ -24,6 +24,7 @@ using zir::Function;
 using zir::FunctionPointerType;
 using zir::FunctionReference;
 using zir::LoadInst;
+using zir::KeepAliveInst;
 using zir::Module;
 using zir::OpCode;
 using zir::OwnershipFlowAnalysis;
@@ -790,6 +791,27 @@ bool testReleaseConsumesOwnedValue() {
                 "double release of an owned value was not diagnosed");
 }
 
+bool testKeepAliveConsumesOwnedString() {
+  Module module("keepalive-ownership");
+  auto stringType = zir::makeStringType();
+  auto function =
+      std::make_unique<Function>("broken", primitive(TypeKind::Void));
+  auto value = std::make_shared<zir::Argument>("value", stringType);
+  value->setOwnership(ValueOwnership::Owned);
+  function->arguments.push_back(value);
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<KeepAliveInst>(value));
+  entry->addInstruction(std::make_unique<ReleaseInst>(value));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  const auto verification = ZirVerifier().verify(module);
+  return expect(hasError(verification, VerificationErrorCode::OwnershipViolation),
+                "release after String keepalive was not diagnosed");
+}
+
 bool testOwnershipLoweringReleasesDeadOwnedResults() {
   Module module("ownership-lowering");
   auto classType = std::make_shared<ClassType>("Node");
@@ -838,6 +860,39 @@ bool testOwnershipLoweringReleasesAtLastLocalUse() {
                 "ownership lowering did not release at the local last use") &&
          expect(ZirVerifier().verify(module).ok(),
                 "last-use-lowered ZIR was rejected by the verifier");
+}
+
+bool testOwnershipLoweringDoesNotReleaseAfterKeepAliveTransfer() {
+  Module module("ownership-keepalive-lowering");
+  auto stringType = zir::makeStringType();
+  auto stringViewType = zir::makeStringViewType();
+  auto make = std::make_unique<Function>("make", stringType);
+  module.addExternalFunction(std::move(make));
+
+  auto function =
+      std::make_unique<Function>("valid", primitive(TypeKind::Void));
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto text = reg("text", stringType);
+  text->setOwnership(ValueOwnership::Owned);
+  auto view = reg("view", stringViewType);
+  entry->addInstruction(std::make_unique<zir::CallInst>(
+      text, "make", std::vector<std::shared_ptr<zir::Value>>{},
+      std::vector<bool>{}, nullptr, false,
+      zir::CallInst::ResultOwnership::Owned));
+  entry->addInstruction(std::make_unique<KeepAliveInst>(text));
+  entry->addInstruction(std::make_unique<CastInst>(view, text, stringViewType));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  zir::lowerDeadOwnedResults(module);
+  const auto &instructions = module.getFunctions().front()->getBlocks().front()
+                                 ->getInstructions();
+  return expect(instructions.size() == 4,
+                "ownership lowering released a value already transferred to "
+                "keepalive") &&
+         expect(ZirVerifier().verify(module).ok(),
+                "keepalive-lowered ZIR was rejected by the verifier");
 }
 
 bool testCallBorrowAllowsOwnedValueToBeReleasedAfterward() {
@@ -1009,8 +1064,10 @@ int main() {
   ok = testOwnershipFlowRejectsTransferAfterPartialDefinition() && ok;
   ok = testControlFlowGraphBuildsEdgesAndReachability() && ok;
   ok = testReleaseConsumesOwnedValue() && ok;
+  ok = testKeepAliveConsumesOwnedString() && ok;
   ok = testOwnershipLoweringReleasesDeadOwnedResults() && ok;
   ok = testOwnershipLoweringReleasesAtLastLocalUse() && ok;
+  ok = testOwnershipLoweringDoesNotReleaseAfterKeepAliveTransfer() && ok;
   ok = testCallBorrowAllowsOwnedValueToBeReleasedAfterward() && ok;
   ok = testOwnershipLoweringReleasesOnDeadCfgEdge() && ok;
   ok = testDominanceViolation() && ok;

@@ -49,6 +49,7 @@ std::shared_ptr<Value> instructionResult(const Instruction &instruction) {
   case OpCode::CondBr:
   case OpCode::Ret:
   case OpCode::Retain:
+  case OpCode::KeepAlive:
   case OpCode::Release:
   case OpCode::InlineAsm:
     return nullptr;
@@ -90,9 +91,7 @@ bool transfersOwnership(const Instruction &instruction,
   case OpCode::Cast: {
     const auto &cast = static_cast<const CastInst &>(instruction);
     return cast.getSource() == value && cast.getResult() &&
-           (cast.getResult()->getOwnership() == ValueOwnership::Owned ||
-            (cast.getTargetType() && cast.getTargetType()->getIntrinsicKind() ==
-                                         IntrinsicTypeKind::StringView));
+           cast.getResult()->getOwnership() == ValueOwnership::Owned;
   }
   case OpCode::Call: {
     const auto &call = static_cast<const CallInst &>(instruction);
@@ -107,9 +106,22 @@ bool transfersOwnership(const Instruction &instruction,
   }
   case OpCode::Release:
     return static_cast<const ReleaseInst &>(instruction).getValue() == value;
+  case OpCode::KeepAlive:
+    return static_cast<const KeepAliveInst &>(instruction).getValue() == value;
   default:
     return false;
   }
+}
+
+bool wasOwnershipTransferredBefore(
+    const std::vector<std::unique_ptr<Instruction>> &instructions,
+    size_t instructionIndex, const std::shared_ptr<Value> &value) {
+  for (size_t i = 0; i < instructionIndex; ++i) {
+    if (instructions[i] && transfersOwnership(*instructions[i], value)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 } // namespace
@@ -149,7 +161,8 @@ void lowerDeadOwnedResults(Module &module) {
         }
         for (const auto &value : ownedResults) {
           if (liveness.isLastUse(*blockOwner, i, value) &&
-              !transfersOwnership(*instructions[i], value)) {
+              !transfersOwnership(*instructions[i], value) &&
+              !wasOwnershipTransferredBefore(instructions, i, value)) {
             releases.emplace_back(releaseInsertionIndex(*blockOwner, i), value);
           }
         }

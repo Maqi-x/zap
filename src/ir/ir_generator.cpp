@@ -1895,6 +1895,11 @@ void BoundIRGenerator::visit(sema::BoundCast &node) {
     return;
   }
 
+  if (node.type->getIntrinsicKind() == IntrinsicTypeKind::StringView &&
+      src->getOwnership() == ValueOwnership::Owned &&
+      src->getType()->getIntrinsicKind() == IntrinsicTypeKind::String) {
+    currentBlock_->addInstruction(std::make_unique<KeepAliveInst>(src));
+  }
   auto res = createRegister(node.type, ownershipForCast(src, node.type));
   currentBlock_->addInstruction(
       std::make_unique<CastInst>(res, src, node.type));

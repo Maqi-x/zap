@@ -60,6 +60,7 @@ std::shared_ptr<Value> instructionResult(const Instruction &instruction) {
   case OpCode::CondBr:
   case OpCode::Ret:
   case OpCode::Retain:
+  case OpCode::KeepAlive:
   case OpCode::Release:
   case OpCode::InlineAsm:
     return nullptr;
@@ -105,9 +106,7 @@ bool isBorrowedMethodSelf(const Module &module, const CallInst &call,
 bool transfersThroughCast(const CastInst &cast) {
   return ownsManagedValue(cast.getSource()) && cast.getTargetType() &&
          cast.getResult() &&
-         (cast.getResult()->getOwnership() == ValueOwnership::Owned ||
-          cast.getTargetType()->getIntrinsicKind() ==
-              IntrinsicTypeKind::StringView);
+         cast.getResult()->getOwnership() == ValueOwnership::Owned;
 }
 
 bool transfersThroughCallArgument(const Module &module, const CallInst &call,
@@ -259,6 +258,11 @@ std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
         case OpCode::Release:
           consume(states, static_cast<const ReleaseInst &>(*instruction).getValue(),
                   block, i, "release");
+          break;
+        case OpCode::KeepAlive:
+          consume(states,
+                  static_cast<const KeepAliveInst &>(*instruction).getValue(),
+                  block, i, "keepalive");
           break;
         default:
           break;

@@ -80,6 +80,9 @@ void addInstructionUses(ValueSet &values, const Instruction &instruction) {
   case OpCode::Retain:
     addUse(values, static_cast<const RetainInst &>(instruction).getValue());
     return;
+  case OpCode::KeepAlive:
+    addUse(values, static_cast<const KeepAliveInst &>(instruction).getValue());
+    return;
   case OpCode::Release:
     addUse(values, static_cast<const ReleaseInst &>(instruction).getValue());
     return;
@@ -162,6 +165,7 @@ std::shared_ptr<Value> instructionResult(const Instruction &instruction) {
   case OpCode::CondBr:
   case OpCode::Ret:
   case OpCode::Retain:
+  case OpCode::KeepAlive:
   case OpCode::Release:
   case OpCode::InlineAsm:
     return nullptr;

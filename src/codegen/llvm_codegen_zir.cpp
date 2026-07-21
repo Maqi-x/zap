@@ -1133,12 +1133,15 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
     auto *result = lowerZIRCast(source, castInst.getSource()->getType(),
                                 castInst.getTargetType());
     zirValueMap_[castInst.getResult().get()] = result;
-    if (zir::isIntrinsicStringViewType(castInst.getTargetType()) &&
-        isOwnedStringType(castInst.getSource()->getType()) &&
-        castInst.getSource()->getOwnership() == zir::ValueOwnership::Owned) {
+    return;
+  }
+  case OpCode::KeepAlive: {
+    const auto &keepAliveInst = static_cast<const KeepAliveInst &>(inst);
+    auto *source = lowerZIRRValue(keepAliveInst.getValue());
+    const auto &sourceType = keepAliveInst.getValue()->getType();
+    if (isOwnedStringType(sourceType)) {
       auto *ownerSlot = createEntryAlloca(
-          currentFn_, "zir.strview.owner",
-          toLLVMType(*castInst.getSource()->getType()));
+          currentFn_, "zir.strview.owner", toLLVMType(*sourceType));
       llvm::IRBuilder<> entryBuilder(ctx_);
       if (auto *next = ownerSlot->getNextNode()) {
         entryBuilder.SetInsertPoint(next);
@@ -1146,17 +1149,14 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         entryBuilder.SetInsertPoint(&currentFn_->getEntryBlock());
       }
       entryBuilder.CreateStore(llvm::Constant::getNullValue(
-                                   toLLVMType(*castInst.getSource()->getType())),
+                                   toLLVMType(*sourceType)),
                                ownerSlot);
 
       auto *previousOwner = builder_.CreateLoad(
-          toLLVMType(*castInst.getSource()->getType()), ownerSlot,
-          "zir.strview.previous.owner");
-      emitStringReleaseIfNeeded(previousOwner,
-                                castInst.getSource()->getType());
+          toLLVMType(*sourceType), ownerSlot, "zir.strview.previous.owner");
+      emitStringReleaseIfNeeded(previousOwner, sourceType);
       builder_.CreateStore(source, ownerSlot);
-      zirFunctionStringLocals_.push_back(
-          {castInst.getSource()->getType(), ownerSlot});
+      zirFunctionStringLocals_.push_back({sourceType, ownerSlot});
     }
     return;
   }
