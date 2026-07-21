@@ -10,6 +10,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 namespace codegen {
 class ClassArcEmitter;
@@ -53,6 +54,11 @@ private:
   std::unordered_set<const zir::Value *> refReturnValues_;
   std::unordered_map<std::string, llvm::BasicBlock *> zirBlockMap_;
   std::unordered_map<std::string, llvm::BasicBlock *> zirBlockExitMap_;
+  struct PendingPhiIncoming {
+    llvm::PHINode *phi;
+    std::vector<std::pair<std::string, std::shared_ptr<zir::Value>>> incoming;
+  };
+  std::vector<PendingPhiIncoming> pendingPhiIncoming_;
   std::unordered_set<const zir::Value *> zirClassParamAllocas_;
   std::unordered_set<const zir::Value *> zirPendingClassParamInitAllocas_;
   std::vector<std::pair<std::shared_ptr<zir::Type>, llvm::Value *>>
@@ -78,6 +84,7 @@ private:
   void declareZIRFunction(const zir::Function &fn, bool isExternal);
   void emitZIRFunction(const zir::Function &fn);
   void emitZIRInstruction(const zir::Instruction &inst);
+  void resolveZIRPhiIncomingBlocks();
   void buildInlineAsmCall(const std::string &assembly,
                           const std::vector<std::string> &outConstraints,
                           const std::vector<llvm::Value *> &outAddrs,

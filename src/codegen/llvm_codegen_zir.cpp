@@ -1123,13 +1123,7 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         toLLVMType(*phiInst.getResult()->getType()),
         phiInst.getIncoming().size(),
         static_cast<const Register &>(*phiInst.getResult()).getRawName());
-    for (const auto &incoming : phiInst.getIncoming()) {
-      auto blockIt = zirBlockExitMap_.find(incoming.first);
-      auto *incomingBlock = blockIt != zirBlockExitMap_.end()
-                                ? blockIt->second
-                                : zirBlockMap_.at(incoming.first);
-      phi->addIncoming(lowerZIRValue(incoming.second), incomingBlock);
-    }
+    pendingPhiIncoming_.push_back({phi, phiInst.getIncoming()});
     zirValueMap_[phiInst.getResult().get()] = phi;
     return;
   }
@@ -1309,6 +1303,16 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
   }
 }
 
+void LLVMCodeGen::resolveZIRPhiIncomingBlocks() {
+  for (const auto &pending : pendingPhiIncoming_) {
+    for (const auto &incoming : pending.incoming) {
+      pending.phi->addIncoming(lowerZIRValue(incoming.second),
+                               zirBlockExitMap_.at(incoming.first));
+    }
+  }
+  pendingPhiIncoming_.clear();
+}
+
 void LLVMCodeGen::emitZIRFunction(const zir::Function &fn) {
   currentZIRFunction_ = &fn;
   currentFn_ = functionMap_.at(fn.name);
@@ -1321,6 +1325,7 @@ void LLVMCodeGen::emitZIRFunction(const zir::Function &fn) {
   zirFunctionAggregateLocals_.clear();
   zirParamSpillIndex_ = 0;
   zirBlockExitMap_.clear();
+  pendingPhiIncoming_.clear();
 
   auto llvmArgIt = currentFn_->arg_begin();
   if (!freestanding_ && fn.name == "main") {
@@ -1409,11 +1414,14 @@ void LLVMCodeGen::emitZIRFunction(const zir::Function &fn) {
     }
   }
 
+  resolveZIRPhiIncomingBlocks();
+
   currentFn_ = nullptr;
   currentZIRFunction_ = nullptr;
   zirBlockMap_.clear();
   zirValueMap_.clear();
   zirBlockExitMap_.clear();
+  pendingPhiIncoming_.clear();
   zirClassParamAllocas_.clear();
   zirPendingClassParamInitAllocas_.clear();
   zirFunctionClassLocals_.clear();
