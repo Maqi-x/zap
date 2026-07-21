@@ -1,8 +1,8 @@
-#include "ir/string_type.hpp"
 #include "ir/control_flow_graph.hpp"
 #include "ir/ownership_flow.hpp"
 #include "ir/ownership_liveness.hpp"
 #include "ir/ownership_lowering.hpp"
+#include "ir/string_type.hpp"
 #include "ir/zir_verifier.hpp"
 
 #include <algorithm>
@@ -16,15 +16,15 @@ using zir::BasicBlock;
 using zir::BranchInst;
 using zir::CastInst;
 using zir::ClassType;
-using zir::ControlFlowGraph;
 using zir::CmpInst;
 using zir::CondBranchInst;
 using zir::Constant;
+using zir::ControlFlowGraph;
 using zir::Function;
 using zir::FunctionPointerType;
 using zir::FunctionReference;
-using zir::LoadInst;
 using zir::KeepAliveInst;
+using zir::LoadInst;
 using zir::Module;
 using zir::OpCode;
 using zir::OwnershipFlowAnalysis;
@@ -32,8 +32,8 @@ using zir::OwnershipFlowState;
 using zir::PhiInst;
 using zir::PointerType;
 using zir::PrimitiveType;
-using zir::ReleaseInst;
 using zir::Register;
+using zir::ReleaseInst;
 using zir::ReturnInst;
 using zir::StoreInst;
 using zir::StoreMode;
@@ -72,8 +72,7 @@ std::unique_ptr<Function> validFunction() {
   auto slot = reg("slot", std::make_shared<PointerType>(i32));
   auto loaded = reg("loaded", i32);
   auto condition = reg("condition", boolean);
-  entry->addInstruction(
-      std::make_unique<zir::AllocaInst>(slot, i32));
+  entry->addInstruction(std::make_unique<zir::AllocaInst>(slot, i32));
   entry->addInstruction(std::make_unique<StoreInst>(
       std::make_shared<Constant>("4", i32), slot, zir::StoreMode::Assign));
   entry->addInstruction(std::make_unique<LoadInst>(loaded, slot));
@@ -125,7 +124,8 @@ bool testValidFunction() {
 
 bool testMissingTerminator() {
   Module module("missing-terminator");
-  auto function = std::make_unique<Function>("broken", primitive(TypeKind::Void));
+  auto function =
+      std::make_unique<Function>("broken", primitive(TypeKind::Void));
   function->addBlock(std::make_unique<BasicBlock>("entry"));
   module.addFunction(std::move(function));
   auto result = ZirVerifier().verify(module);
@@ -135,7 +135,8 @@ bool testMissingTerminator() {
 
 bool testUnknownBranchTarget() {
   Module module("unknown-target");
-  auto function = std::make_unique<Function>("broken", primitive(TypeKind::Void));
+  auto function =
+      std::make_unique<Function>("broken", primitive(TypeKind::Void));
   auto entry = std::make_unique<BasicBlock>("entry");
   entry->addInstruction(std::make_unique<BranchInst>("missing"));
   function->addBlock(std::move(entry));
@@ -148,7 +149,8 @@ bool testUnknownBranchTarget() {
 bool testInstructionAfterTerminator() {
   Module module("instruction-after-terminator");
   auto i32 = primitive(TypeKind::Int32);
-  auto function = std::make_unique<Function>("broken", primitive(TypeKind::Void));
+  auto function =
+      std::make_unique<Function>("broken", primitive(TypeKind::Void));
   auto entry = std::make_unique<BasicBlock>("entry");
   auto dead = reg("dead", i32);
   entry->addInstruction(std::make_unique<ReturnInst>());
@@ -188,7 +190,8 @@ bool testStoreTypeMismatch() {
   Module module("store-type-mismatch");
   auto i32 = primitive(TypeKind::Int32);
   auto i64 = primitive(TypeKind::Int64);
-  auto function = std::make_unique<Function>("broken", primitive(TypeKind::Void));
+  auto function =
+      std::make_unique<Function>("broken", primitive(TypeKind::Void));
   auto entry = std::make_unique<BasicBlock>("entry");
   auto slot = reg("slot", std::make_shared<PointerType>(i32));
   entry->addInstruction(std::make_unique<zir::AllocaInst>(slot, i32));
@@ -431,9 +434,8 @@ bool testCallRequiresOwnershipMatchingArguments() {
   module.addFunction(std::move(function));
 
   auto verification = ZirVerifier().verify(module);
-  return expect(
-      hasError(verification, VerificationErrorCode::InvalidCall),
-      "transfer of a borrowed call argument was not diagnosed");
+  return expect(hasError(verification, VerificationErrorCode::InvalidCall),
+                "transfer of a borrowed call argument was not diagnosed");
 }
 
 bool testOwnershipTransferAcrossControlFlow() {
@@ -512,8 +514,9 @@ bool testPhiTransfersOwnershipOnIncomingEdge() {
   module.addFunction(std::move(function));
 
   auto verification = ZirVerifier().verify(module);
-  return expect(hasError(verification, VerificationErrorCode::OwnershipViolation),
-                "phi ownership transfer on its incoming edge was not diagnosed");
+  return expect(
+      hasError(verification, VerificationErrorCode::OwnershipViolation),
+      "phi ownership transfer on its incoming edge was not diagnosed");
 }
 
 bool testPhiAllowsSeparateAlternativeOwnershipTransfers() {
@@ -621,16 +624,16 @@ bool testOwnershipFlowTracksEdgesMergesAndLoops() {
   branchFunction->addBlock(std::move(left));
   branchFunction->addBlock(std::move(right));
   branchFunction->addBlock(std::move(exit));
-  OwnershipFlowAnalysis::BlockEdges predecessors{{entryBlock, {}},
-                                                  {leftBlock, {entryBlock}},
-                                                  {rightBlock, {entryBlock}},
-                                                  {exitBlock,
-                                                   {leftBlock, rightBlock}}};
-  OwnershipFlowAnalysis::BlockEdges successors{{entryBlock,
-                                                {leftBlock, rightBlock}},
-                                               {leftBlock, {exitBlock}},
-                                               {rightBlock, {exitBlock}},
-                                               {exitBlock, {}}};
+  OwnershipFlowAnalysis::BlockEdges predecessors{
+      {entryBlock, {}},
+      {leftBlock, {entryBlock}},
+      {rightBlock, {entryBlock}},
+      {exitBlock, {leftBlock, rightBlock}}};
+  OwnershipFlowAnalysis::BlockEdges successors{
+      {entryBlock, {leftBlock, rightBlock}},
+      {leftBlock, {exitBlock}},
+      {rightBlock, {exitBlock}},
+      {exitBlock, {}}};
   OwnershipFlowAnalysis branchAnalysis(
       module, *branchFunction, predecessors, successors,
       {entryBlock, leftBlock, rightBlock, exitBlock});
@@ -655,10 +658,12 @@ bool testOwnershipFlowTracksEdgesMergesAndLoops() {
   loopFunction->addBlock(std::move(loop));
   loopFunction->addBlock(std::move(loopExit));
   OwnershipFlowAnalysis::BlockEdges loopPredecessors{
-      {loopEntryBlock, {}}, {loopBlock, {loopEntryBlock, loopBlock}},
+      {loopEntryBlock, {}},
+      {loopBlock, {loopEntryBlock, loopBlock}},
       {loopExitBlock, {loopBlock}}};
   OwnershipFlowAnalysis::BlockEdges loopSuccessors{
-      {loopEntryBlock, {loopBlock}}, {loopBlock, {loopBlock, loopExitBlock}},
+      {loopEntryBlock, {loopBlock}},
+      {loopBlock, {loopBlock, loopExitBlock}},
       {loopExitBlock, {}}};
   OwnershipFlowAnalysis loopAnalysis(
       module, *loopFunction, loopPredecessors, loopSuccessors,
@@ -667,18 +672,20 @@ bool testOwnershipFlowTracksEdgesMergesAndLoops() {
 
   return expect(branchViolations.empty(),
                 "ownership flow reported a false branch transfer violation") &&
-         expect(branchAnalysis.stateOnEdge(*leftBlock, *exitBlock, value) ==
-                    OwnershipFlowState::Consumed &&
-                    branchAnalysis.stateOnEdge(*rightBlock, *exitBlock, value) ==
-                        OwnershipFlowState::Available,
-                "ownership flow did not preserve per-edge branch states") &&
+         expect(
+             branchAnalysis.stateOnEdge(*leftBlock, *exitBlock, value) ==
+                     OwnershipFlowState::Consumed &&
+                 branchAnalysis.stateOnEdge(*rightBlock, *exitBlock, value) ==
+                     OwnershipFlowState::Available,
+             "ownership flow did not preserve per-edge branch states") &&
          expect(loopViolations.empty(),
                 "ownership flow reported a false loop transfer violation") &&
-         expect(loopAnalysis.stateOnEdge(*loopBlock, *loopBlock, node) ==
-                    OwnershipFlowState::Available &&
-                    loopAnalysis.stateOnEdge(*loopBlock, *loopExitBlock, node) ==
-                        OwnershipFlowState::Available,
-                "ownership flow did not reach a stable loop state");
+         expect(
+             loopAnalysis.stateOnEdge(*loopBlock, *loopBlock, node) ==
+                     OwnershipFlowState::Available &&
+                 loopAnalysis.stateOnEdge(*loopBlock, *loopExitBlock, node) ==
+                     OwnershipFlowState::Available,
+             "ownership flow did not reach a stable loop state");
 }
 
 bool testOwnershipFlowRejectsTransferAfterPartialDefinition() {
@@ -712,11 +719,15 @@ bool testOwnershipFlowRejectsTransferAfterPartialDefinition() {
   function->addBlock(std::move(merge));
 
   OwnershipFlowAnalysis::BlockEdges predecessors{
-      {entryBlock, {}}, {leftBlock, {entryBlock}}, {rightBlock, {entryBlock}},
+      {entryBlock, {}},
+      {leftBlock, {entryBlock}},
+      {rightBlock, {entryBlock}},
       {mergeBlock, {leftBlock, rightBlock}}};
   OwnershipFlowAnalysis::BlockEdges successors{
-      {entryBlock, {leftBlock, rightBlock}}, {leftBlock, {mergeBlock}},
-      {rightBlock, {mergeBlock}}, {mergeBlock, {}}};
+      {entryBlock, {leftBlock, rightBlock}},
+      {leftBlock, {mergeBlock}},
+      {rightBlock, {mergeBlock}},
+      {mergeBlock, {}}};
   OwnershipFlowAnalysis analysis(
       module, *function, predecessors, successors,
       {entryBlock, leftBlock, rightBlock, mergeBlock});
@@ -729,8 +740,7 @@ bool testOwnershipFlowRejectsTransferAfterPartialDefinition() {
 
 bool testControlFlowGraphBuildsEdgesAndReachability() {
   auto boolean = primitive(TypeKind::Bool);
-  auto function =
-      std::make_unique<Function>("cfg", primitive(TypeKind::Void));
+  auto function = std::make_unique<Function>("cfg", primitive(TypeKind::Void));
   auto entry = std::make_unique<BasicBlock>("entry");
   entry->addInstruction(std::make_unique<CondBranchInst>(
       std::make_shared<Constant>("true", boolean), "left", "right"));
@@ -755,13 +765,14 @@ bool testControlFlowGraphBuildsEdgesAndReachability() {
 
   const ControlFlowGraph cfg(*function);
   const auto &mergePredecessors = cfg.predecessors().at(mergeBlock);
-  return expect(cfg.findBlock("merge") == mergeBlock &&
-                    cfg.successors().at(entryBlock).size() == 2 &&
-                    std::find(mergePredecessors.begin(), mergePredecessors.end(),
-                              leftBlock) != mergePredecessors.end() &&
-                    std::find(mergePredecessors.begin(), mergePredecessors.end(),
-                              rightBlock) != mergePredecessors.end(),
-                "control-flow graph did not preserve branch edges") &&
+  return expect(
+             cfg.findBlock("merge") == mergeBlock &&
+                 cfg.successors().at(entryBlock).size() == 2 &&
+                 std::find(mergePredecessors.begin(), mergePredecessors.end(),
+                           leftBlock) != mergePredecessors.end() &&
+                 std::find(mergePredecessors.begin(), mergePredecessors.end(),
+                           rightBlock) != mergePredecessors.end(),
+             "control-flow graph did not preserve branch edges") &&
          expect(cfg.reachable().count(mergeBlock) != 0 &&
                     cfg.reachable().count(deadBlock) == 0,
                 "control-flow graph did not calculate reachability") &&
@@ -787,8 +798,9 @@ bool testReleaseConsumesOwnedValue() {
   module.addFunction(std::move(function));
 
   const auto verification = ZirVerifier().verify(module);
-  return expect(hasError(verification, VerificationErrorCode::OwnershipViolation),
-                "double release of an owned value was not diagnosed");
+  return expect(
+      hasError(verification, VerificationErrorCode::OwnershipViolation),
+      "double release of an owned value was not diagnosed");
 }
 
 bool testKeepAliveConsumesOwnedString() {
@@ -808,8 +820,9 @@ bool testKeepAliveConsumesOwnedString() {
   module.addFunction(std::move(function));
 
   const auto verification = ZirVerifier().verify(module);
-  return expect(hasError(verification, VerificationErrorCode::OwnershipViolation),
-                "release after String keepalive was not diagnosed");
+  return expect(
+      hasError(verification, VerificationErrorCode::OwnershipViolation),
+      "release after String keepalive was not diagnosed");
 }
 
 bool testReturnRejectsFunctionLocalStringView() {
@@ -858,6 +871,77 @@ bool testReturnAllowsBorrowedStringView() {
                 "returning a caller-borrowed StringView was rejected");
 }
 
+bool testReturnRejectsStringViewLoadedFromLocalStorage() {
+  Module module("local-string-view-load-return");
+  auto stringType = zir::makeStringType();
+  auto stringViewType = zir::makeStringViewType();
+  auto stringViewPointer = std::make_shared<PointerType>(stringViewType);
+  auto make = std::make_unique<Function>("make", stringType);
+  module.addExternalFunction(std::move(make));
+
+  auto function = std::make_unique<Function>("broken", stringViewType);
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto text = reg("text", stringType);
+  text->setOwnership(ValueOwnership::Owned);
+  auto view = reg("view", stringViewType);
+  auto slot = reg("slot", stringViewPointer);
+  auto loaded = reg("loaded", stringViewType);
+  entry->addInstruction(std::make_unique<zir::CallInst>(
+      text, "make", std::vector<std::shared_ptr<zir::Value>>{},
+      std::vector<bool>{}, nullptr, false,
+      zir::CallInst::ResultOwnership::Owned));
+  entry->addInstruction(std::make_unique<KeepAliveInst>(text));
+  entry->addInstruction(std::make_unique<CastInst>(view, text, stringViewType));
+  entry->addInstruction(
+      std::make_unique<zir::AllocaInst>(slot, stringViewType));
+  entry->addInstruction(
+      std::make_unique<StoreInst>(view, slot, StoreMode::Initialize));
+  entry->addInstruction(std::make_unique<LoadInst>(loaded, slot));
+  entry->addInstruction(std::make_unique<ReturnInst>(loaded));
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  const auto verification = ZirVerifier().verify(module);
+  return expect(hasError(verification, VerificationErrorCode::InvalidReturn),
+                "returning a local StringView loaded from storage was not "
+                "diagnosed");
+}
+
+bool testStoreRejectsEscapingFunctionLocalStringView() {
+  Module module("local-string-view-store");
+  auto stringType = zir::makeStringType();
+  auto stringViewType = zir::makeStringViewType();
+  auto stringViewPointer = std::make_shared<PointerType>(stringViewType);
+  auto make = std::make_unique<Function>("make", stringType);
+  module.addExternalFunction(std::move(make));
+
+  auto function =
+      std::make_unique<Function>("broken", primitive(TypeKind::Void));
+  auto destination =
+      std::make_shared<zir::Argument>("destination", stringViewPointer);
+  function->arguments.push_back(destination);
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto text = reg("text", stringType);
+  text->setOwnership(ValueOwnership::Owned);
+  auto view = reg("view", stringViewType);
+  entry->addInstruction(std::make_unique<zir::CallInst>(
+      text, "make", std::vector<std::shared_ptr<zir::Value>>{},
+      std::vector<bool>{}, nullptr, false,
+      zir::CallInst::ResultOwnership::Owned));
+  entry->addInstruction(std::make_unique<KeepAliveInst>(text));
+  entry->addInstruction(std::make_unique<CastInst>(view, text, stringViewType));
+  entry->addInstruction(
+      std::make_unique<StoreInst>(view, destination, StoreMode::Assign));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  const auto verification = ZirVerifier().verify(module);
+  return expect(hasError(verification, VerificationErrorCode::InvalidOperand),
+                "escaping store of a function-local StringView was not "
+                "diagnosed");
+}
+
 bool testOwnershipLoweringReleasesDeadOwnedResults() {
   Module module("ownership-lowering");
   auto classType = std::make_shared<ClassType>("Node");
@@ -872,8 +956,8 @@ bool testOwnershipLoweringReleasesDeadOwnedResults() {
   module.addFunction(std::move(function));
 
   zir::lowerDeadOwnedResults(module);
-  const auto &instructions = module.getFunctions().front()->getBlocks().front()
-                                 ->getInstructions();
+  const auto &instructions =
+      module.getFunctions().front()->getBlocks().front()->getInstructions();
   return expect(instructions.size() == 3 &&
                     instructions[1]->getOpCode() == OpCode::Release,
                 "ownership lowering did not release a dead owned result") &&
@@ -899,8 +983,8 @@ bool testOwnershipLoweringReleasesAtLastLocalUse() {
   module.addFunction(std::move(function));
 
   zir::lowerDeadOwnedResults(module);
-  const auto &instructions = module.getFunctions().front()->getBlocks().front()
-                                 ->getInstructions();
+  const auto &instructions =
+      module.getFunctions().front()->getBlocks().front()->getInstructions();
   return expect(instructions.size() == 4 &&
                     instructions[2]->getOpCode() == OpCode::Release,
                 "ownership lowering did not release at the local last use") &&
@@ -932,8 +1016,8 @@ bool testOwnershipLoweringDoesNotReleaseAfterKeepAliveTransfer() {
   module.addFunction(std::move(function));
 
   zir::lowerDeadOwnedResults(module);
-  const auto &instructions = module.getFunctions().front()->getBlocks().front()
-                                 ->getInstructions();
+  const auto &instructions =
+      module.getFunctions().front()->getBlocks().front()->getInstructions();
   return expect(instructions.size() == 4,
                 "ownership lowering released a value already transferred to "
                 "keepalive") &&
@@ -969,8 +1053,8 @@ bool testCallBorrowAllowsOwnedValueToBeReleasedAfterward() {
   module.addFunction(std::move(function));
 
   zir::lowerDeadOwnedResults(module);
-  const auto &instructions = module.getFunctions().front()->getBlocks().front()
-                                 ->getInstructions();
+  const auto &instructions =
+      module.getFunctions().front()->getBlocks().front()->getInstructions();
   return expect(instructions.size() == 4 &&
                     instructions[2]->getOpCode() == OpCode::Release,
                 "borrowed call did not preserve a later release") &&
@@ -1010,8 +1094,8 @@ bool testOwnershipLoweringReleasesOnDeadCfgEdge() {
   const auto &blocks = module.getFunctions().front()->getBlocks();
   const auto &branch = static_cast<const CondBranchInst &>(
       *blocks.front()->getInstructions().back());
-  auto *releaseBlock = module.getFunctions().front()->findBlock(
-      branch.getFalseLabel());
+  auto *releaseBlock =
+      module.getFunctions().front()->findBlock(branch.getFalseLabel());
   return expect(blocks.size() == 4 && releaseBlock &&
                     releaseBlock->getInstructions().size() == 2 &&
                     releaseBlock->getInstructions().front()->getOpCode() ==
@@ -1113,6 +1197,8 @@ int main() {
   ok = testKeepAliveConsumesOwnedString() && ok;
   ok = testReturnRejectsFunctionLocalStringView() && ok;
   ok = testReturnAllowsBorrowedStringView() && ok;
+  ok = testReturnRejectsStringViewLoadedFromLocalStorage() && ok;
+  ok = testStoreRejectsEscapingFunctionLocalStringView() && ok;
   ok = testOwnershipLoweringReleasesDeadOwnedResults() && ok;
   ok = testOwnershipLoweringReleasesAtLastLocalUse() && ok;
   ok = testOwnershipLoweringDoesNotReleaseAfterKeepAliveTransfer() && ok;

@@ -3,6 +3,7 @@
 #include "control_flow_graph.hpp"
 #include "ownership_flow.hpp"
 #include "string_type.hpp"
+#include "string_view_escape.hpp"
 
 #include <algorithm>
 #include <unordered_map>
@@ -36,7 +37,7 @@ public:
     collectBlocks();
     collectDefinitionsAndEdges();
     verifyInstructions();
-    verifyLocalStringViewEscapes();
+    verifyStringViewEscapes();
     verifyOwnershipTransfers();
   }
 
@@ -54,58 +55,8 @@ private:
   std::unordered_map<std::string, const Value *> valueNames_;
   ControlFlowGraph cfg_;
 
-  void verifyLocalStringViewEscapes() {
-    std::unordered_set<const Value *> keptAliveStrings;
-    std::unordered_set<const Value *> localViews;
-
-    for (const auto &blockOwner : function_.getBlocks()) {
-      if (!blockOwner) {
-        continue;
-      }
-      for (const auto &instruction : blockOwner->getInstructions()) {
-        if (instruction && instruction->getOpCode() == OpCode::KeepAlive) {
-          keptAliveStrings.insert(
-              static_cast<const KeepAliveInst &>(*instruction).getValue().get());
-        }
-      }
-    }
-
-    bool changed = true;
-    while (changed) {
-      changed = false;
-      for (const auto &blockOwner : function_.getBlocks()) {
-        if (!blockOwner) {
-          continue;
-        }
-        for (const auto &instruction : blockOwner->getInstructions()) {
-          if (!instruction) {
-            continue;
-          }
-          if (instruction->getOpCode() == OpCode::Cast) {
-            const auto &cast = static_cast<const CastInst &>(*instruction);
-            if (cast.getResult() &&
-                isIntrinsicStringViewType(cast.getResult()->getType()) &&
-                (keptAliveStrings.count(cast.getSource().get()) != 0 ||
-                 localViews.count(cast.getSource().get()) != 0)) {
-              changed = localViews.insert(cast.getResult().get()).second || changed;
-            }
-          } else if (instruction->getOpCode() == OpCode::Phi) {
-            const auto &phi = static_cast<const PhiInst &>(*instruction);
-            if (!phi.getResult() ||
-                !isIntrinsicStringViewType(phi.getResult()->getType())) {
-              continue;
-            }
-            for (const auto &[_, incoming] : phi.getIncoming()) {
-              if (localViews.count(incoming.get()) != 0) {
-                changed = localViews.insert(phi.getResult().get()).second || changed;
-                break;
-              }
-            }
-          }
-        }
-      }
-    }
-
+  void verifyStringViewEscapes() {
+    const auto analysis = analyzeStringViewEscapes(function_);
     for (const auto &blockOwner : function_.getBlocks()) {
       if (!blockOwner) {
         continue;
@@ -113,13 +64,24 @@ private:
       const auto &block = *blockOwner;
       for (size_t i = 0; i < block.getInstructions().size(); ++i) {
         const auto &instruction = block.getInstructions()[i];
-        if (!instruction || instruction->getOpCode() != OpCode::Ret) {
+        if (!instruction) {
           continue;
         }
-        const auto &ret = static_cast<const ReturnInst &>(*instruction);
-        if (ret.getValue() && localViews.count(ret.getValue().get()) != 0) {
-          error(VerificationErrorCode::InvalidReturn, &block, i,
+        if (instruction->getOpCode() == OpCode::Ret) {
+          const auto &ret = static_cast<const ReturnInst &>(*instruction);
+          if (analysis.isFunctionLocalView(ret.getValue())) {
+            error(
+                VerificationErrorCode::InvalidReturn, &block, i,
                 "cannot return a StringView backed by a function-local String");
+          }
+        } else if (instruction->getOpCode() == OpCode::Store) {
+          const auto &store = static_cast<const StoreInst &>(*instruction);
+          if (analysis.isFunctionLocalView(store.getSource()) &&
+              !analysis.isFunctionLocalStorage(store.getDestination())) {
+            error(VerificationErrorCode::InvalidOperand, &block, i,
+                  "cannot store a function-local StringView outside local "
+                  "storage");
+          }
         }
       }
     }
@@ -194,7 +156,8 @@ private:
             error(VerificationErrorCode::DuplicateValue, &block, i,
                   "value is defined more than once: " + result->getName());
           }
-          auto [_, inserted] = valueNames_.emplace(result->getName(), result.get());
+          auto [_, inserted] =
+              valueNames_.emplace(result->getName(), result.get());
           if (!inserted) {
             error(VerificationErrorCode::DuplicateValue, &block, i,
                   "duplicate value name " + result->getName());
@@ -208,9 +171,10 @@ private:
                   "branch targets unknown block " + branch.getTarget());
           }
         } else if (instruction->getOpCode() == OpCode::CondBr) {
-          const auto &branch = static_cast<const CondBranchInst &>(*instruction);
-          for (const auto &label : {branch.getTrueLabel(),
-                                    branch.getFalseLabel()}) {
+          const auto &branch =
+              static_cast<const CondBranchInst &>(*instruction);
+          for (const auto &label :
+               {branch.getTrueLabel(), branch.getFalseLabel()}) {
             if (!cfg_.findBlock(label)) {
               error(VerificationErrorCode::InvalidBranchTarget, &block, i,
                     "branch targets unknown block " + label);
@@ -259,8 +223,7 @@ private:
     if (cfg_.isReachable(*effectiveBlock) &&
         !cfg_.dominates(*definition->second.block, *effectiveBlock)) {
       error(VerificationErrorCode::DominanceViolation, &useBlock, useIndex,
-            "definition of " + value->getName() +
-                " does not dominate its use");
+            "definition of " + value->getName() + " does not dominate its use");
       return false;
     }
     return true;
@@ -329,8 +292,8 @@ private:
     }
   }
 
-  void verifyInstruction(const Instruction &instruction, const BasicBlock &block,
-                         size_t index) {
+  void verifyInstruction(const Instruction &instruction,
+                         const BasicBlock &block, size_t index) {
     switch (instruction.getOpCode()) {
     case OpCode::Alloca: {
       const auto &alloca = static_cast<const AllocaInst &>(instruction);
@@ -339,8 +302,8 @@ private:
               "alloca requires a result and allocated type");
         return;
       }
-      auto pointer = std::dynamic_pointer_cast<PointerType>(
-          alloca.getResult()->getType());
+      auto pointer =
+          std::dynamic_pointer_cast<PointerType>(alloca.getResult()->getType());
       if (!pointer || !typeInterner_.same(pointer->getBaseType(),
                                           alloca.getAllocatedType())) {
         error(VerificationErrorCode::TypeMismatch, &block, index,
@@ -351,16 +314,15 @@ private:
     case OpCode::Load: {
       const auto &load = static_cast<const LoadInst &>(instruction);
       verifyValue(load.getSource(), block, index);
-      auto pointer = load.getSource()
-                         ? std::dynamic_pointer_cast<PointerType>(
-                               load.getSource()->getType())
-                         : nullptr;
+      auto pointer = load.getSource() ? std::dynamic_pointer_cast<PointerType>(
+                                            load.getSource()->getType())
+                                      : nullptr;
       if (!pointer || !load.getResult()) {
         error(VerificationErrorCode::InvalidOperand, &block, index,
               "load requires a pointer source and result");
       } else {
-        expectSameType(load.getResult()->getType(), pointer->getBaseType(), block,
-                       index, "load result type");
+        expectSameType(load.getResult()->getType(), pointer->getBaseType(),
+                       block, index, "load result type");
       }
       return;
     }
@@ -412,10 +374,9 @@ private:
       const bool isAdd = instruction.getOpCode() == OpCode::Add;
       const bool isSubtract = instruction.getOpCode() == OpCode::Sub;
       const bool isStringConcat =
-          isAdd &&
-          (isStringType(lhsType) || isStringType(rhsType) ||
-           lhsType->getKind() == TypeKind::Char ||
-           rhsType->getKind() == TypeKind::Char);
+          isAdd && (isStringType(lhsType) || isStringType(rhsType) ||
+                    lhsType->getKind() == TypeKind::Char ||
+                    rhsType->getKind() == TypeKind::Char);
       const bool lhsPointer = lhsType->getKind() == TypeKind::Pointer;
       const bool rhsPointer = rhsType->getKind() == TypeKind::Pointer;
 
@@ -452,8 +413,7 @@ private:
         expectSameType(binary.getResult()->getType(), lhsType, block, index,
                        "pointer subtraction result type");
       } else {
-        expectSameType(rhsType, lhsType, block, index,
-                       "binary operand type");
+        expectSameType(rhsType, lhsType, block, index, "binary operand type");
         expectSameType(binary.getResult()->getType(), lhsType, block, index,
                        "binary result type");
       }
@@ -492,9 +452,9 @@ private:
       if (returnInstruction.getValue()) {
         verifyValue(returnInstruction.getValue(), block, index);
       }
-      const bool returnsVoid = function_.getReturnType() &&
-                               function_.getReturnType()->getKind() ==
-                                   TypeKind::Void;
+      const bool returnsVoid =
+          function_.getReturnType() &&
+          function_.getReturnType()->getKind() == TypeKind::Void;
       if (returnsVoid && returnInstruction.getValue()) {
         error(VerificationErrorCode::InvalidReturn, &block, index,
               "void function returns a value");
@@ -508,8 +468,7 @@ private:
               std::make_shared<PointerType>(expectedReturnType);
         }
         expectAssignable(returnInstruction.getValue()->getType(),
-                         expectedReturnType, block, index,
-                         "return value type");
+                         expectedReturnType, block, index, "return value type");
         if (returnInstruction.getValueOwnership() !=
             returnInstruction.getValue()->getOwnership()) {
           error(VerificationErrorCode::InvalidReturn, &block, index,
@@ -741,8 +700,7 @@ private:
       if (call.getArgumentModes()[i] == CallInst::ArgumentMode::Transfer &&
           !ownsManagedValue(argument)) {
         error(VerificationErrorCode::InvalidCall, &block, index,
-              "call transfer argument must be owned: " +
-              std::to_string(i));
+              "call transfer argument must be owned: " + std::to_string(i));
       }
       if (i < call.getArgumentIsRef().size() && call.getArgumentIsRef()[i] &&
           call.getArgumentModes()[i] != CallInst::ArgumentMode::Borrow) {
@@ -788,9 +746,8 @@ private:
     for (const auto &[label, value] : phi.getIncoming()) {
       const auto *incomingBlock = cfg_.findBlock(label);
       const auto &predecessors = cfg_.predecessors().at(&block);
-      if (!incomingBlock ||
-          std::find(predecessors.begin(), predecessors.end(), incomingBlock) ==
-              predecessors.end()) {
+      if (!incomingBlock || std::find(predecessors.begin(), predecessors.end(),
+                                      incomingBlock) == predecessors.end()) {
         error(VerificationErrorCode::InvalidPhi, &block, index,
               "phi incoming label is not a predecessor: " + label);
         continue;
