@@ -36,6 +36,7 @@ public:
     collectBlocks();
     collectDefinitionsAndEdges();
     verifyInstructions();
+    verifyLocalStringViewEscapes();
     verifyOwnershipTransfers();
   }
 
@@ -52,6 +53,77 @@ private:
   std::unordered_map<const Value *, DefinitionSite> definitions_;
   std::unordered_map<std::string, const Value *> valueNames_;
   ControlFlowGraph cfg_;
+
+  void verifyLocalStringViewEscapes() {
+    std::unordered_set<const Value *> keptAliveStrings;
+    std::unordered_set<const Value *> localViews;
+
+    for (const auto &blockOwner : function_.getBlocks()) {
+      if (!blockOwner) {
+        continue;
+      }
+      for (const auto &instruction : blockOwner->getInstructions()) {
+        if (instruction && instruction->getOpCode() == OpCode::KeepAlive) {
+          keptAliveStrings.insert(
+              static_cast<const KeepAliveInst &>(*instruction).getValue().get());
+        }
+      }
+    }
+
+    bool changed = true;
+    while (changed) {
+      changed = false;
+      for (const auto &blockOwner : function_.getBlocks()) {
+        if (!blockOwner) {
+          continue;
+        }
+        for (const auto &instruction : blockOwner->getInstructions()) {
+          if (!instruction) {
+            continue;
+          }
+          if (instruction->getOpCode() == OpCode::Cast) {
+            const auto &cast = static_cast<const CastInst &>(*instruction);
+            if (cast.getResult() &&
+                isIntrinsicStringViewType(cast.getResult()->getType()) &&
+                (keptAliveStrings.count(cast.getSource().get()) != 0 ||
+                 localViews.count(cast.getSource().get()) != 0)) {
+              changed = localViews.insert(cast.getResult().get()).second || changed;
+            }
+          } else if (instruction->getOpCode() == OpCode::Phi) {
+            const auto &phi = static_cast<const PhiInst &>(*instruction);
+            if (!phi.getResult() ||
+                !isIntrinsicStringViewType(phi.getResult()->getType())) {
+              continue;
+            }
+            for (const auto &[_, incoming] : phi.getIncoming()) {
+              if (localViews.count(incoming.get()) != 0) {
+                changed = localViews.insert(phi.getResult().get()).second || changed;
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    for (const auto &blockOwner : function_.getBlocks()) {
+      if (!blockOwner) {
+        continue;
+      }
+      const auto &block = *blockOwner;
+      for (size_t i = 0; i < block.getInstructions().size(); ++i) {
+        const auto &instruction = block.getInstructions()[i];
+        if (!instruction || instruction->getOpCode() != OpCode::Ret) {
+          continue;
+        }
+        const auto &ret = static_cast<const ReturnInst &>(*instruction);
+        if (ret.getValue() && localViews.count(ret.getValue().get()) != 0) {
+          error(VerificationErrorCode::InvalidReturn, &block, i,
+                "cannot return a StringView backed by a function-local String");
+        }
+      }
+    }
+  }
 
   void error(VerificationErrorCode code, const BasicBlock *block,
              std::optional<size_t> instructionIndex, std::string message) {

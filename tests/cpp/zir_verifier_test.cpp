@@ -812,6 +812,52 @@ bool testKeepAliveConsumesOwnedString() {
                 "release after String keepalive was not diagnosed");
 }
 
+bool testReturnRejectsFunctionLocalStringView() {
+  Module module("local-string-view-return");
+  auto stringType = zir::makeStringType();
+  auto stringViewType = zir::makeStringViewType();
+  auto make = std::make_unique<Function>("make", stringType);
+  module.addExternalFunction(std::move(make));
+
+  auto function = std::make_unique<Function>("broken", stringViewType);
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto text = reg("text", stringType);
+  text->setOwnership(ValueOwnership::Owned);
+  auto view = reg("view", stringViewType);
+  entry->addInstruction(std::make_unique<zir::CallInst>(
+      text, "make", std::vector<std::shared_ptr<zir::Value>>{},
+      std::vector<bool>{}, nullptr, false,
+      zir::CallInst::ResultOwnership::Owned));
+  entry->addInstruction(std::make_unique<KeepAliveInst>(text));
+  entry->addInstruction(std::make_unique<CastInst>(view, text, stringViewType));
+  entry->addInstruction(std::make_unique<ReturnInst>(view));
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  const auto verification = ZirVerifier().verify(module);
+  return expect(hasError(verification, VerificationErrorCode::InvalidReturn),
+                "returning a function-local StringView was not diagnosed");
+}
+
+bool testReturnAllowsBorrowedStringView() {
+  Module module("borrowed-string-view-return");
+  auto stringType = zir::makeStringType();
+  auto stringViewType = zir::makeStringViewType();
+  auto function = std::make_unique<Function>("valid", stringViewType);
+  auto text = std::make_shared<zir::Argument>("text", stringType);
+  auto view = reg("view", stringViewType);
+  function->arguments.push_back(text);
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CastInst>(view, text, stringViewType));
+  entry->addInstruction(std::make_unique<ReturnInst>(view));
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  return expect(ZirVerifier().verify(module).ok(),
+                "returning a caller-borrowed StringView was rejected");
+}
+
 bool testOwnershipLoweringReleasesDeadOwnedResults() {
   Module module("ownership-lowering");
   auto classType = std::make_shared<ClassType>("Node");
@@ -1065,6 +1111,8 @@ int main() {
   ok = testControlFlowGraphBuildsEdgesAndReachability() && ok;
   ok = testReleaseConsumesOwnedValue() && ok;
   ok = testKeepAliveConsumesOwnedString() && ok;
+  ok = testReturnRejectsFunctionLocalStringView() && ok;
+  ok = testReturnAllowsBorrowedStringView() && ok;
   ok = testOwnershipLoweringReleasesDeadOwnedResults() && ok;
   ok = testOwnershipLoweringReleasesAtLastLocalUse() && ok;
   ok = testOwnershipLoweringDoesNotReleaseAfterKeepAliveTransfer() && ok;
