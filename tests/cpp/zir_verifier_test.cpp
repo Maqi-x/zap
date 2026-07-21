@@ -1,9 +1,11 @@
 #include "ir/string_type.hpp"
+#include "ir/control_flow_graph.hpp"
 #include "ir/ownership_flow.hpp"
 #include "ir/ownership_liveness.hpp"
 #include "ir/ownership_lowering.hpp"
 #include "ir/zir_verifier.hpp"
 
+#include <algorithm>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -14,6 +16,7 @@ using zir::BasicBlock;
 using zir::BranchInst;
 using zir::CastInst;
 using zir::ClassType;
+using zir::ControlFlowGraph;
 using zir::CmpInst;
 using zir::CondBranchInst;
 using zir::Constant;
@@ -677,6 +680,46 @@ bool testOwnershipFlowTracksEdgesMergesAndLoops() {
                 "ownership flow did not reach a stable loop state");
 }
 
+bool testControlFlowGraphBuildsEdgesAndReachability() {
+  auto boolean = primitive(TypeKind::Bool);
+  auto function =
+      std::make_unique<Function>("cfg", primitive(TypeKind::Void));
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CondBranchInst>(
+      std::make_shared<Constant>("true", boolean), "left", "right"));
+  auto left = std::make_unique<BasicBlock>("left");
+  left->addInstruction(std::make_unique<BranchInst>("merge"));
+  auto right = std::make_unique<BasicBlock>("right");
+  right->addInstruction(std::make_unique<BranchInst>("merge"));
+  auto merge = std::make_unique<BasicBlock>("merge");
+  merge->addInstruction(std::make_unique<ReturnInst>());
+  auto dead = std::make_unique<BasicBlock>("dead");
+  dead->addInstruction(std::make_unique<ReturnInst>());
+  auto *entryBlock = entry.get();
+  auto *leftBlock = left.get();
+  auto *rightBlock = right.get();
+  auto *mergeBlock = merge.get();
+  auto *deadBlock = dead.get();
+  function->addBlock(std::move(entry));
+  function->addBlock(std::move(left));
+  function->addBlock(std::move(right));
+  function->addBlock(std::move(merge));
+  function->addBlock(std::move(dead));
+
+  const ControlFlowGraph cfg(*function);
+  const auto &mergePredecessors = cfg.predecessors().at(mergeBlock);
+  return expect(cfg.findBlock("merge") == mergeBlock &&
+                    cfg.successors().at(entryBlock).size() == 2 &&
+                    std::find(mergePredecessors.begin(), mergePredecessors.end(),
+                              leftBlock) != mergePredecessors.end() &&
+                    std::find(mergePredecessors.begin(), mergePredecessors.end(),
+                              rightBlock) != mergePredecessors.end(),
+                "control-flow graph did not preserve branch edges") &&
+         expect(cfg.reachable().count(mergeBlock) != 0 &&
+                    cfg.reachable().count(deadBlock) == 0,
+                "control-flow graph did not calculate reachability");
+}
+
 bool testReleaseConsumesOwnedValue() {
   Module module("release-ownership");
   auto stringType = zir::makeStringType();
@@ -914,6 +957,7 @@ int main() {
   ok = testPhiAllowsSeparateAlternativeOwnershipTransfers() && ok;
   ok = testOwnershipLivenessTracksPhiEdges() && ok;
   ok = testOwnershipFlowTracksEdgesMergesAndLoops() && ok;
+  ok = testControlFlowGraphBuildsEdgesAndReachability() && ok;
   ok = testReleaseConsumesOwnedValue() && ok;
   ok = testOwnershipLoweringReleasesDeadOwnedResults() && ok;
   ok = testOwnershipLoweringReleasesAtLastLocalUse() && ok;

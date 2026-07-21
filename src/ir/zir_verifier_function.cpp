@@ -1,9 +1,9 @@
 #include "zir_verifier_internal.hpp"
 
+#include "control_flow_graph.hpp"
 #include "ownership_flow.hpp"
 
 #include <algorithm>
-#include <deque>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -22,7 +22,7 @@ public:
                    std::vector<VerificationError> &errors,
                    TypeInterner &typeInterner)
       : module_(module), function_(function), errors_(errors),
-        typeInterner_(typeInterner) {}
+        typeInterner_(typeInterner), cfg_(function) {}
 
   void verify() {
     verifySignature();
@@ -49,16 +49,11 @@ private:
   const Function &function_;
   std::vector<VerificationError> &errors_;
   TypeInterner &typeInterner_;
-  std::unordered_map<std::string, const BasicBlock *> blocks_;
-  std::unordered_map<const BasicBlock *, std::vector<const BasicBlock *>>
-      predecessors_;
-  std::unordered_map<const BasicBlock *, std::vector<const BasicBlock *>>
-      successors_;
   std::unordered_map<const Value *, DefinitionSite> definitions_;
   std::unordered_map<std::string, const Value *> valueNames_;
-  std::unordered_set<const BasicBlock *> reachable_;
   std::unordered_map<const BasicBlock *, std::unordered_set<const BasicBlock *>>
       dominators_;
+  ControlFlowGraph cfg_;
 
   void error(VerificationErrorCode code, const BasicBlock *block,
              std::optional<size_t> instructionIndex, std::string message) {
@@ -92,25 +87,11 @@ private:
               "function contains a null basic block");
         continue;
       }
-      if (!blocks_.emplace(block->label, block.get()).second) {
+      if (cfg_.findBlock(block->label) != block.get()) {
         error(VerificationErrorCode::DuplicateBlock, block.get(), std::nullopt,
               "duplicate basic block label " + block->label);
       }
-      predecessors_[block.get()];
-      successors_[block.get()];
     }
-  }
-
-  void addEdge(const BasicBlock &source, const std::string &targetLabel,
-               size_t instructionIndex) {
-    auto target = blocks_.find(targetLabel);
-    if (target == blocks_.end()) {
-      error(VerificationErrorCode::InvalidBranchTarget, &source,
-            instructionIndex, "branch targets unknown block " + targetLabel);
-      return;
-    }
-    successors_[&source].push_back(target->second);
-    predecessors_[target->second].push_back(&source);
   }
 
   void collectDefinitionsAndEdges() {
@@ -151,12 +132,20 @@ private:
         }
 
         if (instruction->getOpCode() == OpCode::Br) {
-          addEdge(block, static_cast<const BranchInst &>(*instruction).getTarget(),
-                  i);
+          const auto &branch = static_cast<const BranchInst &>(*instruction);
+          if (!cfg_.findBlock(branch.getTarget())) {
+            error(VerificationErrorCode::InvalidBranchTarget, &block, i,
+                  "branch targets unknown block " + branch.getTarget());
+          }
         } else if (instruction->getOpCode() == OpCode::CondBr) {
           const auto &branch = static_cast<const CondBranchInst &>(*instruction);
-          addEdge(block, branch.getTrueLabel(), i);
-          addEdge(block, branch.getFalseLabel(), i);
+          for (const auto &label : {branch.getTrueLabel(),
+                                    branch.getFalseLabel()}) {
+            if (!cfg_.findBlock(label)) {
+              error(VerificationErrorCode::InvalidBranchTarget, &block, i,
+                    "branch targets unknown block " + label);
+            }
+          }
         }
       }
       if (!sawTerminator) {
@@ -171,34 +160,22 @@ private:
       return;
     }
     const auto *entry = function_.getBlocks().front().get();
-    std::deque<const BasicBlock *> worklist{entry};
-    reachable_.insert(entry);
-    while (!worklist.empty()) {
-      const auto *block = worklist.front();
-      worklist.pop_front();
-      for (const auto *successor : successors_[block]) {
-        if (reachable_.insert(successor).second) {
-          worklist.push_back(successor);
-        }
-      }
-    }
-
-    for (const auto *block : reachable_) {
-      dominators_[block] = reachable_;
+    for (const auto *block : cfg_.reachable()) {
+      dominators_[block] = cfg_.reachable();
     }
     dominators_[entry] = {entry};
 
     bool changed = true;
     while (changed) {
       changed = false;
-      for (const auto *block : reachable_) {
+      for (const auto *block : cfg_.reachable()) {
         if (block == entry) {
           continue;
         }
         std::unordered_set<const BasicBlock *> next;
         bool firstPredecessor = true;
-        for (const auto *predecessor : predecessors_[block]) {
-          if (reachable_.count(predecessor) == 0) {
+        for (const auto *predecessor : cfg_.predecessors().at(block)) {
+          if (cfg_.reachable().count(predecessor) == 0) {
             continue;
           }
           if (firstPredecessor) {
@@ -254,8 +231,8 @@ private:
       return true;
     }
 
-    if (reachable_.count(effectiveBlock) > 0 &&
-        (reachable_.count(definition->second.block) == 0 ||
+    if (cfg_.reachable().count(effectiveBlock) > 0 &&
+        (cfg_.reachable().count(definition->second.block) == 0 ||
          dominators_[effectiveBlock].count(definition->second.block) == 0)) {
       error(VerificationErrorCode::DominanceViolation, &useBlock, useIndex,
             "definition of " + value->getName() +
@@ -318,8 +295,8 @@ private:
   }
 
   void verifyOwnershipTransfers() {
-    OwnershipFlowAnalysis analysis(module_, function_, predecessors_,
-                                   successors_, reachable_);
+    OwnershipFlowAnalysis analysis(module_, function_, cfg_.predecessors(),
+                                   cfg_.successors(), cfg_.reachable());
     for (const auto &violation : analysis.analyze()) {
       error(VerificationErrorCode::OwnershipViolation, violation.block,
             violation.instructionIndex,
@@ -774,27 +751,29 @@ private:
     }
     std::unordered_set<const BasicBlock *> incomingBlocks;
     for (const auto &[label, value] : phi.getIncoming()) {
-      auto incomingBlock = blocks_.find(label);
-      if (incomingBlock == blocks_.end() ||
-          std::find(predecessors_[&block].begin(), predecessors_[&block].end(),
-                    incomingBlock->second) == predecessors_[&block].end()) {
+      const auto *incomingBlock = cfg_.findBlock(label);
+      const auto &predecessors = cfg_.predecessors().at(&block);
+      if (!incomingBlock ||
+          std::find(predecessors.begin(), predecessors.end(), incomingBlock) ==
+              predecessors.end()) {
         error(VerificationErrorCode::InvalidPhi, &block, index,
               "phi incoming label is not a predecessor: " + label);
         continue;
       }
-      if (!incomingBlocks.insert(incomingBlock->second).second) {
+      if (!incomingBlocks.insert(incomingBlock).second) {
         error(VerificationErrorCode::InvalidPhi, &block, index,
               "phi contains duplicate incoming block " + label);
       }
       if (value) {
-        verifyValue(value, block, index, incomingBlock->second);
+        verifyValue(value, block, index, incomingBlock);
         expectSameType(value->getType(), phi.getResult()->getType(), block,
                        index, "phi incoming value type");
       }
     }
-    std::unordered_set<const BasicBlock *> predecessors(
-        predecessors_[&block].begin(), predecessors_[&block].end());
-    if (incomingBlocks != predecessors) {
+    std::unordered_set<const BasicBlock *> expectedPredecessors(
+        cfg_.predecessors().at(&block).begin(),
+        cfg_.predecessors().at(&block).end());
+    if (incomingBlocks != expectedPredecessors) {
       error(VerificationErrorCode::InvalidPhi, &block, index,
             "phi must have one incoming value for every predecessor");
     }
