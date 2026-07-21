@@ -2,6 +2,8 @@
 
 #include "module.hpp"
 
+#include <vector>
+
 namespace zir {
 namespace {
 
@@ -9,6 +11,8 @@ constexpr unsigned char available =
     static_cast<unsigned char>(OwnershipFlowState::Available);
 constexpr unsigned char consumed =
     static_cast<unsigned char>(OwnershipFlowState::Consumed);
+constexpr unsigned char unavailable =
+    static_cast<unsigned char>(OwnershipFlowState::Unavailable);
 
 bool ownsManagedValue(const std::shared_ptr<Value> &value) {
   return value && value->getOwnership() == ValueOwnership::Owned &&
@@ -61,6 +65,30 @@ std::shared_ptr<Value> instructionResult(const Instruction &instruction) {
     return nullptr;
   }
   return nullptr;
+}
+
+std::vector<const Value *> collectOwnedValues(const Function &function) {
+  std::vector<const Value *> values;
+  std::unordered_set<const Value *> seen;
+  auto add = [&](const std::shared_ptr<Value> &value) {
+    if (ownsManagedValue(value) && seen.insert(value.get()).second) {
+      values.push_back(value.get());
+    }
+  };
+  for (const auto &argument : function.getArguments()) {
+    add(argument);
+  }
+  for (const auto &blockOwner : function.getBlocks()) {
+    if (!blockOwner) {
+      continue;
+    }
+    for (const auto &instruction : blockOwner->getInstructions()) {
+      if (instruction) {
+        add(instructionResult(*instruction));
+      }
+    }
+  }
+  return values;
 }
 
 bool isBorrowedMethodSelf(const Module &module, const CallInst &call,
@@ -126,7 +154,11 @@ OwnershipFlowState OwnershipFlowAnalysis::stateOnEdge(
 }
 
 std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
+  const auto ownedValues = collectOwnedValues(function_);
   OwnershipStates entryStates;
+  for (const auto *value : ownedValues) {
+    entryStates[value] = unavailable;
+  }
   for (const auto &argument : function_.getArguments()) {
     if (ownsManagedValue(argument)) {
       entryStates[argument.get()] = available;
@@ -142,10 +174,7 @@ std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
       return;
     }
     auto &state = states[value.get()];
-    if (state == 0) {
-      state = available;
-    }
-    if ((state & consumed) != 0) {
+    if (state != available) {
       const auto key = block.label + ":" + std::to_string(instructionIndex) +
                        ":" + value->getName();
       if (reported.insert(key).second) {
@@ -172,20 +201,20 @@ std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
         const auto predecessors = predecessors_.find(&block);
         if (predecessors != predecessors_.end()) {
           for (const auto *predecessor : predecessors->second) {
-          if (reachable_.count(predecessor) == 0) {
-            continue;
-          }
-          const auto sourceStates = edgeStates_.find(predecessor);
-          if (sourceStates == edgeStates_.end()) {
-            continue;
-          }
-          const auto destinationStates = sourceStates->second.find(&block);
-          if (destinationStates == sourceStates->second.end()) {
-            continue;
-          }
-          for (const auto &[value, state] : destinationStates->second) {
-            states[value] |= state;
-          }
+            if (reachable_.count(predecessor) == 0) {
+              continue;
+            }
+            const auto sourceStates = edgeStates_.find(predecessor);
+            if (sourceStates == edgeStates_.end()) {
+              continue;
+            }
+            const auto destinationStates = sourceStates->second.find(&block);
+            if (destinationStates == sourceStates->second.end()) {
+              continue;
+            }
+            for (const auto *value : ownedValues) {
+              states[value] |= destinationStates->second.at(value);
+            }
           }
         }
       }
@@ -245,6 +274,9 @@ std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
       }
       for (const auto *successor : successors->second) {
         auto edgeState = states;
+        for (const auto *value : ownedValues) {
+          edgeState.try_emplace(value, unavailable);
+        }
         for (size_t i = 0; i < successor->getInstructions().size(); ++i) {
           const auto &instruction = successor->getInstructions()[i];
           if (!instruction || instruction->getOpCode() != OpCode::Phi) {

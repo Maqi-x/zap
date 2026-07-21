@@ -680,6 +680,52 @@ bool testOwnershipFlowTracksEdgesMergesAndLoops() {
                 "ownership flow did not reach a stable loop state");
 }
 
+bool testOwnershipFlowRejectsTransferAfterPartialDefinition() {
+  Module module("ownership-partial-definition");
+  auto classType = std::make_shared<ClassType>("Node");
+  auto boolean = primitive(TypeKind::Bool);
+  auto function =
+      std::make_unique<Function>("broken", primitive(TypeKind::Void));
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CondBranchInst>(
+      std::make_shared<Constant>("true", boolean), "left", "right"));
+  auto left = std::make_unique<BasicBlock>("left");
+  auto node = reg("node", classType);
+  node->setOwnership(ValueOwnership::Owned);
+  left->addInstruction(std::make_unique<zir::AllocInst>(node, classType));
+  left->addInstruction(std::make_unique<BranchInst>("merge"));
+  auto right = std::make_unique<BasicBlock>("right");
+  right->addInstruction(std::make_unique<BranchInst>("merge"));
+  auto merge = std::make_unique<BasicBlock>("merge");
+  merge->addInstruction(std::make_unique<ReleaseInst>(node));
+  merge->addInstruction(std::make_unique<ReturnInst>());
+
+  auto *entryBlock = entry.get();
+  auto *leftBlock = left.get();
+  auto *rightBlock = right.get();
+  auto *mergeBlock = merge.get();
+  function->addBlock(std::move(entry));
+  function->addBlock(std::move(left));
+  function->addBlock(std::move(right));
+  function->addBlock(std::move(merge));
+
+  OwnershipFlowAnalysis::BlockEdges predecessors{
+      {entryBlock, {}}, {leftBlock, {entryBlock}}, {rightBlock, {entryBlock}},
+      {mergeBlock, {leftBlock, rightBlock}}};
+  OwnershipFlowAnalysis::BlockEdges successors{
+      {entryBlock, {leftBlock, rightBlock}}, {leftBlock, {mergeBlock}},
+      {rightBlock, {mergeBlock}}, {mergeBlock, {}}};
+  OwnershipFlowAnalysis analysis(
+      module, *function, predecessors, successors,
+      {entryBlock, leftBlock, rightBlock, mergeBlock});
+  const auto violations = analysis.analyze();
+
+  return expect(!violations.empty(),
+                "ownership flow accepted a transfer after a partial "
+                "definition");
+}
+
 bool testControlFlowGraphBuildsEdgesAndReachability() {
   auto boolean = primitive(TypeKind::Bool);
   auto function =
@@ -960,6 +1006,7 @@ int main() {
   ok = testPhiAllowsSeparateAlternativeOwnershipTransfers() && ok;
   ok = testOwnershipLivenessTracksPhiEdges() && ok;
   ok = testOwnershipFlowTracksEdgesMergesAndLoops() && ok;
+  ok = testOwnershipFlowRejectsTransferAfterPartialDefinition() && ok;
   ok = testControlFlowGraphBuildsEdgesAndReachability() && ok;
   ok = testReleaseConsumesOwnedValue() && ok;
   ok = testOwnershipLoweringReleasesDeadOwnedResults() && ok;

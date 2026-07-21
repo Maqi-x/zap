@@ -14,10 +14,10 @@ namespace zir {
 class Module;
 
 enum class OwnershipFlowState : unsigned char {
-  Unavailable = 0,
-  Available = 1 << 0,
-  Consumed = 1 << 1,
-  Mixed = (1 << 0) | (1 << 1),
+  Unavailable = 1 << 0,
+  Available = 1 << 1,
+  Consumed = 1 << 2,
+  Mixed = Unavailable | Available | Consumed,
 };
 
 struct OwnershipTransferViolation {
