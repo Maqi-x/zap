@@ -826,6 +826,52 @@ bool testUseAfterReleaseIsRejected() {
                 "use of an owned value after release was not diagnosed");
 }
 
+bool testOwnershipExitObligationsReportLiveValues() {
+  Module module("ownership-exit-obligations");
+  auto classType = std::make_shared<ClassType>("Node");
+  auto function =
+      std::make_unique<Function>("valid", primitive(TypeKind::Void));
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto value = reg("value", classType);
+  value->setOwnership(ValueOwnership::Owned);
+  entry->addInstruction(std::make_unique<zir::AllocInst>(value, classType));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  auto *entryBlock = entry.get();
+  function->addBlock(std::move(entry));
+
+  OwnershipFlowAnalysis::BlockEdges predecessors{{entryBlock, {}}};
+  OwnershipFlowAnalysis::BlockEdges successors{{entryBlock, {}}};
+  OwnershipFlowAnalysis analysis(module, *function, predecessors, successors,
+                                 {entryBlock});
+  const auto obligations = analysis.analyzeExitObligations();
+  return expect(obligations.size() == 1 &&
+                    obligations.front().block == entryBlock &&
+                    obligations.front().instructionIndex == 1 &&
+                    obligations.front().value == value.get() &&
+                    obligations.front().state == OwnershipFlowState::Live,
+                "exit obligations did not report a live owned value");
+}
+
+bool testOwnershipExitObligationsAllowMovedReturn() {
+  Module module("ownership-exit-moved-return");
+  auto classType = std::make_shared<ClassType>("Node");
+  auto function = std::make_unique<Function>("valid", classType);
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto value = reg("value", classType);
+  value->setOwnership(ValueOwnership::Owned);
+  entry->addInstruction(std::make_unique<zir::AllocInst>(value, classType));
+  entry->addInstruction(std::make_unique<ReturnInst>(value));
+  auto *entryBlock = entry.get();
+  function->addBlock(std::move(entry));
+
+  OwnershipFlowAnalysis::BlockEdges predecessors{{entryBlock, {}}};
+  OwnershipFlowAnalysis::BlockEdges successors{{entryBlock, {}}};
+  OwnershipFlowAnalysis analysis(module, *function, predecessors, successors,
+                                 {entryBlock});
+  return expect(analysis.analyzeExitObligations().empty(),
+                "moved return produced an unclosed ownership obligation");
+}
+
 bool testBorrowPreservesOwnedString() {
   Module module("borrow-ownership");
   auto stringType = zir::makeStringType();
@@ -1458,6 +1504,8 @@ int main() {
   ok = testControlFlowGraphBuildsEdgesAndReachability() && ok;
   ok = testReleaseConsumesOwnedValue() && ok;
   ok = testUseAfterReleaseIsRejected() && ok;
+  ok = testOwnershipExitObligationsReportLiveValues() && ok;
+  ok = testOwnershipExitObligationsAllowMovedReturn() && ok;
   ok = testBorrowPreservesOwnedString() && ok;
   ok = testBorrowRequiresStringOwnerAndBorrowedStringView() && ok;
   ok = testReleaseRejectsLiveBorrowedStringView() && ok;

@@ -157,6 +157,8 @@ OwnershipFlowAnalysis::stateOnEdge(const BasicBlock &source,
 }
 
 std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
+  edgeStates_.clear();
+  returnStates_.clear();
   const auto ownedValues = collectOwnedValues(function_);
   OwnershipStates entryStates;
   for (const auto *value : ownedValues) {
@@ -333,6 +335,9 @@ std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
             ownsManagedValue(result)) {
           states[result.get()] = live;
         }
+        if (instruction->getOpCode() == OpCode::Ret) {
+          returnStates_[&block][i] = states;
+        }
       }
       const auto successors = successors_.find(&block);
       if (successors == successors_.end()) {
@@ -369,6 +374,24 @@ std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
     }
   }
   return violations;
+}
+
+std::vector<OwnershipExitObligation>
+OwnershipFlowAnalysis::analyzeExitObligations() {
+  analyze();
+
+  std::vector<OwnershipExitObligation> obligations;
+  for (const auto &[block, returns] : returnStates_) {
+    for (const auto &[instructionIndex, states] : returns) {
+      for (const auto &[value, state] : states) {
+        if ((state & live) != 0) {
+          obligations.push_back({block, instructionIndex, value,
+                                 static_cast<OwnershipFlowState>(state)});
+        }
+      }
+    }
+  }
+  return obligations;
 }
 
 } // namespace zir

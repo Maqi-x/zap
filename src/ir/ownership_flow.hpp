@@ -29,6 +29,13 @@ struct OwnershipTransferViolation {
   OwnershipFlowState priorState;
 };
 
+struct OwnershipExitObligation {
+  const BasicBlock *block;
+  size_t instructionIndex;
+  const Value *value;
+  OwnershipFlowState state;
+};
+
 class OwnershipFlowAnalysis {
 public:
   using BlockEdges =
@@ -40,6 +47,7 @@ public:
       const std::unordered_set<const BasicBlock *> &reachable);
 
   std::vector<OwnershipTransferViolation> analyze();
+  std::vector<OwnershipExitObligation> analyzeExitObligations();
   OwnershipFlowState stateOnEdge(const BasicBlock &source,
                                  const BasicBlock &destination,
                                  const std::shared_ptr<Value> &value) const;
@@ -49,6 +57,9 @@ private:
   using OwnershipEdgeStates = std::unordered_map<
       const BasicBlock *,
       std::unordered_map<const BasicBlock *, OwnershipStates>>;
+  using ReturnStates =
+      std::unordered_map<const BasicBlock *,
+                         std::unordered_map<size_t, OwnershipStates>>;
 
   const Module &module_;
   const Function &function_;
@@ -56,6 +67,7 @@ private:
   BlockEdges successors_;
   std::unordered_set<const BasicBlock *> reachable_;
   OwnershipEdgeStates edgeStates_;
+  ReturnStates returnStates_;
 };
 
 } // namespace zir
