@@ -73,8 +73,8 @@ void LLVMCodeGen::generate(const zir::Module &module) {
           initializer = target->second;
           if (address.getArrayIndex()) {
             auto *zero = llvm::ConstantInt::get(nativeIntegerType(), 0);
-            auto *index = llvm::ConstantInt::get(
-                nativeIntegerType(), *address.getArrayIndex());
+            auto *index = llvm::ConstantInt::get(nativeIntegerType(),
+                                                 *address.getArrayIndex());
             llvm::Constant *indices[] = {zero, index};
             initializer = llvm::ConstantExpr::getInBoundsGetElementPtr(
                 target->second->getValueType(), target->second, indices);
@@ -159,8 +159,7 @@ LLVMCodeGen::lowerZIRValue(const std::shared_ptr<zir::Value> &value) {
         static_cast<const zir::ArrayConstant &>(*value));
   }
   if (value->getKind() == zir::ValueKind::FunctionReference) {
-    const auto &reference =
-        static_cast<const zir::FunctionReference &>(*value);
+    const auto &reference = static_cast<const zir::FunctionReference &>(*value);
     auto it = functionMap_.find(reference.getLinkName());
     if (it != functionMap_.end())
       return it->second;
@@ -417,8 +416,8 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
       emitStoreWithStringArc(dst, src, valueType, valueIsOwned, skipReleaseOld);
     } else if (valueType && containsManagedValues(valueType)) {
       if (!skipReleaseOld) {
-        auto *oldValue = builder_.CreateLoad(toLLVMType(*valueType), dst,
-                                             "aggregate.old");
+        auto *oldValue =
+            builder_.CreateLoad(toLLVMType(*valueType), dst, "aggregate.old");
         emitManagedRelease(oldValue, valueType);
       }
       const bool valueIsOwned =
@@ -740,8 +739,7 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         const auto &arg = callInst.getArguments()[i];
         auto *lowered = lowerZIRRValue(arg);
         args.push_back(lowered);
-        recordOwnedStringArgument(arg, lowered,
-                                  callInst.getArgumentModes()[i]);
+        recordOwnedStringArgument(arg, lowered, callInst.getArgumentModes()[i]);
       }
       auto *call = builder_.CreateCall(fnTy, calleePtr, args);
       releaseOwnedStringArguments();
@@ -1002,8 +1000,7 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
             args[0], llvm::PointerType::getUnqual(ctx_), "zir.method.self");
         auto *vtableAddr = builder_.CreateStructGEP(
             objectTy, selfPtr, kClassVTableIndex, "zir.method.vtable.addr");
-        auto *i8PtrTy =
-            llvm::PointerType::getUnqual(ctx_);
+        auto *i8PtrTy = llvm::PointerType::getUnqual(ctx_);
         auto *vtablePtrTy = llvm::PointerType::getUnqual(ctx_);
         auto *vtablePtr =
             builder_.CreateLoad(vtablePtrTy, vtableAddr, "zir.method.vtable");
@@ -1135,29 +1132,12 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
     zirValueMap_[castInst.getResult().get()] = result;
     return;
   }
-  case OpCode::KeepAlive: {
-    const auto &keepAliveInst = static_cast<const KeepAliveInst &>(inst);
-    auto *source = lowerZIRRValue(keepAliveInst.getValue());
-    const auto &sourceType = keepAliveInst.getValue()->getType();
-    if (isOwnedStringType(sourceType)) {
-      auto *ownerSlot = createEntryAlloca(
-          currentFn_, "zir.strview.owner", toLLVMType(*sourceType));
-      llvm::IRBuilder<> entryBuilder(ctx_);
-      if (auto *next = ownerSlot->getNextNode()) {
-        entryBuilder.SetInsertPoint(next);
-      } else {
-        entryBuilder.SetInsertPoint(&currentFn_->getEntryBlock());
-      }
-      entryBuilder.CreateStore(llvm::Constant::getNullValue(
-                                   toLLVMType(*sourceType)),
-                               ownerSlot);
-
-      auto *previousOwner = builder_.CreateLoad(
-          toLLVMType(*sourceType), ownerSlot, "zir.strview.previous.owner");
-      emitStringReleaseIfNeeded(previousOwner, sourceType);
-      builder_.CreateStore(source, ownerSlot);
-      zirFunctionStringLocals_.push_back({sourceType, ownerSlot});
-    }
+  case OpCode::Borrow: {
+    const auto &borrowInst = static_cast<const BorrowInst &>(inst);
+    auto *source = lowerZIRRValue(borrowInst.getOwner());
+    auto *result = lowerZIRCast(source, borrowInst.getOwner()->getType(),
+                                borrowInst.getResult()->getType());
+    zirValueMap_[borrowInst.getResult().get()] = result;
     return;
   }
   case OpCode::WeakLock: {
@@ -1194,52 +1174,45 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
     auto allocationIt = functionMap_.find("zap_runtime_alloc");
     if (allocationIt == functionMap_.end()) {
       auto *allocationTy = llvm::FunctionType::get(
-          llvm::PointerType::getUnqual(ctx_), {sizeTy},
-          false);
-      auto *allocationFn = llvm::Function::Create(
-          allocationTy, llvm::Function::ExternalLinkage, "zap_runtime_alloc",
-          *module_);
-      allocationIt = functionMap_.emplace("zap_runtime_alloc", allocationFn)
-                         .first;
+          llvm::PointerType::getUnqual(ctx_), {sizeTy}, false);
+      auto *allocationFn =
+          llvm::Function::Create(allocationTy, llvm::Function::ExternalLinkage,
+                                 "zap_runtime_alloc", *module_);
+      allocationIt =
+          functionMap_.emplace("zap_runtime_alloc", allocationFn).first;
     }
 
-    auto *rawPtr = builder_.CreateCall(allocationIt->second, {sizeValue},
-                                       "class.alloc");
+    auto *rawPtr =
+        builder_.CreateCall(allocationIt->second, {sizeValue}, "class.alloc");
     auto *typedPtr = builder_.CreateBitCast(rawPtr, ptrTy, "class.obj");
 
-    auto *refCountAddr =
-        builder_.CreateStructGEP(objectTy, typedPtr, kClassStrongCountIndex,
-                                 "refcount.addr");
+    auto *refCountAddr = builder_.CreateStructGEP(
+        objectTy, typedPtr, kClassStrongCountIndex, "refcount.addr");
     builder_.CreateStore(
         llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx_), 1), refCountAddr);
-    auto *weakCountAddr =
-        builder_.CreateStructGEP(objectTy, typedPtr, kClassWeakCountIndex,
-                                 "weakcount.addr");
+    auto *weakCountAddr = builder_.CreateStructGEP(
+        objectTy, typedPtr, kClassWeakCountIndex, "weakcount.addr");
     builder_.CreateStore(
         llvm::ConstantInt::get(llvm::Type::getInt64Ty(ctx_), 0), weakCountAddr);
-    auto *aliveAddr =
-        builder_.CreateStructGEP(objectTy, typedPtr, kClassAliveIndex,
-                                 "alive.addr");
+    auto *aliveAddr = builder_.CreateStructGEP(objectTy, typedPtr,
+                                               kClassAliveIndex, "alive.addr");
     builder_.CreateStore(llvm::ConstantInt::get(llvm::Type::getInt8Ty(ctx_), 1),
                          aliveAddr);
-    auto *gcMarkAddr =
-        builder_.CreateStructGEP(objectTy, typedPtr, kClassGcMarkIndex,
-                                 "gcmark.addr");
+    auto *gcMarkAddr = builder_.CreateStructGEP(
+        objectTy, typedPtr, kClassGcMarkIndex, "gcmark.addr");
     builder_.CreateStore(llvm::ConstantInt::get(llvm::Type::getInt8Ty(ctx_), 0),
                          gcMarkAddr);
-    auto *releaseFnAddr =
-        builder_.CreateStructGEP(objectTy, typedPtr, kClassReleaseFnIndex,
-                                 "release.fn.addr");
-    auto *releaseFnPtr = builder_.CreateBitCast(
-        classReleaseFns_.at(classType->getCodegenName()),
-        llvm::PointerType::getUnqual(ctx_));
+    auto *releaseFnAddr = builder_.CreateStructGEP(
+        objectTy, typedPtr, kClassReleaseFnIndex, "release.fn.addr");
+    auto *releaseFnPtr =
+        builder_.CreateBitCast(classReleaseFns_.at(classType->getCodegenName()),
+                               llvm::PointerType::getUnqual(ctx_));
     builder_.CreateStore(releaseFnPtr, releaseFnAddr);
-    auto *destroyFnAddr =
-        builder_.CreateStructGEP(objectTy, typedPtr, kClassDestroyFnIndex,
-                                 "destroy.fn.addr");
-    auto *destroyFnPtr = builder_.CreateBitCast(
-        classDestroyFns_.at(classType->getCodegenName()),
-        llvm::PointerType::getUnqual(ctx_));
+    auto *destroyFnAddr = builder_.CreateStructGEP(
+        objectTy, typedPtr, kClassDestroyFnIndex, "destroy.fn.addr");
+    auto *destroyFnPtr =
+        builder_.CreateBitCast(classDestroyFns_.at(classType->getCodegenName()),
+                               llvm::PointerType::getUnqual(ctx_));
     builder_.CreateStore(destroyFnPtr, destroyFnAddr);
     auto *metadataAddr = builder_.CreateStructGEP(
         objectTy, typedPtr, kClassMetadataIndex, "metadata.addr");

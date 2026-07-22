@@ -51,6 +51,8 @@ std::shared_ptr<Value> instructionResult(const Instruction &instruction) {
     return static_cast<const PhiInst &>(instruction).getResult();
   case OpCode::Cast:
     return static_cast<const CastInst &>(instruction).getResult();
+  case OpCode::Borrow:
+    return static_cast<const BorrowInst &>(instruction).getResult();
   case OpCode::WeakLock:
     return static_cast<const WeakLockInst &>(instruction).getResult();
   case OpCode::WeakAlive:
@@ -60,7 +62,6 @@ std::shared_ptr<Value> instructionResult(const Instruction &instruction) {
   case OpCode::CondBr:
   case OpCode::Ret:
   case OpCode::Retain:
-  case OpCode::KeepAlive:
   case OpCode::Release:
   case OpCode::InlineAsm:
     return nullptr;
@@ -129,15 +130,16 @@ bool transfersThroughCallArgument(const Module &module, const CallInst &call,
 } // namespace
 
 OwnershipFlowAnalysis::OwnershipFlowAnalysis(
-    const Module &module, const Function &function, const BlockEdges &predecessors,
-    const BlockEdges &successors,
+    const Module &module, const Function &function,
+    const BlockEdges &predecessors, const BlockEdges &successors,
     const std::unordered_set<const BasicBlock *> &reachable)
     : module_(module), function_(function), predecessors_(predecessors),
       successors_(successors), reachable_(reachable) {}
 
-OwnershipFlowState OwnershipFlowAnalysis::stateOnEdge(
-    const BasicBlock &source, const BasicBlock &destination,
-    const std::shared_ptr<Value> &value) const {
+OwnershipFlowState
+OwnershipFlowAnalysis::stateOnEdge(const BasicBlock &source,
+                                   const BasicBlock &destination,
+                                   const std::shared_ptr<Value> &value) const {
   const auto sourceStates = edgeStates_.find(&source);
   if (!value || sourceStates == edgeStates_.end()) {
     return OwnershipFlowState::Unavailable;
@@ -166,7 +168,8 @@ std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
 
   std::vector<OwnershipTransferViolation> violations;
   std::unordered_set<std::string> reported;
-  auto consume = [&](OwnershipStates &states, const std::shared_ptr<Value> &value,
+  auto consume = [&](OwnershipStates &states,
+                     const std::shared_ptr<Value> &value,
                      const BasicBlock &block, size_t instructionIndex,
                      const char *operation) {
     if (!ownsManagedValue(value)) {
@@ -256,13 +259,9 @@ std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
           break;
         }
         case OpCode::Release:
-          consume(states, static_cast<const ReleaseInst &>(*instruction).getValue(),
-                  block, i, "release");
-          break;
-        case OpCode::KeepAlive:
           consume(states,
-                  static_cast<const KeepAliveInst &>(*instruction).getValue(),
-                  block, i, "keepalive");
+                  static_cast<const ReleaseInst &>(*instruction).getValue(),
+                  block, i, "release");
           break;
         default:
           break;

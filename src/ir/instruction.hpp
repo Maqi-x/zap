@@ -29,7 +29,7 @@ enum class OpCode {
   Ret,
   Call,
   Retain,
-  KeepAlive,
+  Borrow,
   Release,
   Alloc,
   GetElementPtr,
@@ -151,9 +151,8 @@ public:
       modeName = "raw_initialize";
       break;
     }
-    return "store." + std::string(modeName) + " " + src->getTypeName() +
-           " " + src->getName() + ", " + dest->getTypeName() + " " +
-           dest->getName();
+    return "store." + std::string(modeName) + " " + src->getTypeName() + " " +
+           src->getName() + ", " + dest->getTypeName() + " " + dest->getName();
   }
 };
 
@@ -255,9 +254,8 @@ public:
            std::vector<ArgumentMode> argumentModes = {})
       : result(std::move(res)), funcName(std::move(name)),
         args(std::move(arguments)), argIsRef(std::move(argumentIsRef)),
-        argumentModes_(std::move(argumentModes)),
-        variadicPack(std::move(pack)), returnsRef_(returnsRef),
-        resultOwnership_(resultOwnership) {
+        argumentModes_(std::move(argumentModes)), variadicPack(std::move(pack)),
+        returnsRef_(returnsRef), resultOwnership_(resultOwnership) {
     if (argumentModes_.empty()) {
       argumentModes_.assign(args.size(), ArgumentMode::Borrow);
     }
@@ -269,8 +267,7 @@ public:
            ResultOwnership resultOwnership = ResultOwnership::Borrowed,
            std::vector<ArgumentMode> argumentModes = {})
       : result(std::move(res)), calleeValue(std::move(callee)),
-        args(std::move(arguments)),
-        argumentModes_(std::move(argumentModes)),
+        args(std::move(arguments)), argumentModes_(std::move(argumentModes)),
         returnsRef_(returnsRef), resultOwnership_(resultOwnership) {
     if (argumentModes_.empty()) {
       argumentModes_.assign(args.size(), ArgumentMode::Borrow);
@@ -338,15 +335,19 @@ public:
   }
 };
 
-class KeepAliveInst : public Instruction {
-  std::shared_ptr<Value> value;
+class BorrowInst : public Instruction {
+  std::shared_ptr<Value> result;
+  std::shared_ptr<Value> owner;
 
 public:
-  KeepAliveInst(std::shared_ptr<Value> v) : value(std::move(v)) {}
-  OpCode getOpCode() const override { return OpCode::KeepAlive; }
-  const std::shared_ptr<Value> &getValue() const { return value; }
+  BorrowInst(std::shared_ptr<Value> res, std::shared_ptr<Value> source)
+      : result(std::move(res)), owner(std::move(source)) {}
+  OpCode getOpCode() const override { return OpCode::Borrow; }
+  const std::shared_ptr<Value> &getResult() const { return result; }
+  const std::shared_ptr<Value> &getOwner() const { return owner; }
   std::string toString() const override {
-    return "keepalive " + value->getTypeName() + " " + value->getName();
+    return result->getName() + " = borrow " + result->getTypeName() + " " +
+           owner->getTypeName() + " " + owner->getName();
   }
 };
 

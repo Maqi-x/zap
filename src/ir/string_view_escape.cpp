@@ -29,7 +29,6 @@ bool StringViewEscapeAnalysis::isFunctionLocalStorage(
 
 StringViewEscapeAnalysis analyzeStringViewEscapes(const Function &function) {
   StringViewEscapeAnalysis result;
-  std::unordered_set<const Value *> keptAliveStrings;
 
   bool changed = true;
   while (changed) {
@@ -55,11 +54,6 @@ StringViewEscapeAnalysis analyzeStringViewEscapes(const Function &function) {
                 result.localStorage_.insert(gep.getResult().get()).second ||
                 changed;
           }
-        } else if (instruction->getOpCode() == OpCode::KeepAlive) {
-          keptAliveStrings.insert(
-              static_cast<const KeepAliveInst &>(*instruction)
-                  .getValue()
-                  .get());
         }
       }
     }
@@ -91,14 +85,12 @@ StringViewEscapeAnalysis analyzeStringViewEscapes(const Function &function) {
           continue;
         }
         switch (instruction->getOpCode()) {
-        case OpCode::Cast: {
-          const auto &cast = static_cast<const CastInst &>(*instruction);
-          if (cast.getResult() &&
-              isIntrinsicStringViewType(cast.getResult()->getType()) &&
-              (keptAliveStrings.count(cast.getSource().get()) != 0 ||
-               isLocalView(result, cast.getSource()))) {
+        case OpCode::Borrow: {
+          const auto &borrow = static_cast<const BorrowInst &>(*instruction);
+          if (borrow.getResult() && borrow.getOwner() &&
+              borrow.getOwner()->getOwnership() == ValueOwnership::Owned) {
             changed =
-                result.localViews_.insert(cast.getResult().get()).second ||
+                result.localViews_.insert(borrow.getResult().get()).second ||
                 changed;
           }
           break;

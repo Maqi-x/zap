@@ -24,11 +24,13 @@ private:
   using ValueSet = std::unordered_set<const Value *>;
   using InstructionStates = std::unordered_map<size_t, ValueSet>;
   using EdgeStates =
-      std::unordered_map<const BasicBlock *, std::unordered_map<const BasicBlock *, ValueSet>>;
+      std::unordered_map<const BasicBlock *,
+                         std::unordered_map<const BasicBlock *, ValueSet>>;
 
   std::unordered_map<const BasicBlock *, ValueSet> entryStates_;
   std::unordered_map<const BasicBlock *, InstructionStates> afterStates_;
   EdgeStates edgeStates_;
+  std::unordered_map<const Value *, ValueSet> borrowOwners_;
 
   friend OwnershipLiveness analyzeOwnershipLiveness(const Function &function);
 };

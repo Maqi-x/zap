@@ -495,14 +495,18 @@ private:
       }
       return;
     }
-    case OpCode::KeepAlive: {
-      const auto &keepAlive = static_cast<const KeepAliveInst &>(instruction);
-      verifyValue(keepAlive.getValue(), block, index);
-      if (!keepAlive.getValue() ||
-          keepAlive.getValue()->getOwnership() != ValueOwnership::Owned ||
-          !isIntrinsicStringType(keepAlive.getValue()->getType())) {
-        error(VerificationErrorCode::InvalidOperand, &block, index,
-              "keepalive requires an owned String value");
+    case OpCode::Borrow: {
+      const auto &borrow = static_cast<const BorrowInst &>(instruction);
+      verifyValue(borrow.getOwner(), block, index);
+      if (!borrow.getResult() || !borrow.getOwner() ||
+          borrow.getOwner()->getType()->getIntrinsicKind() !=
+              IntrinsicTypeKind::String ||
+          borrow.getResult()->getType()->getIntrinsicKind() !=
+              IntrinsicTypeKind::StringView ||
+          borrow.getResult()->getOwnership() != ValueOwnership::Borrowed) {
+        error(
+            VerificationErrorCode::InvalidOperand, &block, index,
+            "borrow requires a String owner and a borrowed StringView result");
       }
       return;
     }

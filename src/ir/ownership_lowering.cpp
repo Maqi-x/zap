@@ -2,6 +2,7 @@
 
 #include "ownership_liveness.hpp"
 
+#include <algorithm>
 #include <unordered_set>
 #include <vector>
 
@@ -40,6 +41,8 @@ std::shared_ptr<Value> instructionResult(const Instruction &instruction) {
     return static_cast<const PhiInst &>(instruction).getResult();
   case OpCode::Cast:
     return static_cast<const CastInst &>(instruction).getResult();
+  case OpCode::Borrow:
+    return static_cast<const BorrowInst &>(instruction).getResult();
   case OpCode::WeakLock:
     return static_cast<const WeakLockInst &>(instruction).getResult();
   case OpCode::WeakAlive:
@@ -49,7 +52,6 @@ std::shared_ptr<Value> instructionResult(const Instruction &instruction) {
   case OpCode::CondBr:
   case OpCode::Ret:
   case OpCode::Retain:
-  case OpCode::KeepAlive:
   case OpCode::Release:
   case OpCode::InlineAsm:
     return nullptr;
@@ -106,8 +108,6 @@ bool transfersOwnership(const Instruction &instruction,
   }
   case OpCode::Release:
     return static_cast<const ReleaseInst &>(instruction).getValue() == value;
-  case OpCode::KeepAlive:
-    return static_cast<const KeepAliveInst &>(instruction).getValue() == value;
   default:
     return false;
   }
@@ -167,6 +167,10 @@ void lowerDeadOwnedResults(Module &module) {
           }
         }
       }
+      std::sort(releases.begin(), releases.end(),
+                [](const auto &lhs, const auto &rhs) {
+                  return lhs.first < rhs.first;
+                });
       for (auto release = releases.rbegin(); release != releases.rend();
            ++release) {
         instructions.insert(instructions.begin() +
@@ -195,7 +199,8 @@ void lowerDeadOwnedResults(Module &module) {
       }
       std::vector<std::string> targets;
       if (terminator->getOpCode() == OpCode::Br) {
-        targets.push_back(static_cast<const BranchInst &>(*terminator).getTarget());
+        targets.push_back(
+            static_cast<const BranchInst &>(*terminator).getTarget());
       } else {
         const auto &branch = static_cast<const CondBranchInst &>(*terminator);
         targets.push_back(branch.getTrueLabel());
@@ -244,13 +249,13 @@ void lowerDeadOwnedResults(Module &module) {
         if (terminator->getOpCode() == OpCode::Br) {
           static_cast<BranchInst &>(*terminator).setTarget(edgeLabel);
         } else {
-          static_cast<CondBranchInst &>(*terminator).replaceTarget(targetLabel,
-                                                                     edgeLabel);
+          static_cast<CondBranchInst &>(*terminator)
+              .replaceTarget(targetLabel, edgeLabel);
         }
         for (const auto &instruction : destination->getInstructions()) {
           if (instruction && instruction->getOpCode() == OpCode::Phi) {
-            static_cast<PhiInst &>(*instruction).replaceIncomingLabel(
-                source.label, edgeLabel);
+            static_cast<PhiInst &>(*instruction)
+                .replaceIncomingLabel(source.label, edgeLabel);
           }
         }
         edgeBlocks.push_back(std::move(edge));

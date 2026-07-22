@@ -445,9 +445,9 @@ void BoundIRGenerator::visit(sema::BoundFailStatement &node) {
       valueAddr, allocaReg, FailableTypeLayout::ValueField));
   if (valueType && valueType->getKind() != TypeKind::Void) {
     // The value field is unused on the error path; zero it without ARC.
-    currentBlock_->addInstruction(std::make_unique<StoreInst>(
-        std::make_shared<Constant>("0", valueType), valueAddr,
-        StoreMode::RawInitialize));
+    currentBlock_->addInstruction(
+        std::make_unique<StoreInst>(std::make_shared<Constant>("0", valueType),
+                                    valueAddr, StoreMode::RawInitialize));
   }
 
   auto errAddr = createRegister(std::make_shared<PointerType>(errorType));
@@ -457,9 +457,9 @@ void BoundIRGenerator::visit(sema::BoundFailStatement &node) {
     currentBlock_->addInstruction(
         std::make_unique<StoreInst>(errValue, errAddr, StoreMode::Assign));
   } else {
-    currentBlock_->addInstruction(std::make_unique<StoreInst>(
-        std::make_shared<Constant>("0", errorType), errAddr,
-        StoreMode::Assign));
+    currentBlock_->addInstruction(
+        std::make_unique<StoreInst>(std::make_shared<Constant>("0", errorType),
+                                    errAddr, StoreMode::Assign));
   }
 
   auto loaded = createRegister(failableType);
@@ -763,7 +763,7 @@ void BoundIRGenerator::visit(sema::BoundFunctionCall &node) {
   const bool ownsResult =
       !node.symbol->returnsRef && containsManagedValues(node.type);
   auto reg = createRegister(resultType, ownsResult ? ValueOwnership::Owned
-                                                    : ValueOwnership::Borrowed);
+                                                   : ValueOwnership::Borrowed);
   currentBlock_->addInstruction(std::make_unique<CallInst>(
       reg, node.symbol->linkName, args, node.argumentIsRef, variadicPack,
       node.symbol->returnsRef,
@@ -781,8 +781,7 @@ void BoundIRGenerator::visit(sema::BoundFunctionCall &node) {
 }
 
 void BoundIRGenerator::visit(sema::BoundFunctionReference &node) {
-  auto functionType =
-      std::static_pointer_cast<FunctionPointerType>(node.type);
+  auto functionType = std::static_pointer_cast<FunctionPointerType>(node.type);
   valueStack_.push(std::make_shared<FunctionReference>(
       node.symbol->linkName, std::move(functionType)));
 }
@@ -1203,8 +1202,8 @@ void BoundIRGenerator::visit(sema::BoundStructLiteral &node) {
           std::make_shared<PointerType>(fields[fieldIndex].type));
       currentBlock_->addInstruction(std::make_unique<GetElementPtrInst>(
           fieldAddr, allocaReg, fieldIndex));
-      currentBlock_->addInstruction(std::make_unique<StoreInst>(
-          val, fieldAddr, StoreMode::Initialize));
+      currentBlock_->addInstruction(
+          std::make_unique<StoreInst>(val, fieldAddr, StoreMode::Initialize));
     }
   }
 
@@ -1225,8 +1224,8 @@ void BoundIRGenerator::visit(sema::BoundTaggedUnionLiteral &node) {
   currentBlock_->addInstruction(
       std::make_unique<GetElementPtrInst>(tagAddr, allocaReg, 0));
   auto tagValue = std::make_shared<Constant>(std::to_string(node.tag), tagType);
-  currentBlock_->addInstruction(std::make_unique<StoreInst>(
-      tagValue, tagAddr, StoreMode::RawInitialize));
+  currentBlock_->addInstruction(
+      std::make_unique<StoreInst>(tagValue, tagAddr, StoreMode::RawInitialize));
 
   if (node.payload) {
     node.payload->accept(*this);
@@ -1896,9 +1895,11 @@ void BoundIRGenerator::visit(sema::BoundCast &node) {
   }
 
   if (node.type->getIntrinsicKind() == IntrinsicTypeKind::StringView &&
-      src->getOwnership() == ValueOwnership::Owned &&
       src->getType()->getIntrinsicKind() == IntrinsicTypeKind::String) {
-    currentBlock_->addInstruction(std::make_unique<KeepAliveInst>(src));
+    auto result = createRegister(node.type, ValueOwnership::Borrowed);
+    currentBlock_->addInstruction(std::make_unique<BorrowInst>(result, src));
+    valueStack_.push(result);
+    return;
   }
   auto res = createRegister(node.type, ownershipForCast(src, node.type));
   currentBlock_->addInstruction(

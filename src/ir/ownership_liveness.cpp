@@ -9,19 +9,29 @@ namespace zir {
 namespace {
 
 using ValueSet = std::unordered_set<const Value *>;
+using BorrowOwners = std::unordered_map<const Value *, ValueSet>;
 
 bool tracksOwnership(const std::shared_ptr<Value> &value) {
   return value && value->getOwnership() == ValueOwnership::Owned &&
          containsManagedValues(value->getType());
 }
 
-void addUse(ValueSet &values, const std::shared_ptr<Value> &value) {
+void addUse(ValueSet &values, const std::shared_ptr<Value> &value,
+            const BorrowOwners &borrowOwners) {
   if (tracksOwnership(value)) {
     values.insert(value.get());
   }
+  if (!value) {
+    return;
+  }
+  const auto owners = borrowOwners.find(value.get());
+  if (owners != borrowOwners.end()) {
+    values.insert(owners->second.begin(), owners->second.end());
+  }
 }
 
-void addInstructionUses(ValueSet &values, const Instruction &instruction) {
+void addInstructionUses(ValueSet &values, const Instruction &instruction,
+                        const BorrowOwners &borrowOwners) {
   switch (instruction.getOpCode()) {
   case OpCode::Alloca:
   case OpCode::Alloc:
@@ -29,12 +39,13 @@ void addInstructionUses(ValueSet &values, const Instruction &instruction) {
   case OpCode::Phi:
     return;
   case OpCode::Load:
-    addUse(values, static_cast<const LoadInst &>(instruction).getSource());
+    addUse(values, static_cast<const LoadInst &>(instruction).getSource(),
+           borrowOwners);
     return;
   case OpCode::Store: {
     const auto &store = static_cast<const StoreInst &>(instruction);
-    addUse(values, store.getSource());
-    addUse(values, store.getDestination());
+    addUse(values, store.getSource(), borrowOwners);
+    addUse(values, store.getDestination(), borrowOwners);
     return;
   }
   case OpCode::Add:
@@ -51,77 +62,218 @@ void addInstructionUses(ValueSet &values, const Instruction &instruction) {
   case OpCode::BitOr:
   case OpCode::BitXor: {
     const auto &binary = static_cast<const BinaryInst &>(instruction);
-    addUse(values, binary.getLhs());
-    addUse(values, binary.getRhs());
+    addUse(values, binary.getLhs(), borrowOwners);
+    addUse(values, binary.getRhs(), borrowOwners);
     return;
   }
   case OpCode::Cmp: {
     const auto &comparison = static_cast<const CmpInst &>(instruction);
-    addUse(values, comparison.getLhs());
-    addUse(values, comparison.getRhs());
+    addUse(values, comparison.getLhs(), borrowOwners);
+    addUse(values, comparison.getRhs(), borrowOwners);
     return;
   }
   case OpCode::CondBr:
     addUse(values,
-           static_cast<const CondBranchInst &>(instruction).getCondition());
+           static_cast<const CondBranchInst &>(instruction).getCondition(),
+           borrowOwners);
     return;
   case OpCode::Ret:
-    addUse(values, static_cast<const ReturnInst &>(instruction).getValue());
+    addUse(values, static_cast<const ReturnInst &>(instruction).getValue(),
+           borrowOwners);
     return;
   case OpCode::Call: {
     const auto &call = static_cast<const CallInst &>(instruction);
-    addUse(values, call.getCalleeValue());
+    addUse(values, call.getCalleeValue(), borrowOwners);
     for (const auto &argument : call.getArguments()) {
-      addUse(values, argument);
+      addUse(values, argument, borrowOwners);
     }
-    addUse(values, call.getVariadicPack());
+    addUse(values, call.getVariadicPack(), borrowOwners);
     return;
   }
   case OpCode::Retain:
-    addUse(values, static_cast<const RetainInst &>(instruction).getValue());
+    addUse(values, static_cast<const RetainInst &>(instruction).getValue(),
+           borrowOwners);
     return;
-  case OpCode::KeepAlive:
-    addUse(values, static_cast<const KeepAliveInst &>(instruction).getValue());
+  case OpCode::Borrow:
+    addUse(values, static_cast<const BorrowInst &>(instruction).getOwner(),
+           borrowOwners);
     return;
   case OpCode::Release:
-    addUse(values, static_cast<const ReleaseInst &>(instruction).getValue());
+    addUse(values, static_cast<const ReleaseInst &>(instruction).getValue(),
+           borrowOwners);
     return;
   case OpCode::GetElementPtr: {
     const auto &gep = static_cast<const GetElementPtrInst &>(instruction);
-    addUse(values, gep.getPointer());
-    addUse(values, gep.getIndexValue());
+    addUse(values, gep.getPointer(), borrowOwners);
+    addUse(values, gep.getIndexValue(), borrowOwners);
     return;
   }
   case OpCode::Cast:
-    addUse(values, static_cast<const CastInst &>(instruction).getSource());
+    addUse(values, static_cast<const CastInst &>(instruction).getSource(),
+           borrowOwners);
     return;
   case OpCode::WeakLock:
-    addUse(values, static_cast<const WeakLockInst &>(instruction).getWeakValue());
+    addUse(values,
+           static_cast<const WeakLockInst &>(instruction).getWeakValue(),
+           borrowOwners);
     return;
   case OpCode::WeakAlive:
     addUse(values,
-           static_cast<const WeakAliveInst &>(instruction).getWeakValue());
+           static_cast<const WeakAliveInst &>(instruction).getWeakValue(),
+           borrowOwners);
     return;
   case OpCode::InlineAsm: {
     const auto &inlineAsm = static_cast<const InlineAsmInst &>(instruction);
     for (const auto &operand : inlineAsm.getOutputs()) {
-      addUse(values, operand.value);
+      addUse(values, operand.value, borrowOwners);
     }
     for (const auto &operand : inlineAsm.getInputs()) {
-      addUse(values, operand.value);
+      addUse(values, operand.value, borrowOwners);
     }
     return;
   }
   }
 }
 
-bool instructionUsesValue(const Instruction &instruction, const Value *value) {
+bool instructionUsesValue(const Instruction &instruction, const Value *value,
+                          const BorrowOwners &borrowOwners) {
   if (!value) {
     return false;
   }
   ValueSet uses;
-  addInstructionUses(uses, instruction);
+  addInstructionUses(uses, instruction, borrowOwners);
   return uses.count(value) != 0;
+}
+
+bool addBorrowOwners(BorrowOwners &owners, const Value *destination,
+                     const ValueSet &sources) {
+  if (!destination || sources.empty()) {
+    return false;
+  }
+  auto &destinationOwners = owners[destination];
+  const size_t previousSize = destinationOwners.size();
+  destinationOwners.insert(sources.begin(), sources.end());
+  return destinationOwners.size() != previousSize;
+}
+
+bool addBorrowOwnersFromValue(BorrowOwners &owners, const Value *destination,
+                              const std::shared_ptr<Value> &source) {
+  if (!destination || !source) {
+    return false;
+  }
+  const auto sourceOwners = owners.find(source.get());
+  return sourceOwners != owners.end() &&
+         addBorrowOwners(owners, destination, sourceOwners->second);
+}
+
+BorrowOwners collectBorrowOwners(const Function &function) {
+  BorrowOwners owners;
+  ValueSet localStorage;
+  bool storageChanged = true;
+  while (storageChanged) {
+    storageChanged = false;
+    for (const auto &blockOwner : function.getBlocks()) {
+      if (!blockOwner) {
+        continue;
+      }
+      for (const auto &instruction : blockOwner->getInstructions()) {
+        if (!instruction) {
+          continue;
+        }
+        if (instruction->getOpCode() == OpCode::Alloca) {
+          storageChanged =
+              localStorage
+                  .insert(static_cast<const AllocaInst &>(*instruction)
+                              .getResult()
+                              .get())
+                  .second ||
+              storageChanged;
+        } else if (instruction->getOpCode() == OpCode::GetElementPtr) {
+          const auto &gep =
+              static_cast<const GetElementPtrInst &>(*instruction);
+          if (localStorage.count(gep.getPointer().get()) != 0) {
+            storageChanged =
+                localStorage.insert(gep.getResult().get()).second ||
+                storageChanged;
+          }
+        }
+      }
+    }
+  }
+
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    for (const auto &blockOwner : function.getBlocks()) {
+      if (!blockOwner) {
+        continue;
+      }
+      for (const auto &instruction : blockOwner->getInstructions()) {
+        if (!instruction) {
+          continue;
+        }
+        switch (instruction->getOpCode()) {
+        case OpCode::Borrow: {
+          const auto &borrow = static_cast<const BorrowInst &>(*instruction);
+          if (borrow.getResult() && tracksOwnership(borrow.getOwner())) {
+            changed = addBorrowOwners(owners, borrow.getResult().get(),
+                                      {borrow.getOwner().get()}) ||
+                      changed;
+          }
+          break;
+        }
+        case OpCode::Phi: {
+          const auto &phi = static_cast<const PhiInst &>(*instruction);
+          if (!phi.getResult()) {
+            break;
+          }
+          for (const auto &[_, incoming] : phi.getIncoming()) {
+            changed = addBorrowOwnersFromValue(owners, phi.getResult().get(),
+                                               incoming) ||
+                      changed;
+          }
+          break;
+        }
+        case OpCode::Store: {
+          const auto &store = static_cast<const StoreInst &>(*instruction);
+          if (store.getDestination() &&
+              localStorage.count(store.getDestination().get()) != 0) {
+            changed =
+                addBorrowOwnersFromValue(owners, store.getDestination().get(),
+                                         store.getSource()) ||
+                changed;
+          }
+          break;
+        }
+        case OpCode::Load: {
+          const auto &load = static_cast<const LoadInst &>(*instruction);
+          if (load.getResult()) {
+            changed = addBorrowOwnersFromValue(owners, load.getResult().get(),
+                                               load.getSource()) ||
+                      changed;
+          }
+          break;
+        }
+        case OpCode::Cast: {
+          const auto &cast = static_cast<const CastInst &>(*instruction);
+          if (cast.getResult() && cast.getSource() &&
+              cast.getResult()->getType()->getIntrinsicKind() ==
+                  IntrinsicTypeKind::StringView &&
+              cast.getSource()->getType()->getIntrinsicKind() ==
+                  IntrinsicTypeKind::StringView) {
+            changed = addBorrowOwnersFromValue(owners, cast.getResult().get(),
+                                               cast.getSource()) ||
+                      changed;
+          }
+          break;
+        }
+        default:
+          break;
+        }
+      }
+    }
+  }
+  return owners;
 }
 
 std::shared_ptr<Value> instructionResult(const Instruction &instruction) {
@@ -156,6 +308,8 @@ std::shared_ptr<Value> instructionResult(const Instruction &instruction) {
     return static_cast<const PhiInst &>(instruction).getResult();
   case OpCode::Cast:
     return static_cast<const CastInst &>(instruction).getResult();
+  case OpCode::Borrow:
+    return static_cast<const BorrowInst &>(instruction).getResult();
   case OpCode::WeakLock:
     return static_cast<const WeakLockInst &>(instruction).getResult();
   case OpCode::WeakAlive:
@@ -165,7 +319,6 @@ std::shared_ptr<Value> instructionResult(const Instruction &instruction) {
   case OpCode::CondBr:
   case OpCode::Ret:
   case OpCode::Retain:
-  case OpCode::KeepAlive:
   case OpCode::Release:
   case OpCode::InlineAsm:
     return nullptr;
@@ -206,7 +359,7 @@ bool OwnershipLiveness::isLastUse(const BasicBlock &block,
     return false;
   }
   return instructionUsesValue(*block.getInstructions()[instructionIndex],
-                              value.get()) &&
+                              value.get(), borrowOwners_) &&
          !isLiveAfter(block, instructionIndex, value);
 }
 
@@ -224,6 +377,7 @@ bool OwnershipLiveness::isLiveOnEdge(
 
 OwnershipLiveness analyzeOwnershipLiveness(const Function &function) {
   OwnershipLiveness result;
+  result.borrowOwners_ = collectBorrowOwners(function);
   std::unordered_map<std::string, const BasicBlock *> blocks;
   std::unordered_map<const BasicBlock *, std::vector<const BasicBlock *>>
       successors;
@@ -282,7 +436,7 @@ OwnershipLiveness analyzeOwnershipLiveness(const Function &function) {
           }
           for (const auto &[label, value] : phi.getIncoming()) {
             if (label == block.label) {
-              addUse(edgeState, value);
+              addUse(edgeState, value, result.borrowOwners_);
               break;
             }
           }
@@ -306,7 +460,7 @@ OwnershipLiveness analyzeOwnershipLiveness(const Function &function) {
             tracksOwnership(value)) {
           live.erase(value.get());
         }
-        addInstructionUses(live, *instruction);
+        addInstructionUses(live, *instruction, result.borrowOwners_);
       }
       if (result.entryStates_[&block] != live) {
         result.entryStates_[&block] = std::move(live);

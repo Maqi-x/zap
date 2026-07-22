@@ -13,6 +13,7 @@
 namespace {
 
 using zir::BasicBlock;
+using zir::BorrowInst;
 using zir::BranchInst;
 using zir::CastInst;
 using zir::ClassType;
@@ -23,7 +24,6 @@ using zir::ControlFlowGraph;
 using zir::Function;
 using zir::FunctionPointerType;
 using zir::FunctionReference;
-using zir::KeepAliveInst;
 using zir::LoadInst;
 using zir::Module;
 using zir::OpCode;
@@ -803,26 +803,48 @@ bool testReleaseConsumesOwnedValue() {
       "double release of an owned value was not diagnosed");
 }
 
-bool testKeepAliveConsumesOwnedString() {
-  Module module("keepalive-ownership");
+bool testBorrowPreservesOwnedString() {
+  Module module("borrow-ownership");
   auto stringType = zir::makeStringType();
+  auto stringViewType = zir::makeStringViewType();
   auto function =
-      std::make_unique<Function>("broken", primitive(TypeKind::Void));
+      std::make_unique<Function>("valid", primitive(TypeKind::Void));
   auto value = std::make_shared<zir::Argument>("value", stringType);
   value->setOwnership(ValueOwnership::Owned);
   function->arguments.push_back(value);
 
   auto entry = std::make_unique<BasicBlock>("entry");
-  entry->addInstruction(std::make_unique<KeepAliveInst>(value));
+  auto view = reg("view", stringViewType);
+  entry->addInstruction(std::make_unique<BorrowInst>(view, value));
   entry->addInstruction(std::make_unique<ReleaseInst>(value));
   entry->addInstruction(std::make_unique<ReturnInst>());
   function->addBlock(std::move(entry));
   module.addFunction(std::move(function));
 
-  const auto verification = ZirVerifier().verify(module);
+  return expect(ZirVerifier().verify(module).ok(),
+                "borrow incorrectly consumed its String owner");
+}
+
+bool testBorrowRequiresStringOwnerAndBorrowedStringView() {
+  Module module("invalid-borrow");
+  auto stringViewType = zir::makeStringViewType();
+  auto function =
+      std::make_unique<Function>("broken", primitive(TypeKind::Void));
+  auto owner = std::make_shared<zir::Argument>("owner", stringViewType);
+  function->arguments.push_back(owner);
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto result = reg("result", stringViewType);
+  result->setOwnership(ValueOwnership::Owned);
+  entry->addInstruction(std::make_unique<BorrowInst>(result, owner));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
   return expect(
-      hasError(verification, VerificationErrorCode::OwnershipViolation),
-      "release after String keepalive was not diagnosed");
+      hasError(ZirVerifier().verify(module),
+               VerificationErrorCode::InvalidOperand),
+      "borrow accepted a non-String owner or an owned StringView result");
 }
 
 bool testReturnRejectsFunctionLocalStringView() {
@@ -841,8 +863,7 @@ bool testReturnRejectsFunctionLocalStringView() {
       text, "make", std::vector<std::shared_ptr<zir::Value>>{},
       std::vector<bool>{}, nullptr, false,
       zir::CallInst::ResultOwnership::Owned));
-  entry->addInstruction(std::make_unique<KeepAliveInst>(text));
-  entry->addInstruction(std::make_unique<CastInst>(view, text, stringViewType));
+  entry->addInstruction(std::make_unique<BorrowInst>(view, text));
   entry->addInstruction(std::make_unique<ReturnInst>(view));
   function->addBlock(std::move(entry));
   module.addFunction(std::move(function));
@@ -862,7 +883,7 @@ bool testReturnAllowsBorrowedStringView() {
   function->arguments.push_back(text);
 
   auto entry = std::make_unique<BasicBlock>("entry");
-  entry->addInstruction(std::make_unique<CastInst>(view, text, stringViewType));
+  entry->addInstruction(std::make_unique<BorrowInst>(view, text));
   entry->addInstruction(std::make_unique<ReturnInst>(view));
   function->addBlock(std::move(entry));
   module.addFunction(std::move(function));
@@ -890,8 +911,7 @@ bool testReturnRejectsStringViewLoadedFromLocalStorage() {
       text, "make", std::vector<std::shared_ptr<zir::Value>>{},
       std::vector<bool>{}, nullptr, false,
       zir::CallInst::ResultOwnership::Owned));
-  entry->addInstruction(std::make_unique<KeepAliveInst>(text));
-  entry->addInstruction(std::make_unique<CastInst>(view, text, stringViewType));
+  entry->addInstruction(std::make_unique<BorrowInst>(view, text));
   entry->addInstruction(
       std::make_unique<zir::AllocaInst>(slot, stringViewType));
   entry->addInstruction(
@@ -928,8 +948,7 @@ bool testStoreRejectsEscapingFunctionLocalStringView() {
       text, "make", std::vector<std::shared_ptr<zir::Value>>{},
       std::vector<bool>{}, nullptr, false,
       zir::CallInst::ResultOwnership::Owned));
-  entry->addInstruction(std::make_unique<KeepAliveInst>(text));
-  entry->addInstruction(std::make_unique<CastInst>(view, text, stringViewType));
+  entry->addInstruction(std::make_unique<BorrowInst>(view, text));
   entry->addInstruction(
       std::make_unique<StoreInst>(view, destination, StoreMode::Assign));
   entry->addInstruction(std::make_unique<ReturnInst>());
@@ -992,12 +1011,17 @@ bool testOwnershipLoweringReleasesAtLastLocalUse() {
                 "last-use-lowered ZIR was rejected by the verifier");
 }
 
-bool testOwnershipLoweringDoesNotReleaseAfterKeepAliveTransfer() {
-  Module module("ownership-keepalive-lowering");
+bool testOwnershipLoweringReleasesOwnerAfterBorrowUse() {
+  Module module("ownership-borrow-lowering");
   auto stringType = zir::makeStringType();
   auto stringViewType = zir::makeStringViewType();
   auto make = std::make_unique<Function>("make", stringType);
   module.addExternalFunction(std::move(make));
+  auto consume =
+      std::make_unique<Function>("consume", primitive(TypeKind::Void));
+  consume->arguments.push_back(
+      std::make_shared<zir::Argument>("view", stringViewType));
+  module.addExternalFunction(std::move(consume));
 
   auto function =
       std::make_unique<Function>("valid", primitive(TypeKind::Void));
@@ -1009,8 +1033,9 @@ bool testOwnershipLoweringDoesNotReleaseAfterKeepAliveTransfer() {
       text, "make", std::vector<std::shared_ptr<zir::Value>>{},
       std::vector<bool>{}, nullptr, false,
       zir::CallInst::ResultOwnership::Owned));
-  entry->addInstruction(std::make_unique<KeepAliveInst>(text));
-  entry->addInstruction(std::make_unique<CastInst>(view, text, stringViewType));
+  entry->addInstruction(std::make_unique<BorrowInst>(view, text));
+  entry->addInstruction(std::make_unique<zir::CallInst>(
+      nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{view}));
   entry->addInstruction(std::make_unique<ReturnInst>());
   function->addBlock(std::move(entry));
   module.addFunction(std::move(function));
@@ -1018,11 +1043,12 @@ bool testOwnershipLoweringDoesNotReleaseAfterKeepAliveTransfer() {
   zir::lowerDeadOwnedResults(module);
   const auto &instructions =
       module.getFunctions().front()->getBlocks().front()->getInstructions();
-  return expect(instructions.size() == 4,
-                "ownership lowering released a value already transferred to "
-                "keepalive") &&
+  return expect(instructions.size() == 5 &&
+                    instructions[3]->getOpCode() == OpCode::Release,
+                "ownership lowering released a String owner before its "
+                "borrowed view's last use") &&
          expect(ZirVerifier().verify(module).ok(),
-                "keepalive-lowered ZIR was rejected by the verifier");
+                "borrow-lowered ZIR was rejected by the verifier");
 }
 
 bool testCallBorrowAllowsOwnedValueToBeReleasedAfterward() {
@@ -1194,14 +1220,15 @@ int main() {
   ok = testOwnershipFlowRejectsTransferAfterPartialDefinition() && ok;
   ok = testControlFlowGraphBuildsEdgesAndReachability() && ok;
   ok = testReleaseConsumesOwnedValue() && ok;
-  ok = testKeepAliveConsumesOwnedString() && ok;
+  ok = testBorrowPreservesOwnedString() && ok;
+  ok = testBorrowRequiresStringOwnerAndBorrowedStringView() && ok;
   ok = testReturnRejectsFunctionLocalStringView() && ok;
   ok = testReturnAllowsBorrowedStringView() && ok;
   ok = testReturnRejectsStringViewLoadedFromLocalStorage() && ok;
   ok = testStoreRejectsEscapingFunctionLocalStringView() && ok;
   ok = testOwnershipLoweringReleasesDeadOwnedResults() && ok;
   ok = testOwnershipLoweringReleasesAtLastLocalUse() && ok;
-  ok = testOwnershipLoweringDoesNotReleaseAfterKeepAliveTransfer() && ok;
+  ok = testOwnershipLoweringReleasesOwnerAfterBorrowUse() && ok;
   ok = testCallBorrowAllowsOwnedValueToBeReleasedAfterward() && ok;
   ok = testOwnershipLoweringReleasesOnDeadCfgEdge() && ok;
   ok = testDominanceViolation() && ok;
