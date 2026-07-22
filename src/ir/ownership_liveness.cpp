@@ -10,6 +10,14 @@ namespace {
 
 using ValueSet = std::unordered_set<const Value *>;
 using BorrowOwners = std::unordered_map<const Value *, ValueSet>;
+using StorageState = std::unordered_map<const Value *, ValueSet>;
+using StorageStates = std::unordered_map<const BasicBlock *, StorageState>;
+
+struct LocalStorageProvenance {
+  ValueSet localStorage;
+  StorageStates exitStates;
+  std::unordered_map<const BasicBlock *, ValueSet> entryLoads;
+};
 
 bool tracksOwnership(const std::shared_ptr<Value> &value) {
   return value && value->getOwnership() == ValueOwnership::Owned &&
@@ -276,6 +284,129 @@ BorrowOwners collectBorrowOwners(const Function &function) {
   return owners;
 }
 
+ValueSet collectLocalStorage(const Function &function) {
+  ValueSet localStorage;
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    for (const auto &blockOwner : function.getBlocks()) {
+      if (!blockOwner) {
+        continue;
+      }
+      for (const auto &instruction : blockOwner->getInstructions()) {
+        if (!instruction) {
+          continue;
+        }
+        if (instruction->getOpCode() == OpCode::Alloca) {
+          changed = localStorage
+                        .insert(static_cast<const AllocaInst &>(*instruction)
+                                    .getResult()
+                                    .get())
+                        .second ||
+                    changed;
+        } else if (instruction->getOpCode() == OpCode::GetElementPtr) {
+          const auto &gep =
+              static_cast<const GetElementPtrInst &>(*instruction);
+          if (localStorage.count(gep.getPointer().get()) != 0) {
+            changed =
+                localStorage.insert(gep.getResult().get()).second || changed;
+          }
+        }
+      }
+    }
+  }
+  return localStorage;
+}
+
+void unionStorageStates(StorageState &destination, const StorageState &source) {
+  for (const auto &[slot, owners] : source) {
+    destination[slot].insert(owners.begin(), owners.end());
+  }
+}
+
+LocalStorageProvenance analyzeLocalStorageProvenance(
+    const Function &function, const BorrowOwners &borrowOwners,
+    const std::unordered_map<const BasicBlock *,
+                             std::vector<const BasicBlock *>> &predecessors) {
+  LocalStorageProvenance result;
+  result.localStorage = collectLocalStorage(function);
+
+  for (const auto &blockOwner : function.getBlocks()) {
+    if (!blockOwner) {
+      continue;
+    }
+    ValueSet writtenStorage;
+    for (const auto &instruction : blockOwner->getInstructions()) {
+      if (!instruction) {
+        continue;
+      }
+      if (instruction->getOpCode() == OpCode::Store) {
+        const auto &store = static_cast<const StoreInst &>(*instruction);
+        if (store.getDestination() &&
+            result.localStorage.count(store.getDestination().get()) != 0) {
+          writtenStorage.insert(store.getDestination().get());
+        }
+      } else if (instruction->getOpCode() == OpCode::Load) {
+        const auto &load = static_cast<const LoadInst &>(*instruction);
+        if (load.getResult() && load.getSource() &&
+            result.localStorage.count(load.getSource().get()) != 0 &&
+            writtenStorage.count(load.getSource().get()) == 0) {
+          result.entryLoads[blockOwner.get()].insert(load.getResult().get());
+        }
+      }
+    }
+  }
+
+  StorageStates entryStates;
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    for (const auto &blockOwner : function.getBlocks()) {
+      if (!blockOwner) {
+        continue;
+      }
+      StorageState entry;
+      const auto predecessorIt = predecessors.find(blockOwner.get());
+      if (predecessorIt != predecessors.end()) {
+        for (const auto *predecessor : predecessorIt->second) {
+          unionStorageStates(entry, result.exitStates[predecessor]);
+        }
+      }
+      if (entryStates[blockOwner.get()] != entry) {
+        entryStates[blockOwner.get()] = entry;
+        changed = true;
+      }
+
+      StorageState state = std::move(entry);
+      for (const auto &instruction : blockOwner->getInstructions()) {
+        if (!instruction || instruction->getOpCode() != OpCode::Store) {
+          continue;
+        }
+        const auto &store = static_cast<const StoreInst &>(*instruction);
+        if (!store.getDestination() ||
+            result.localStorage.count(store.getDestination().get()) == 0) {
+          continue;
+        }
+        ValueSet owners;
+        if (store.getSource()) {
+          const auto ownerIt = borrowOwners.find(store.getSource().get());
+          if (ownerIt != borrowOwners.end()) {
+            owners = ownerIt->second;
+          }
+        }
+        if (state[store.getDestination().get()] != owners) {
+          state[store.getDestination().get()] = std::move(owners);
+        }
+      }
+      if (result.exitStates[blockOwner.get()] != state) {
+        result.exitStates[blockOwner.get()] = std::move(state);
+        changed = true;
+      }
+    }
+  }
+  return result;
+}
+
 std::shared_ptr<Value> instructionResult(const Instruction &instruction) {
   switch (instruction.getOpCode()) {
   case OpCode::Alloca:
@@ -350,6 +481,25 @@ void replacePhiResultWithIncoming(ValueSet &live,
   addUse(live, incoming, borrowOwners);
 }
 
+void replaceLoadResultWithStorage(ValueSet &live, const LoadInst &load,
+                                  const StorageState &storage,
+                                  const BorrowOwners &borrowOwners) {
+  if (!load.getResult() || !load.getSource()) {
+    return;
+  }
+  const auto knownOwners = borrowOwners.find(load.getResult().get());
+  if (knownOwners == borrowOwners.end()) {
+    return;
+  }
+  for (const auto *owner : knownOwners->second) {
+    live.erase(owner);
+  }
+  const auto actualOwners = storage.find(load.getSource().get());
+  if (actualOwners != storage.end()) {
+    live.insert(actualOwners->second.begin(), actualOwners->second.end());
+  }
+}
+
 } // namespace
 
 bool OwnershipLiveness::isLiveAtBlockEntry(
@@ -408,6 +558,16 @@ OwnershipLiveness analyzeOwnershipLiveness(const Function &function) {
       successors.emplace(blockOwner.get(), std::vector<const BasicBlock *>{});
     }
   }
+
+  std::unordered_map<const BasicBlock *, std::vector<const BasicBlock *>>
+      predecessors;
+  for (const auto &[source, targets] : successors) {
+    for (const auto *target : targets) {
+      predecessors[target].push_back(source);
+    }
+  }
+  const auto localStorage = analyzeLocalStorageProvenance(
+      function, result.borrowOwners_, predecessors);
   for (const auto &blockOwner : function.getBlocks()) {
     if (!blockOwner || blockOwner->getInstructions().empty()) {
       continue;
@@ -456,6 +616,24 @@ OwnershipLiveness analyzeOwnershipLiveness(const Function &function) {
               replacePhiResultWithIncoming(edgeState, phi.getResult(), value,
                                            result.borrowOwners_);
               break;
+            }
+          }
+        }
+        const auto entryLoads = localStorage.entryLoads.find(successor);
+        if (entryLoads != localStorage.entryLoads.end()) {
+          const auto storage = localStorage.exitStates.find(&block);
+          if (storage != localStorage.exitStates.end()) {
+            for (const auto &instruction : successor->getInstructions()) {
+              if (!instruction || instruction->getOpCode() != OpCode::Load ||
+                  entryLoads->second.count(
+                      static_cast<const LoadInst &>(*instruction)
+                          .getResult()
+                          .get()) == 0) {
+                continue;
+              }
+              replaceLoadResultWithStorage(
+                  edgeState, static_cast<const LoadInst &>(*instruction),
+                  storage->second, result.borrowOwners_);
             }
           }
         }
