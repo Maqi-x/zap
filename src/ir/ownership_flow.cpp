@@ -7,10 +7,12 @@
 namespace zir {
 namespace {
 
-constexpr unsigned char available =
-    static_cast<unsigned char>(OwnershipFlowState::Available);
-constexpr unsigned char consumed =
-    static_cast<unsigned char>(OwnershipFlowState::Consumed);
+constexpr unsigned char live =
+    static_cast<unsigned char>(OwnershipFlowState::Live);
+constexpr unsigned char moved =
+    static_cast<unsigned char>(OwnershipFlowState::Moved);
+constexpr unsigned char destroyed =
+    static_cast<unsigned char>(OwnershipFlowState::Destroyed);
 constexpr unsigned char unavailable =
     static_cast<unsigned char>(OwnershipFlowState::Unavailable);
 
@@ -162,29 +164,30 @@ std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
   }
   for (const auto &argument : function_.getArguments()) {
     if (ownsManagedValue(argument)) {
-      entryStates[argument.get()] = available;
+      entryStates[argument.get()] = live;
     }
   }
 
   std::vector<OwnershipTransferViolation> violations;
   std::unordered_set<std::string> reported;
-  auto consume = [&](OwnershipStates &states,
-                     const std::shared_ptr<Value> &value,
-                     const BasicBlock &block, size_t instructionIndex,
-                     const char *operation) {
+  auto transition = [&](OwnershipStates &states,
+                        const std::shared_ptr<Value> &value,
+                        const BasicBlock &block, size_t instructionIndex,
+                        const char *operation, unsigned char nextState) {
     if (!ownsManagedValue(value)) {
       return;
     }
     auto &state = states[value.get()];
-    if (state != available) {
+    if (state != live) {
       const auto key = block.label + ":" + std::to_string(instructionIndex) +
                        ":" + value->getName();
       if (reported.insert(key).second) {
-        violations.push_back(
-            {&block, instructionIndex, value, std::string(operation)});
+        violations.push_back({&block, instructionIndex, value,
+                              std::string(operation),
+                              static_cast<OwnershipFlowState>(state)});
       }
     }
-    state = consumed;
+    state = nextState;
   };
 
   bool changed = true;
@@ -229,21 +232,21 @@ std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
         case OpCode::Store: {
           const auto &store = static_cast<const StoreInst &>(*instruction);
           if (store.getSourceOwnership() == ValueOwnership::Owned) {
-            consume(states, store.getSource(), block, i, "store");
+            transition(states, store.getSource(), block, i, "store", moved);
           }
           break;
         }
         case OpCode::Ret: {
           const auto &ret = static_cast<const ReturnInst &>(*instruction);
           if (ret.getValueOwnership() == ValueOwnership::Owned) {
-            consume(states, ret.getValue(), block, i, "return");
+            transition(states, ret.getValue(), block, i, "return", moved);
           }
           break;
         }
         case OpCode::Cast: {
           const auto &cast = static_cast<const CastInst &>(*instruction);
           if (transfersThroughCast(cast)) {
-            consume(states, cast.getSource(), block, i, "cast");
+            transition(states, cast.getSource(), block, i, "cast", moved);
           }
           break;
         }
@@ -252,23 +255,23 @@ std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
           for (size_t argumentIndex = 0;
                argumentIndex < call.getArguments().size(); ++argumentIndex) {
             if (transfersThroughCallArgument(module_, call, argumentIndex)) {
-              consume(states, call.getArguments()[argumentIndex], block, i,
-                      "call");
+              transition(states, call.getArguments()[argumentIndex], block, i,
+                         "call", moved);
             }
           }
           break;
         }
         case OpCode::Release:
-          consume(states,
-                  static_cast<const ReleaseInst &>(*instruction).getValue(),
-                  block, i, "release");
+          transition(states,
+                     static_cast<const ReleaseInst &>(*instruction).getValue(),
+                     block, i, "release", destroyed);
           break;
         default:
           break;
         }
         if (const auto result = instructionResult(*instruction);
             ownsManagedValue(result)) {
-          states[result.get()] = available;
+          states[result.get()] = live;
         }
       }
       const auto successors = successors_.find(&block);
@@ -292,7 +295,7 @@ std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
           }
           for (const auto &[label, value] : phi.getIncoming()) {
             if (label == block.label) {
-              consume(edgeState, value, *successor, i, "phi");
+              transition(edgeState, value, *successor, i, "phi", moved);
               break;
             }
           }

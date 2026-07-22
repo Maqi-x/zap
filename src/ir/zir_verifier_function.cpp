@@ -288,8 +288,8 @@ private:
     for (const auto &violation : analysis.analyze()) {
       error(VerificationErrorCode::OwnershipViolation, violation.block,
             violation.instructionIndex,
-            "owned value is transferred more than once by " +
-                violation.operation + ": " + violation.value->getName());
+            "owned value is not live for " + violation.operation + ": " +
+                violation.value->getName());
     }
 
     const auto liveness = analyzeOwnershipLiveness(function_);

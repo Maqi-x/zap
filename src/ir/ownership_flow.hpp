@@ -15,9 +15,10 @@ class Module;
 
 enum class OwnershipFlowState : unsigned char {
   Unavailable = 1 << 0,
-  Available = 1 << 1,
-  Consumed = 1 << 2,
-  Mixed = Unavailable | Available | Consumed,
+  Live = 1 << 1,
+  Moved = 1 << 2,
+  Destroyed = 1 << 3,
+  Mixed = Unavailable | Live | Moved | Destroyed,
 };
 
 struct OwnershipTransferViolation {
@@ -25,6 +26,7 @@ struct OwnershipTransferViolation {
   size_t instructionIndex;
   std::shared_ptr<Value> value;
   std::string operation;
+  OwnershipFlowState priorState;
 };
 
 class OwnershipFlowAnalysis {
@@ -32,10 +34,10 @@ public:
   using BlockEdges =
       std::unordered_map<const BasicBlock *, std::vector<const BasicBlock *>>;
 
-  OwnershipFlowAnalysis(const Module &module, const Function &function,
-                        const BlockEdges &predecessors,
-                        const BlockEdges &successors,
-                        const std::unordered_set<const BasicBlock *> &reachable);
+  OwnershipFlowAnalysis(
+      const Module &module, const Function &function,
+      const BlockEdges &predecessors, const BlockEdges &successors,
+      const std::unordered_set<const BasicBlock *> &reachable);
 
   std::vector<OwnershipTransferViolation> analyze();
   OwnershipFlowState stateOnEdge(const BasicBlock &source,
@@ -44,9 +46,9 @@ public:
 
 private:
   using OwnershipStates = std::unordered_map<const Value *, unsigned char>;
-  using OwnershipEdgeStates =
-      std::unordered_map<const BasicBlock *,
-                         std::unordered_map<const BasicBlock *, OwnershipStates>>;
+  using OwnershipEdgeStates = std::unordered_map<
+      const BasicBlock *,
+      std::unordered_map<const BasicBlock *, OwnershipStates>>;
 
   const Module &module_;
   const Function &function_;

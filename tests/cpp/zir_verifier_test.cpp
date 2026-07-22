@@ -674,18 +674,17 @@ bool testOwnershipFlowTracksEdgesMergesAndLoops() {
                 "ownership flow reported a false branch transfer violation") &&
          expect(
              branchAnalysis.stateOnEdge(*leftBlock, *exitBlock, value) ==
-                     OwnershipFlowState::Consumed &&
+                     OwnershipFlowState::Destroyed &&
                  branchAnalysis.stateOnEdge(*rightBlock, *exitBlock, value) ==
-                     OwnershipFlowState::Available,
+                     OwnershipFlowState::Live,
              "ownership flow did not preserve per-edge branch states") &&
          expect(loopViolations.empty(),
                 "ownership flow reported a false loop transfer violation") &&
-         expect(
-             loopAnalysis.stateOnEdge(*loopBlock, *loopBlock, node) ==
-                     OwnershipFlowState::Available &&
-                 loopAnalysis.stateOnEdge(*loopBlock, *loopExitBlock, node) ==
-                     OwnershipFlowState::Available,
-             "ownership flow did not reach a stable loop state");
+         expect(loopAnalysis.stateOnEdge(*loopBlock, *loopBlock, node) ==
+                        OwnershipFlowState::Live &&
+                    loopAnalysis.stateOnEdge(*loopBlock, *loopExitBlock,
+                                             node) == OwnershipFlowState::Live,
+                "ownership flow did not reach a stable loop state");
 }
 
 bool testOwnershipFlowRejectsTransferAfterPartialDefinition() {
