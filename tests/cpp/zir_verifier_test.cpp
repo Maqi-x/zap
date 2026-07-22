@@ -872,6 +872,145 @@ bool testOwnershipExitObligationsAllowMovedReturn() {
                 "moved return produced an unclosed ownership obligation");
 }
 
+bool testOwnershipExitObligationsTrackPartialDefinitions() {
+  Module module("ownership-exit-partial-definition");
+  auto classType = std::make_shared<ClassType>("Node");
+  auto boolean = primitive(TypeKind::Bool);
+  auto function =
+      std::make_unique<Function>("valid", primitive(TypeKind::Void));
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CondBranchInst>(
+      std::make_shared<Constant>("true", boolean), "defines", "skips"));
+  auto defines = std::make_unique<BasicBlock>("defines");
+  auto value = reg("value", classType);
+  value->setOwnership(ValueOwnership::Owned);
+  defines->addInstruction(std::make_unique<zir::AllocInst>(value, classType));
+  defines->addInstruction(std::make_unique<BranchInst>("exit"));
+  auto skips = std::make_unique<BasicBlock>("skips");
+  skips->addInstruction(std::make_unique<BranchInst>("exit"));
+  auto exit = std::make_unique<BasicBlock>("exit");
+  exit->addInstruction(std::make_unique<ReturnInst>());
+  auto *entryBlock = entry.get();
+  auto *definesBlock = defines.get();
+  auto *skipsBlock = skips.get();
+  auto *exitBlock = exit.get();
+  function->addBlock(std::move(entry));
+  function->addBlock(std::move(defines));
+  function->addBlock(std::move(skips));
+  function->addBlock(std::move(exit));
+
+  OwnershipFlowAnalysis::BlockEdges predecessors{
+      {entryBlock, {}},
+      {definesBlock, {entryBlock}},
+      {skipsBlock, {entryBlock}},
+      {exitBlock, {definesBlock, skipsBlock}}};
+  OwnershipFlowAnalysis::BlockEdges successors{
+      {entryBlock, {definesBlock, skipsBlock}},
+      {definesBlock, {exitBlock}},
+      {skipsBlock, {exitBlock}},
+      {exitBlock, {}}};
+  OwnershipFlowAnalysis analysis(
+      module, *function, predecessors, successors,
+      {entryBlock, definesBlock, skipsBlock, exitBlock});
+  const auto obligations = analysis.analyzeExitObligations();
+  const auto expectedState = static_cast<OwnershipFlowState>(
+      static_cast<unsigned char>(OwnershipFlowState::Unavailable) |
+      static_cast<unsigned char>(OwnershipFlowState::Live));
+  return expect(obligations.size() == 1 &&
+                    obligations.front().value == value.get() &&
+                    obligations.front().state == expectedState,
+                "partial definition did not preserve its live exit "
+                "obligation");
+}
+
+bool testOwnershipExitObligationsAllowPhiTransfer() {
+  Module module("ownership-exit-phi-transfer");
+  auto classType = std::make_shared<ClassType>("Node");
+  auto boolean = primitive(TypeKind::Bool);
+  auto function = std::make_unique<Function>("valid", classType);
+  auto value = std::make_shared<zir::Argument>("value", classType);
+  value->setOwnership(ValueOwnership::Owned);
+  function->arguments.push_back(value);
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CondBranchInst>(
+      std::make_shared<Constant>("true", boolean), "left", "right"));
+  auto left = std::make_unique<BasicBlock>("left");
+  left->addInstruction(std::make_unique<BranchInst>("merge"));
+  auto right = std::make_unique<BasicBlock>("right");
+  right->addInstruction(std::make_unique<BranchInst>("merge"));
+  auto merge = std::make_unique<BasicBlock>("merge");
+  auto result = reg("result", classType);
+  result->setOwnership(ValueOwnership::Owned);
+  merge->addInstruction(std::make_unique<PhiInst>(
+      result, std::vector<std::pair<std::string, std::shared_ptr<zir::Value>>>{
+                  {"left", value}, {"right", value}}));
+  merge->addInstruction(std::make_unique<ReturnInst>(result));
+  auto *entryBlock = entry.get();
+  auto *leftBlock = left.get();
+  auto *rightBlock = right.get();
+  auto *mergeBlock = merge.get();
+  function->addBlock(std::move(entry));
+  function->addBlock(std::move(left));
+  function->addBlock(std::move(right));
+  function->addBlock(std::move(merge));
+
+  OwnershipFlowAnalysis::BlockEdges predecessors{
+      {entryBlock, {}},
+      {leftBlock, {entryBlock}},
+      {rightBlock, {entryBlock}},
+      {mergeBlock, {leftBlock, rightBlock}}};
+  OwnershipFlowAnalysis::BlockEdges successors{
+      {entryBlock, {leftBlock, rightBlock}},
+      {leftBlock, {mergeBlock}},
+      {rightBlock, {mergeBlock}},
+      {mergeBlock, {}}};
+  OwnershipFlowAnalysis analysis(
+      module, *function, predecessors, successors,
+      {entryBlock, leftBlock, rightBlock, mergeBlock});
+  return expect(analysis.analyzeExitObligations().empty(),
+                "phi transfer produced an unclosed ownership obligation");
+}
+
+bool testOwnershipExitObligationsTrackLoops() {
+  Module module("ownership-exit-loop");
+  auto classType = std::make_shared<ClassType>("Node");
+  auto boolean = primitive(TypeKind::Bool);
+  auto function =
+      std::make_unique<Function>("valid", primitive(TypeKind::Void));
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto value = reg("value", classType);
+  value->setOwnership(ValueOwnership::Owned);
+  entry->addInstruction(std::make_unique<zir::AllocInst>(value, classType));
+  entry->addInstruction(std::make_unique<BranchInst>("loop"));
+  auto loop = std::make_unique<BasicBlock>("loop");
+  loop->addInstruction(std::make_unique<CondBranchInst>(
+      std::make_shared<Constant>("true", boolean), "loop", "exit"));
+  auto exit = std::make_unique<BasicBlock>("exit");
+  exit->addInstruction(std::make_unique<ReturnInst>());
+  auto *entryBlock = entry.get();
+  auto *loopBlock = loop.get();
+  auto *exitBlock = exit.get();
+  function->addBlock(std::move(entry));
+  function->addBlock(std::move(loop));
+  function->addBlock(std::move(exit));
+
+  OwnershipFlowAnalysis::BlockEdges predecessors{
+      {entryBlock, {}},
+      {loopBlock, {entryBlock, loopBlock}},
+      {exitBlock, {loopBlock}}};
+  OwnershipFlowAnalysis::BlockEdges successors{
+      {entryBlock, {loopBlock}},
+      {loopBlock, {loopBlock, exitBlock}},
+      {exitBlock, {}}};
+  OwnershipFlowAnalysis analysis(module, *function, predecessors, successors,
+                                 {entryBlock, loopBlock, exitBlock});
+  const auto obligations = analysis.analyzeExitObligations();
+  return expect(obligations.size() == 1 &&
+                    obligations.front().value == value.get() &&
+                    obligations.front().state == OwnershipFlowState::Live,
+                "loop exit did not preserve its live ownership obligation");
+}
+
 bool testBorrowPreservesOwnedString() {
   Module module("borrow-ownership");
   auto stringType = zir::makeStringType();
@@ -1506,6 +1645,9 @@ int main() {
   ok = testUseAfterReleaseIsRejected() && ok;
   ok = testOwnershipExitObligationsReportLiveValues() && ok;
   ok = testOwnershipExitObligationsAllowMovedReturn() && ok;
+  ok = testOwnershipExitObligationsTrackPartialDefinitions() && ok;
+  ok = testOwnershipExitObligationsAllowPhiTransfer() && ok;
+  ok = testOwnershipExitObligationsTrackLoops() && ok;
   ok = testBorrowPreservesOwnedString() && ok;
   ok = testBorrowRequiresStringOwnerAndBorrowedStringView() && ok;
   ok = testReleaseRejectsLiveBorrowedStringView() && ok;
