@@ -802,6 +802,30 @@ bool testReleaseConsumesOwnedValue() {
       "double release of an owned value was not diagnosed");
 }
 
+bool testUseAfterReleaseIsRejected() {
+  Module module("use-after-release");
+  auto classType = std::make_shared<ClassType>("Node");
+  auto boolean = primitive(TypeKind::Bool);
+  auto function =
+      std::make_unique<Function>("broken", primitive(TypeKind::Void));
+  auto value = std::make_shared<zir::Argument>("value", classType);
+  value->setOwnership(ValueOwnership::Owned);
+  function->arguments.push_back(value);
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto comparison = reg("comparison", boolean);
+  entry->addInstruction(std::make_unique<ReleaseInst>(value));
+  entry->addInstruction(std::make_unique<CmpInst>(
+      "eq", comparison, value, std::make_shared<Constant>("null", classType)));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  return expect(hasError(ZirVerifier().verify(module),
+                         VerificationErrorCode::OwnershipViolation),
+                "use of an owned value after release was not diagnosed");
+}
+
 bool testBorrowPreservesOwnedString() {
   Module module("borrow-ownership");
   auto stringType = zir::makeStringType();
@@ -1433,6 +1457,7 @@ int main() {
   ok = testOwnershipFlowRejectsTransferAfterPartialDefinition() && ok;
   ok = testControlFlowGraphBuildsEdgesAndReachability() && ok;
   ok = testReleaseConsumesOwnedValue() && ok;
+  ok = testUseAfterReleaseIsRejected() && ok;
   ok = testBorrowPreservesOwnedString() && ok;
   ok = testBorrowRequiresStringOwnerAndBorrowedStringView() && ok;
   ok = testReleaseRejectsLiveBorrowedStringView() && ok;

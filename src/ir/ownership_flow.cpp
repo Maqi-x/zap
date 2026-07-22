@@ -189,6 +189,27 @@ std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
     }
     state = nextState;
   };
+  auto requireLive = [&](const OwnershipStates &states,
+                         const std::shared_ptr<Value> &value,
+                         const BasicBlock &block, size_t instructionIndex,
+                         const char *operation) {
+    if (!ownsManagedValue(value)) {
+      return;
+    }
+    const auto state = states.find(value.get());
+    const auto currentState =
+        state == states.end() ? unavailable : state->second;
+    if (currentState == live) {
+      return;
+    }
+    const auto key = block.label + ":" + std::to_string(instructionIndex) +
+                     ":" + value->getName();
+    if (reported.insert(key).second) {
+      violations.push_back({&block, instructionIndex, value,
+                            std::string(operation),
+                            static_cast<OwnershipFlowState>(currentState)});
+    }
+  };
 
   bool changed = true;
   while (changed) {
@@ -229,6 +250,30 @@ std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
           continue;
         }
         switch (instruction->getOpCode()) {
+        case OpCode::Add:
+        case OpCode::Sub:
+        case OpCode::Mul:
+        case OpCode::SDiv:
+        case OpCode::UDiv:
+        case OpCode::SRem:
+        case OpCode::URem:
+        case OpCode::Shl:
+        case OpCode::LShr:
+        case OpCode::AShr:
+        case OpCode::BitAnd:
+        case OpCode::BitOr:
+        case OpCode::BitXor: {
+          const auto &binary = static_cast<const BinaryInst &>(*instruction);
+          requireLive(states, binary.getLhs(), block, i, "binary operation");
+          requireLive(states, binary.getRhs(), block, i, "binary operation");
+          break;
+        }
+        case OpCode::Cmp: {
+          const auto &comparison = static_cast<const CmpInst &>(*instruction);
+          requireLive(states, comparison.getLhs(), block, i, "comparison");
+          requireLive(states, comparison.getRhs(), block, i, "comparison");
+          break;
+        }
         case OpCode::Store: {
           const auto &store = static_cast<const StoreInst &>(*instruction);
           if (store.getSourceOwnership() == ValueOwnership::Owned) {
@@ -247,6 +292,8 @@ std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
           const auto &cast = static_cast<const CastInst &>(*instruction);
           if (transfersThroughCast(cast)) {
             transition(states, cast.getSource(), block, i, "cast", moved);
+          } else {
+            requireLive(states, cast.getSource(), block, i, "cast");
           }
           break;
         }
@@ -257,10 +304,23 @@ std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
             if (transfersThroughCallArgument(module_, call, argumentIndex)) {
               transition(states, call.getArguments()[argumentIndex], block, i,
                          "call", moved);
+            } else {
+              requireLive(states, call.getArguments()[argumentIndex], block, i,
+                          "call");
             }
           }
           break;
         }
+        case OpCode::Retain:
+          requireLive(states,
+                      static_cast<const RetainInst &>(*instruction).getValue(),
+                      block, i, "retain");
+          break;
+        case OpCode::Borrow:
+          requireLive(states,
+                      static_cast<const BorrowInst &>(*instruction).getOwner(),
+                      block, i, "borrow");
+          break;
         case OpCode::Release:
           transition(states,
                      static_cast<const ReleaseInst &>(*instruction).getValue(),
