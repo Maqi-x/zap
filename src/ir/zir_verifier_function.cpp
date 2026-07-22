@@ -2,6 +2,7 @@
 
 #include "control_flow_graph.hpp"
 #include "ownership_flow.hpp"
+#include "ownership_liveness.hpp"
 #include "string_type.hpp"
 #include "string_view_escape.hpp"
 
@@ -289,6 +290,26 @@ private:
             violation.instructionIndex,
             "owned value is transferred more than once by " +
                 violation.operation + ": " + violation.value->getName());
+    }
+
+    const auto liveness = analyzeOwnershipLiveness(function_);
+    for (const auto &blockOwner : function_.getBlocks()) {
+      if (!blockOwner) {
+        continue;
+      }
+      const auto &block = *blockOwner;
+      for (size_t i = 0; i < block.getInstructions().size(); ++i) {
+        const auto &instruction = block.getInstructions()[i];
+        if (!instruction || instruction->getOpCode() != OpCode::Release) {
+          continue;
+        }
+        const auto &release = static_cast<const ReleaseInst &>(*instruction);
+        if (liveness.isLiveAfter(block, i, release.getValue())) {
+          error(VerificationErrorCode::OwnershipViolation, &block, i,
+                "cannot release a String owner while one of its borrowed "
+                "StringViews is still live");
+        }
+      }
     }
   }
 

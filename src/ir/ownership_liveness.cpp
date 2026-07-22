@@ -330,6 +330,26 @@ void unionInto(ValueSet &destination, const ValueSet &source) {
   destination.insert(source.begin(), source.end());
 }
 
+void replacePhiResultWithIncoming(ValueSet &live,
+                                  const std::shared_ptr<Value> &result,
+                                  const std::shared_ptr<Value> &incoming,
+                                  const BorrowOwners &borrowOwners) {
+  if (!result) {
+    return;
+  }
+
+  if (tracksOwnership(result)) {
+    live.erase(result.get());
+  }
+  const auto owners = borrowOwners.find(result.get());
+  if (owners != borrowOwners.end()) {
+    for (const auto *owner : owners->second) {
+      live.erase(owner);
+    }
+  }
+  addUse(live, incoming, borrowOwners);
+}
+
 } // namespace
 
 bool OwnershipLiveness::isLiveAtBlockEntry(
@@ -431,12 +451,10 @@ OwnershipLiveness analyzeOwnershipLiveness(const Function &function) {
             continue;
           }
           const auto &phi = static_cast<const PhiInst &>(*instruction);
-          if (tracksOwnership(phi.getResult())) {
-            edgeState.erase(phi.getResult().get());
-          }
           for (const auto &[label, value] : phi.getIncoming()) {
             if (label == block.label) {
-              addUse(edgeState, value, result.borrowOwners_);
+              replacePhiResultWithIncoming(edgeState, phi.getResult(), value,
+                                           result.borrowOwners_);
               break;
             }
           }

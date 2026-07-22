@@ -847,6 +847,114 @@ bool testBorrowRequiresStringOwnerAndBorrowedStringView() {
       "borrow accepted a non-String owner or an owned StringView result");
 }
 
+bool testReleaseRejectsLiveBorrowedStringView() {
+  Module module("borrow-release-lifetime");
+  auto stringType = zir::makeStringType();
+  auto stringViewType = zir::makeStringViewType();
+  auto consume =
+      std::make_unique<Function>("consume", primitive(TypeKind::Void));
+  consume->arguments.push_back(
+      std::make_shared<zir::Argument>("view", stringViewType));
+  module.addExternalFunction(std::move(consume));
+
+  auto function =
+      std::make_unique<Function>("broken", primitive(TypeKind::Void));
+  auto text = std::make_shared<zir::Argument>("text", stringType);
+  text->setOwnership(ValueOwnership::Owned);
+  function->arguments.push_back(text);
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto view = reg("view", stringViewType);
+  entry->addInstruction(std::make_unique<BorrowInst>(view, text));
+  entry->addInstruction(std::make_unique<ReleaseInst>(text));
+  entry->addInstruction(std::make_unique<zir::CallInst>(
+      nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{view}));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  return expect(hasError(ZirVerifier().verify(module),
+                         VerificationErrorCode::OwnershipViolation),
+                "release before a borrowed StringView use was not diagnosed");
+}
+
+bool testOwnershipLivenessTracksBorrowPhiEdges() {
+  Module module("borrow-phi-liveness");
+  auto stringType = zir::makeStringType();
+  auto stringViewType = zir::makeStringViewType();
+  auto boolean = primitive(TypeKind::Bool);
+  auto make = std::make_unique<Function>("make", stringType);
+  module.addExternalFunction(std::move(make));
+  auto consume =
+      std::make_unique<Function>("consume", primitive(TypeKind::Void));
+  consume->arguments.push_back(
+      std::make_shared<zir::Argument>("view", stringViewType));
+  module.addExternalFunction(std::move(consume));
+
+  auto function =
+      std::make_unique<Function>("valid", primitive(TypeKind::Void));
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CondBranchInst>(
+      std::make_shared<Constant>("true", boolean), "left", "right"));
+
+  auto left = std::make_unique<BasicBlock>("left");
+  auto leftText = reg("left.text", stringType);
+  leftText->setOwnership(ValueOwnership::Owned);
+  auto leftView = reg("left.view", stringViewType);
+  left->addInstruction(std::make_unique<zir::CallInst>(
+      leftText, "make", std::vector<std::shared_ptr<zir::Value>>{},
+      std::vector<bool>{}, nullptr, false,
+      zir::CallInst::ResultOwnership::Owned));
+  left->addInstruction(std::make_unique<BorrowInst>(leftView, leftText));
+  left->addInstruction(std::make_unique<BranchInst>("merge"));
+
+  auto right = std::make_unique<BasicBlock>("right");
+  auto rightText = reg("right.text", stringType);
+  rightText->setOwnership(ValueOwnership::Owned);
+  auto rightView = reg("right.view", stringViewType);
+  right->addInstruction(std::make_unique<zir::CallInst>(
+      rightText, "make", std::vector<std::shared_ptr<zir::Value>>{},
+      std::vector<bool>{}, nullptr, false,
+      zir::CallInst::ResultOwnership::Owned));
+  right->addInstruction(std::make_unique<BorrowInst>(rightView, rightText));
+  right->addInstruction(std::make_unique<BranchInst>("merge"));
+
+  auto merge = std::make_unique<BasicBlock>("merge");
+  auto mergedView = reg("merged.view", stringViewType);
+  merge->addInstruction(std::make_unique<PhiInst>(
+      mergedView,
+      std::vector<std::pair<std::string, std::shared_ptr<zir::Value>>>{
+          {"left", leftView}, {"right", rightView}}));
+  merge->addInstruction(std::make_unique<zir::CallInst>(
+      nullptr, "consume",
+      std::vector<std::shared_ptr<zir::Value>>{mergedView}));
+  merge->addInstruction(std::make_unique<ReturnInst>());
+
+  auto *leftBlock = left.get();
+  auto *rightBlock = right.get();
+  function->addBlock(std::move(entry));
+  function->addBlock(std::move(left));
+  function->addBlock(std::move(right));
+  function->addBlock(std::move(merge));
+  module.addFunction(std::move(function));
+
+  const auto liveness =
+      zir::analyzeOwnershipLiveness(*module.getFunctions().front());
+  return expect(
+      liveness.isLiveOnEdge(*leftBlock,
+                            *module.getFunctions().front()->findBlock("merge"),
+                            leftText) &&
+          !liveness.isLiveOnEdge(
+              *leftBlock, *module.getFunctions().front()->findBlock("merge"),
+              rightText) &&
+          liveness.isLiveOnEdge(
+              *rightBlock, *module.getFunctions().front()->findBlock("merge"),
+              rightText) &&
+          !liveness.isLiveOnEdge(
+              *rightBlock, *module.getFunctions().front()->findBlock("merge"),
+              leftText),
+      "borrow provenance did not stay on its incoming phi edge");
+}
+
 bool testReturnRejectsFunctionLocalStringView() {
   Module module("local-string-view-return");
   auto stringType = zir::makeStringType();
@@ -1222,6 +1330,8 @@ int main() {
   ok = testReleaseConsumesOwnedValue() && ok;
   ok = testBorrowPreservesOwnedString() && ok;
   ok = testBorrowRequiresStringOwnerAndBorrowedStringView() && ok;
+  ok = testReleaseRejectsLiveBorrowedStringView() && ok;
+  ok = testOwnershipLivenessTracksBorrowPhiEdges() && ok;
   ok = testReturnRejectsFunctionLocalStringView() && ok;
   ok = testReturnAllowsBorrowedStringView() && ok;
   ok = testReturnRejectsStringViewLoadedFromLocalStorage() && ok;
