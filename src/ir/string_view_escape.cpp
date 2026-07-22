@@ -135,6 +135,18 @@ StringViewEscapeAnalysis analyzeStringViewEscapes(const Function &function) {
           }
           break;
         }
+        case OpCode::Cast: {
+          const auto &cast = static_cast<const CastInst &>(*instruction);
+          if (cast.getResult() && cast.getSource() &&
+              isIntrinsicStringViewType(cast.getResult()->getType()) &&
+              isIntrinsicStringViewType(cast.getSource()->getType()) &&
+              isLocalView(result, cast.getSource())) {
+            changed =
+                result.localViews_.insert(cast.getResult().get()).second ||
+                changed;
+          }
+          break;
+        }
         default:
           break;
         }

@@ -1111,6 +1111,36 @@ bool testReturnRejectsStringViewLoadedFromLocalStorage() {
                 "diagnosed");
 }
 
+bool testReturnRejectsCastFunctionLocalStringView() {
+  Module module("local-string-view-cast-return");
+  auto stringType = zir::makeStringType();
+  auto stringViewType = zir::makeStringViewType();
+  auto make = std::make_unique<Function>("make", stringType);
+  module.addExternalFunction(std::move(make));
+
+  auto function = std::make_unique<Function>("broken", stringViewType);
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto text = reg("text", stringType);
+  text->setOwnership(ValueOwnership::Owned);
+  auto view = reg("view", stringViewType);
+  auto castView = reg("cast.view", stringViewType);
+  entry->addInstruction(std::make_unique<zir::CallInst>(
+      text, "make", std::vector<std::shared_ptr<zir::Value>>{},
+      std::vector<bool>{}, nullptr, false,
+      zir::CallInst::ResultOwnership::Owned));
+  entry->addInstruction(std::make_unique<BorrowInst>(view, text));
+  entry->addInstruction(
+      std::make_unique<CastInst>(castView, view, stringViewType));
+  entry->addInstruction(std::make_unique<ReturnInst>(castView));
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  return expect(hasError(ZirVerifier().verify(module),
+                         VerificationErrorCode::InvalidReturn),
+                "returning a cast function-local StringView was not "
+                "diagnosed");
+}
+
 bool testStoreRejectsEscapingFunctionLocalStringView() {
   Module module("local-string-view-store");
   auto stringType = zir::makeStringType();
@@ -1412,6 +1442,7 @@ int main() {
   ok = testReturnRejectsFunctionLocalStringView() && ok;
   ok = testReturnAllowsBorrowedStringView() && ok;
   ok = testReturnRejectsStringViewLoadedFromLocalStorage() && ok;
+  ok = testReturnRejectsCastFunctionLocalStringView() && ok;
   ok = testStoreRejectsEscapingFunctionLocalStringView() && ok;
   ok = testOwnershipLoweringReleasesDeadOwnedResults() && ok;
   ok = testOwnershipLoweringReleasesAtLastLocalUse() && ok;
