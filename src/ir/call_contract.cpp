@@ -59,6 +59,20 @@ resolveCallParameterContract(const Module &module, const CallInst &call,
   return std::nullopt;
 }
 
+ResultBorrowContract resolveCallResultBorrowContract(const Module &module,
+                                                     const CallInst &call) {
+  if (call.isIndirect()) {
+    const auto functionType = call.getCalleeValue()
+                                  ? std::dynamic_pointer_cast<FunctionPointerType>(
+                                        call.getCalleeValue()->getType())
+                                  : nullptr;
+    return functionType ? functionType->getResultBorrow()
+                        : ResultBorrowContract{};
+  }
+  const auto *callee = module.findFunction(call.getFunctionName());
+  return callee ? callee->resultBorrow : ResultBorrowContract{};
+}
+
 bool callTransfersOwnership(const Module &module, const CallInst &call,
                             size_t argumentIndex) {
   if (argumentIndex >= call.getArguments().size() ||

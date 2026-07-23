@@ -1,5 +1,7 @@
 #include "borrow_provenance.hpp"
 
+#include "call_contract.hpp"
+
 #include <utility>
 
 namespace zir {
@@ -85,7 +87,8 @@ OwnerSet collectLocalStorage(const Function &function) {
 }
 
 OwnerMap collectValueOwners(
-    const Function &function, const OwnerSet &localStorage,
+    const Module &module, const Function &function,
+    const OwnerSet &localStorage,
     std::unordered_map<const Value *, std::shared_ptr<Value>> &derivedFrom,
     OwnerMap owners = {}) {
   const auto resultSource = function.resultBorrow.sourceParameter();
@@ -180,11 +183,12 @@ OwnerMap collectValueOwners(
         }
         case OpCode::Call: {
           const auto &call = static_cast<const CallInst &>(*instruction);
-          if (!call.getResult() || !call.getResultBorrow().hasSource()) {
+          const auto resultBorrow =
+              resolveCallResultBorrowContract(module, call);
+          if (!call.getResult() || !resultBorrow.hasSource()) {
             break;
           }
-          const size_t sourceIndex =
-              *call.getResultBorrow().sourceParameter();
+          const size_t sourceIndex = *resultBorrow.sourceParameter();
           if (sourceIndex < call.getArguments().size()) {
             changed = addBorrowSourcesFromValue(
                           owners, call.getResult().get(),
@@ -413,12 +417,13 @@ bool BorrowProvenance::isEntryLoad(const BasicBlock &block,
          loads->second.count(result.get()) != 0;
 }
 
-BorrowProvenance analyzeBorrowProvenance(const Function &function,
+BorrowProvenance analyzeBorrowProvenance(const Module &module,
+                                         const Function &function,
                                          const ControlFlowGraph &cfg) {
   BorrowProvenance result;
   result.localStorage_ = collectLocalStorage(function);
-  result.owners_ =
-      collectValueOwners(function, result.localStorage_, result.derivedFrom_);
+  result.owners_ = collectValueOwners(module, function, result.localStorage_,
+                                     result.derivedFrom_);
   for (const auto &blockOwner : function.getBlocks()) {
     if (!blockOwner) {
       continue;
@@ -456,9 +461,9 @@ BorrowProvenance analyzeBorrowProvenance(const Function &function,
       }
     }
   }
-  result.owners_ =
-      collectValueOwners(function, result.localStorage_, result.derivedFrom_,
-                         std::move(result.owners_));
+  result.owners_ = collectValueOwners(
+      module, function, result.localStorage_, result.derivedFrom_,
+      std::move(result.owners_));
   result.loadOwners_.clear();
   result.exitStorage_ = analyzeStorageOwners(
       function, cfg, result.localStorage_, result.owners_, result.loadOwners_);

@@ -280,7 +280,7 @@ private:
                 formatOwnershipFlowState(violation.priorState) + ")");
     }
 
-    const auto liveness = analyzeOwnershipLiveness(function_);
+    const auto liveness = analyzeOwnershipLiveness(module_, function_);
     for (const auto &blockOwner : function_.getBlocks()) {
       if (!blockOwner) {
         continue;
@@ -729,13 +729,8 @@ private:
       error(VerificationErrorCode::InvalidCall, &block, index,
             "call ref-argument metadata has the wrong size");
     }
-    if (call.getResultBorrow() != resultBorrow) {
-      error(VerificationErrorCode::InvalidCall, &block, index,
-            "call result borrow metadata does not match the callee contract");
-    }
-    if (call.getResultBorrow().hasSource() &&
-        *call.getResultBorrow().sourceParameter() >=
-            call.getArguments().size()) {
+    if (resultBorrow.hasSource() &&
+        *resultBorrow.sourceParameter() >= call.getArguments().size()) {
       error(VerificationErrorCode::InvalidCall, &block, index,
             "call result borrow source argument is out of range");
     }

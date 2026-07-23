@@ -67,7 +67,7 @@ void addError(std::vector<VerificationError> &errors,
 void verifyEscapes(const Module &module, const Function &function,
                    const ControlFlowGraph &cfg,
                    std::vector<VerificationError> &errors) {
-  const auto provenance = analyzeBorrowProvenance(function, cfg);
+  const auto provenance = analyzeBorrowProvenance(module, function, cfg);
   for (const auto &blockOwner : function.getBlocks()) {
     if (!blockOwner) {
       continue;
@@ -115,9 +115,11 @@ void verifyEscapes(const Module &module, const Function &function,
           }
           const auto sources = provenance.ownersAtDefinition(
               call.getArguments()[argumentIndex]);
+          const auto resultBorrow =
+              resolveCallResultBorrowContract(module, call);
           const bool mayBackResult =
-              call.getResultBorrow().hasSource() &&
-              *call.getResultBorrow().sourceParameter() == argumentIndex;
+              resultBorrow.hasSource() &&
+              *resultBorrow.sourceParameter() == argumentIndex;
           const auto contract =
               resolveCallParameterContract(module, call, argumentIndex);
           if (!sources.empty() &&

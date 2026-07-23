@@ -9,6 +9,8 @@
 
 namespace zir {
 
+class Module;
+
 class BorrowProvenance {
 public:
   using OwnerSet = std::unordered_set<const Value *>;
@@ -39,11 +41,13 @@ private:
   StorageStates exitStorage_;
   std::unordered_map<const BasicBlock *, OwnerSet> entryLoads_;
 
-  friend BorrowProvenance analyzeBorrowProvenance(const Function &function,
+  friend BorrowProvenance analyzeBorrowProvenance(const Module &module,
+                                                  const Function &function,
                                                   const ControlFlowGraph &cfg);
 };
 
-BorrowProvenance analyzeBorrowProvenance(const Function &function,
+BorrowProvenance analyzeBorrowProvenance(const Module &module,
+                                         const Function &function,
                                          const ControlFlowGraph &cfg);
 
 } // namespace zir

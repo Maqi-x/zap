@@ -10,6 +10,8 @@
 
 namespace zir {
 
+class Module;
+
 class OwnershipLiveness {
 public:
   bool isLiveAtBlockEntry(const BasicBlock &block,
@@ -33,9 +35,11 @@ private:
   EdgeStates edgeStates_;
   BorrowProvenance borrowProvenance_;
 
-  friend OwnershipLiveness analyzeOwnershipLiveness(const Function &function);
+  friend OwnershipLiveness analyzeOwnershipLiveness(const Module &module,
+                                                     const Function &function);
 };
 
-OwnershipLiveness analyzeOwnershipLiveness(const Function &function);
+OwnershipLiveness analyzeOwnershipLiveness(const Module &module,
+                                           const Function &function);
 
 } // namespace zir

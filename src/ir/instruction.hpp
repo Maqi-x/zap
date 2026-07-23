@@ -223,7 +223,6 @@ private:
   std::shared_ptr<Value> calleeValue; // non-null for indirect calls
   std::vector<std::shared_ptr<Value>> args;
   std::vector<bool> argIsRef;
-  ResultBorrowContract resultBorrow_;
   std::shared_ptr<Value> variadicPack;
   bool returnsRef_ = false;
 
@@ -231,21 +230,16 @@ public:
   CallInst(std::shared_ptr<Value> res, std::string name,
            std::vector<std::shared_ptr<Value>> arguments,
            std::vector<bool> argumentIsRef = {},
-           std::shared_ptr<Value> pack = nullptr, bool returnsRef = false,
-           ResultBorrowContract resultBorrow = {})
+           std::shared_ptr<Value> pack = nullptr, bool returnsRef = false)
       : result(std::move(res)), funcName(std::move(name)),
         args(std::move(arguments)), argIsRef(std::move(argumentIsRef)),
-        resultBorrow_(resultBorrow),
         variadicPack(std::move(pack)), returnsRef_(returnsRef) {}
   // Indirect call constructor
   CallInst(std::shared_ptr<Value> res, std::shared_ptr<Value> callee,
            std::vector<std::shared_ptr<Value>> arguments,
-           bool returnsRef = false,
-           ResultBorrowContract resultBorrow = {})
+           bool returnsRef = false)
       : result(std::move(res)), calleeValue(std::move(callee)),
-        args(std::move(arguments)),
-        resultBorrow_(resultBorrow), returnsRef_(returnsRef) {
-  }
+        args(std::move(arguments)), returnsRef_(returnsRef) {}
   OpCode getOpCode() const override { return OpCode::Call; }
   const std::shared_ptr<Value> &getResult() const { return result; }
   const std::string &getFunctionName() const { return funcName; }
@@ -256,7 +250,6 @@ public:
     return args;
   }
   const std::vector<bool> &getArgumentIsRef() const { return argIsRef; }
-  const ResultBorrowContract &getResultBorrow() const { return resultBorrow_; }
   const std::shared_ptr<Value> &getVariadicPack() const { return variadicPack; }
   std::string toString() const override {
     std::string s = result ? result->getName() + " = call " : "call ";
@@ -267,10 +260,6 @@ public:
            (i < args.size() - 1 ? ", " : "");
     }
     s += ")";
-    if (resultBorrow_.hasSource()) {
-      s += " borrows(" +
-           std::to_string(*resultBorrow_.sourceParameter()) + ")";
-    }
     if (variadicPack) {
       s += " spread " + variadicPack->getTypeName() + " " +
            variadicPack->getName();

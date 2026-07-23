@@ -326,7 +326,7 @@ void lowerDeadOwnedResults(Module &module) {
       continue;
     }
     removeDeadPhiInstructions(*function);
-    const auto liveness = analyzeOwnershipLiveness(*function);
+    const auto liveness = analyzeOwnershipLiveness(module, *function);
     for (const auto &blockOwner : function->getBlocks()) {
       if (!blockOwner) {
         continue;

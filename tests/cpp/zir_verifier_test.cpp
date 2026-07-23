@@ -615,6 +615,7 @@ bool testPhiAllowsSeparateAlternativeOwnershipTransfers() {
 }
 
 bool testOwnershipLivenessTracksPhiEdges() {
+  Module module("ownership-liveness-phi");
   auto classType = std::make_shared<ClassType>("Node");
   auto boolean = primitive(TypeKind::Bool);
   auto function = std::make_unique<Function>("liveness", classType);
@@ -645,7 +646,7 @@ bool testOwnershipLivenessTracksPhiEdges() {
   function->addBlock(std::move(right));
   function->addBlock(std::move(merge));
 
-  const auto liveness = zir::analyzeOwnershipLiveness(*function);
+  const auto liveness = zir::analyzeOwnershipLiveness(module, *function);
   return expect(liveness.isLiveOnEdge(*leftBlock, *mergeBlock, value) &&
                     liveness.isLiveOnEdge(*rightBlock, *mergeBlock, value),
                 "owned phi inputs were not live on their incoming edges") &&
@@ -1465,7 +1466,7 @@ bool testOwnershipLivenessTracksBorrowPhiEdges() {
   module.addFunction(std::move(function));
 
   const auto liveness =
-      zir::analyzeOwnershipLiveness(*module.getFunctions().front());
+      zir::analyzeOwnershipLiveness(module, *module.getFunctions().front());
   return expect(
       liveness.isLiveOnEdge(*leftBlock,
                             *module.getFunctions().front()->findBlock("merge"),
@@ -1546,7 +1547,7 @@ bool testOwnershipLivenessTracksBorrowedViewsThroughLocalStorage() {
 
   const auto *mergeBlock = module.getFunctions().front()->findBlock("merge");
   const auto liveness =
-      zir::analyzeOwnershipLiveness(*module.getFunctions().front());
+      zir::analyzeOwnershipLiveness(module, *module.getFunctions().front());
   return expect(
       liveness.isLiveOnEdge(*leftBlock, *mergeBlock, leftText) &&
           !liveness.isLiveOnEdge(*leftBlock, *mergeBlock, rightText) &&

@@ -821,7 +821,7 @@ void BoundIRGenerator::visit(sema::BoundFunctionCall &node) {
                                                    : ValueOwnership::Borrowed);
   currentBlock_->addInstruction(std::make_unique<CallInst>(
       reg, node.symbol->linkName, args, node.argumentIsRef, variadicPack,
-      node.symbol->returnsRef, node.symbol->resultBorrow));
+      node.symbol->returnsRef));
 
   // If ref-returning function is used as value (not address), load it
   if (node.symbol->returnsRef && !evaluateAsAddress_) {
@@ -864,7 +864,7 @@ void BoundIRGenerator::visit(sema::BoundIndirectCall &node) {
   auto reg = createRegister(node.type, ownsResult ? ownedForType(node.type)
                                                   : ValueOwnership::Borrowed);
   currentBlock_->addInstruction(std::make_unique<CallInst>(
-      reg, calleeVal, std::move(args), false, functionType->getResultBorrow()));
+      reg, calleeVal, std::move(args), false));
   valueStack_.push(reg);
 }
 

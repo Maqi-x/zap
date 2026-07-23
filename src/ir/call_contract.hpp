@@ -20,6 +20,9 @@ std::optional<CallParameterContract>
 resolveCallParameterContract(const Module &module, const CallInst &call,
                              size_t argumentIndex);
 
+ResultBorrowContract resolveCallResultBorrowContract(const Module &module,
+                                                     const CallInst &call);
+
 bool callTransfersOwnership(const Module &module, const CallInst &call,
                             size_t argumentIndex);
 

@@ -82,6 +82,7 @@ void addOwnedStringAndView(BasicBlock &block, const std::string &name,
 
 bool testStorageProvenanceCrossesPassThroughBlocks() {
   const auto stringViewType = zir::makeStringViewType();
+  Module module("storage-provenance");
   auto function =
       std::make_unique<Function>("diamond", primitive(TypeKind::Void));
 
@@ -127,12 +128,13 @@ bool testStorageProvenanceCrossesPassThroughBlocks() {
   function->addBlock(std::move(merge));
 
   const ControlFlowGraph cfg(*function);
-  const auto provenance = zir::analyzeBorrowProvenance(*function, cfg);
+  const auto provenance =
+      zir::analyzeBorrowProvenance(module, *function, cfg);
   const auto leftOwners =
       provenance.ownersOnEdge(loaded, *leftForwardBlock, *mergeBlock);
   const auto rightOwners =
       provenance.ownersOnEdge(loaded, *rightForwardBlock, *mergeBlock);
-  const auto liveness = zir::analyzeOwnershipLiveness(*function);
+  const auto liveness = zir::analyzeOwnershipLiveness(module, *function);
   return expect(
       leftOwners.count(leftOwner.get()) == 1 &&
           leftOwners.count(rightOwner.get()) == 0 &&
@@ -148,6 +150,7 @@ bool testStorageProvenanceCrossesPassThroughBlocks() {
 bool testPhiProvenanceSelectsIncomingOwner() {
   const auto stringType = zir::makeStringType();
   const auto stringViewType = zir::makeStringViewType();
+  Module module("phi-provenance");
   auto function = std::make_unique<Function>("phi", primitive(TypeKind::Void));
 
   auto entry = std::make_unique<BasicBlock>("entry");
@@ -195,7 +198,8 @@ bool testPhiProvenanceSelectsIncomingOwner() {
   function->addBlock(std::move(merge));
 
   const ControlFlowGraph cfg(*function);
-  const auto provenance = zir::analyzeBorrowProvenance(*function, cfg);
+  const auto provenance =
+      zir::analyzeBorrowProvenance(module, *function, cfg);
   const auto &allOwners = provenance.ownersOf(mergedView);
   const auto leftOwners =
       provenance.ownersOnEdge(mergedView, *leftBlock, *mergeBlock);
@@ -218,6 +222,7 @@ bool testPhiProvenanceSelectsIncomingOwner() {
 
 bool testStorageProvenanceReachesLoopBackEdge() {
   const auto stringViewType = zir::makeStringViewType();
+  Module module("loop-storage-provenance");
   auto function = std::make_unique<Function>("loop", primitive(TypeKind::Void));
 
   auto entry = std::make_unique<BasicBlock>("entry");
@@ -247,10 +252,11 @@ bool testStorageProvenanceReachesLoopBackEdge() {
   function->addBlock(std::move(exit));
 
   const ControlFlowGraph cfg(*function);
-  const auto provenance = zir::analyzeBorrowProvenance(*function, cfg);
+  const auto provenance =
+      zir::analyzeBorrowProvenance(module, *function, cfg);
   const auto backEdgeOwners =
       provenance.ownersOnEdge(loaded, *loopBlock, *loopBlock);
-  const auto liveness = zir::analyzeOwnershipLiveness(*function);
+  const auto liveness = zir::analyzeOwnershipLiveness(module, *function);
   return expect(backEdgeOwners.count(owner.get()) == 1 &&
                     liveness.isLiveOnEdge(*entryBlock, *loopBlock, owner) &&
                     liveness.isLiveOnEdge(*loopBlock, *loopBlock, owner),
@@ -642,8 +648,7 @@ bool testVerifierTracksBorrowedCallResultToLocalOwner() {
   entry->addInstruction(std::make_unique<BorrowInst>(source, owner));
   entry->addInstruction(std::make_unique<CallInst>(
       result, "tail", std::vector<std::shared_ptr<zir::Value>>{source},
-      std::vector<bool>{false}, nullptr, false,
-      ResultBorrowContract::fromParameter(0)));
+      std::vector<bool>{false}, nullptr, false));
   entry->addInstruction(std::make_unique<ReturnInst>(result));
   function->addBlock(std::move(entry));
   module.addFunction(std::move(function));
@@ -654,8 +659,16 @@ bool testVerifierTracksBorrowedCallResultToLocalOwner() {
       "verifier lost the local owner behind a borrowed call result");
 }
 
-bool testBorrowedCallResultExtendsTemporaryOwnerLiveness() {
+bool testIndirectBorrowedCallResultExtendsTemporaryOwnerLiveness() {
   const auto stringViewType = zir::makeStringViewType();
+  Module module("borrowed-call-liveness");
+  auto tailType = std::make_shared<zir::FunctionPointerType>(
+      std::vector<std::shared_ptr<Type>>{stringViewType}, stringViewType,
+      std::vector<zir::ParameterOwnership>{
+          zir::ParameterOwnership::Borrow},
+      std::vector<ParameterEscape>{ParameterEscape::Unspecified},
+      ResultBorrowContract::fromParameter(0));
+  auto tail = std::make_shared<zir::FunctionReference>("tail", tailType);
   auto function =
       std::make_unique<Function>("temporary", primitive(TypeKind::Void));
   auto entry = std::make_unique<BasicBlock>("entry");
@@ -668,9 +681,7 @@ bool testBorrowedCallResultExtendsTemporaryOwnerLiveness() {
       std::vector<bool>{}, nullptr, false));
   entry->addInstruction(std::make_unique<BorrowInst>(source, owner));
   entry->addInstruction(std::make_unique<CallInst>(
-      result, "tail", std::vector<std::shared_ptr<zir::Value>>{source},
-      std::vector<bool>{false}, nullptr, false,
-      ResultBorrowContract::fromParameter(0)));
+      result, tail, std::vector<std::shared_ptr<zir::Value>>{source}, false));
   entry->addInstruction(std::make_unique<CallInst>(
       nullptr, "consume",
       std::vector<std::shared_ptr<zir::Value>>{result}));
@@ -678,7 +689,7 @@ bool testBorrowedCallResultExtendsTemporaryOwnerLiveness() {
   const auto *entryBlock = entry.get();
   function->addBlock(std::move(entry));
 
-  const auto liveness = zir::analyzeOwnershipLiveness(*function);
+  const auto liveness = zir::analyzeOwnershipLiveness(module, *function);
   return expect(
       liveness.isLiveAfter(*entryBlock, 2, owner) &&
           !liveness.isLiveAfter(*entryBlock, 3, owner) &&
@@ -698,8 +709,7 @@ bool testVerifierAllowsForwardedBorrowedCallResult() {
   auto entry = std::make_unique<BasicBlock>("entry");
   entry->addInstruction(std::make_unique<CallInst>(
       result, "tail", std::vector<std::shared_ptr<zir::Value>>{source},
-      std::vector<bool>{false}, nullptr, false,
-      ResultBorrowContract::fromParameter(0)));
+      std::vector<bool>{false}, nullptr, false));
   entry->addInstruction(std::make_unique<ReturnInst>(result));
   function->addBlock(std::move(entry));
   module.addFunction(std::move(function));
@@ -725,8 +735,7 @@ bool testVerifierRejectsReturnedNoEscapeCallResult() {
   auto entry = std::make_unique<BasicBlock>("entry");
   entry->addInstruction(std::make_unique<CallInst>(
       result, "tail", std::vector<std::shared_ptr<zir::Value>>{source},
-      std::vector<bool>{false}, nullptr, false,
-      ResultBorrowContract::fromParameter(0)));
+      std::vector<bool>{false}, nullptr, false));
   entry->addInstruction(std::make_unique<ReturnInst>(result));
   function->addBlock(std::move(entry));
   module.addFunction(std::move(function));
@@ -737,7 +746,7 @@ bool testVerifierRejectsReturnedNoEscapeCallResult() {
       "verifier allowed a borrowed call result to escape its noescape source");
 }
 
-bool testVerifierRejectsMismatchedResultBorrowMetadata() {
+bool testVerifierDerivesResultBorrowFromCalleeContract() {
   const auto stringViewType = zir::makeStringViewType();
   Module module("borrowed-call-metadata");
   module.addExternalFunction(makeBorrowingViewFunction("tail"));
@@ -755,10 +764,10 @@ bool testVerifierRejectsMismatchedResultBorrowMetadata() {
   module.addFunction(std::move(function));
 
   const auto verification = ZirVerifier().verify(module);
-  return expect(
-      hasError(verification, VerificationErrorCode::InvalidCall,
-               "result borrow metadata"),
-      "verifier accepted a call that omitted its result borrow contract");
+  return expect(verification.ok(),
+                "verifier did not derive result borrow from the callee "
+                "contract:\n" +
+                    verification.format());
 }
 
 } // namespace
@@ -779,9 +788,9 @@ int main() {
   ok = testVerifierAllowsNoEscapeForwarding() && ok;
   ok = testVerifierDerivesNoEscapeFromCalleeContract() && ok;
   ok = testVerifierTracksBorrowedCallResultToLocalOwner() && ok;
-  ok = testBorrowedCallResultExtendsTemporaryOwnerLiveness() && ok;
+  ok = testIndirectBorrowedCallResultExtendsTemporaryOwnerLiveness() && ok;
   ok = testVerifierAllowsForwardedBorrowedCallResult() && ok;
   ok = testVerifierRejectsReturnedNoEscapeCallResult() && ok;
-  ok = testVerifierRejectsMismatchedResultBorrowMetadata() && ok;
+  ok = testVerifierDerivesResultBorrowFromCalleeContract() && ok;
   return ok ? 0 : 1;
 }
