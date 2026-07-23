@@ -1,3 +1,4 @@
+#include "ir/borrow_provenance.hpp"
 #include "ir/ownership_liveness.hpp"
 #include "ir/string_type.hpp"
 
@@ -12,10 +13,13 @@ using zir::BasicBlock;
 using zir::BorrowInst;
 using zir::BranchInst;
 using zir::CallInst;
+using zir::CastInst;
 using zir::CondBranchInst;
 using zir::Constant;
+using zir::ControlFlowGraph;
 using zir::Function;
 using zir::LoadInst;
+using zir::PhiInst;
 using zir::PointerType;
 using zir::PrimitiveType;
 using zir::Register;
@@ -103,13 +107,94 @@ bool testStorageProvenanceCrossesPassThroughBlocks() {
   function->addBlock(std::move(rightForward));
   function->addBlock(std::move(merge));
 
+  const ControlFlowGraph cfg(*function);
+  const auto provenance = zir::analyzeBorrowProvenance(*function, cfg);
+  const auto leftOwners =
+      provenance.ownersOnEdge(loaded, *leftForwardBlock, *mergeBlock);
+  const auto rightOwners =
+      provenance.ownersOnEdge(loaded, *rightForwardBlock, *mergeBlock);
   const auto liveness = zir::analyzeOwnershipLiveness(*function);
   return expect(
-      liveness.isLiveOnEdge(*leftForwardBlock, *mergeBlock, leftOwner) &&
+      leftOwners.count(leftOwner.get()) == 1 &&
+          leftOwners.count(rightOwner.get()) == 0 &&
+          rightOwners.count(rightOwner.get()) == 1 &&
+          rightOwners.count(leftOwner.get()) == 0 &&
+          liveness.isLiveOnEdge(*leftForwardBlock, *mergeBlock, leftOwner) &&
           !liveness.isLiveOnEdge(*leftForwardBlock, *mergeBlock, rightOwner) &&
           liveness.isLiveOnEdge(*rightForwardBlock, *mergeBlock, rightOwner) &&
           !liveness.isLiveOnEdge(*rightForwardBlock, *mergeBlock, leftOwner),
       "storage borrow provenance did not cross pass-through CFG blocks");
+}
+
+bool testPhiProvenanceSelectsIncomingOwner() {
+  const auto stringType = zir::makeStringType();
+  const auto stringViewType = zir::makeStringViewType();
+  auto function = std::make_unique<Function>("phi", primitive(TypeKind::Void));
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CondBranchInst>(
+      std::make_shared<Constant>("true", primitive(TypeKind::Bool)), "left",
+      "right"));
+
+  auto left = std::make_unique<BasicBlock>("left");
+  auto leftOwner = reg("left.owner", stringType);
+  leftOwner->setOwnership(ValueOwnership::OwnedStrong);
+  auto leftView = reg("left.view", stringViewType);
+  left->addInstruction(std::make_unique<CallInst>(
+      leftOwner, "make", std::vector<std::shared_ptr<zir::Value>>{},
+      std::vector<bool>{}, nullptr, false, CallInst::ResultOwnership::Owned));
+  left->addInstruction(std::make_unique<BorrowInst>(leftView, leftOwner));
+  left->addInstruction(std::make_unique<BranchInst>("merge"));
+
+  auto right = std::make_unique<BasicBlock>("right");
+  auto rightOwner = reg("right.owner", stringType);
+  rightOwner->setOwnership(ValueOwnership::OwnedStrong);
+  auto rightView = reg("right.view", stringViewType);
+  right->addInstruction(std::make_unique<CallInst>(
+      rightOwner, "make", std::vector<std::shared_ptr<zir::Value>>{},
+      std::vector<bool>{}, nullptr, false, CallInst::ResultOwnership::Owned));
+  right->addInstruction(std::make_unique<BorrowInst>(rightView, rightOwner));
+  right->addInstruction(std::make_unique<BranchInst>("merge"));
+
+  auto merge = std::make_unique<BasicBlock>("merge");
+  auto mergedView = reg("merged.view", stringViewType);
+  auto derivedView = reg("derived.view", stringViewType);
+  merge->addInstruction(std::make_unique<PhiInst>(
+      mergedView,
+      std::vector<std::pair<std::string, std::shared_ptr<zir::Value>>>{
+          {"left", leftView}, {"right", rightView}}));
+  merge->addInstruction(
+      std::make_unique<CastInst>(derivedView, mergedView, stringViewType));
+  merge->addInstruction(std::make_unique<ReturnInst>());
+
+  const auto *leftBlock = left.get();
+  const auto *rightBlock = right.get();
+  const auto *mergeBlock = merge.get();
+  function->addBlock(std::move(entry));
+  function->addBlock(std::move(left));
+  function->addBlock(std::move(right));
+  function->addBlock(std::move(merge));
+
+  const ControlFlowGraph cfg(*function);
+  const auto provenance = zir::analyzeBorrowProvenance(*function, cfg);
+  const auto &allOwners = provenance.ownersOf(mergedView);
+  const auto leftOwners =
+      provenance.ownersOnEdge(mergedView, *leftBlock, *mergeBlock);
+  const auto rightOwners =
+      provenance.ownersOnEdge(mergedView, *rightBlock, *mergeBlock);
+  const auto derivedLeftOwners =
+      provenance.ownersOnEdge(derivedView, *leftBlock, *mergeBlock);
+  const auto derivedRightOwners =
+      provenance.ownersOnEdge(derivedView, *rightBlock, *mergeBlock);
+  return expect(allOwners.count(leftOwner.get()) == 1 &&
+                    allOwners.count(rightOwner.get()) == 1 &&
+                    leftOwners.count(leftOwner.get()) == 1 &&
+                    leftOwners.count(rightOwner.get()) == 0 &&
+                    rightOwners.count(rightOwner.get()) == 1 &&
+                    rightOwners.count(leftOwner.get()) == 0 &&
+                    derivedLeftOwners == leftOwners &&
+                    derivedRightOwners == rightOwners,
+                "phi borrow provenance did not select its incoming edge owner");
 }
 
 bool testStorageProvenanceReachesLoopBackEdge() {
@@ -142,8 +227,13 @@ bool testStorageProvenanceReachesLoopBackEdge() {
   function->addBlock(std::move(loop));
   function->addBlock(std::move(exit));
 
+  const ControlFlowGraph cfg(*function);
+  const auto provenance = zir::analyzeBorrowProvenance(*function, cfg);
+  const auto backEdgeOwners =
+      provenance.ownersOnEdge(loaded, *loopBlock, *loopBlock);
   const auto liveness = zir::analyzeOwnershipLiveness(*function);
-  return expect(liveness.isLiveOnEdge(*entryBlock, *loopBlock, owner) &&
+  return expect(backEdgeOwners.count(owner.get()) == 1 &&
+                    liveness.isLiveOnEdge(*entryBlock, *loopBlock, owner) &&
                     liveness.isLiveOnEdge(*loopBlock, *loopBlock, owner),
                 "storage borrow provenance did not reach the loop back-edge");
 }
@@ -153,6 +243,7 @@ bool testStorageProvenanceReachesLoopBackEdge() {
 int main() {
   bool ok = true;
   ok = testStorageProvenanceCrossesPassThroughBlocks() && ok;
+  ok = testPhiProvenanceSelectsIncomingOwner() && ok;
   ok = testStorageProvenanceReachesLoopBackEdge() && ok;
   return ok ? 0 : 1;
 }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "borrow_provenance.hpp"
 #include "function.hpp"
 
 #include <cstddef>
@@ -30,7 +31,7 @@ private:
   std::unordered_map<const BasicBlock *, ValueSet> entryStates_;
   std::unordered_map<const BasicBlock *, InstructionStates> afterStates_;
   EdgeStates edgeStates_;
-  std::unordered_map<const Value *, ValueSet> borrowOwners_;
+  BorrowProvenance borrowProvenance_;
 
   friend OwnershipLiveness analyzeOwnershipLiveness(const Function &function);
 };
