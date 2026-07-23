@@ -719,12 +719,12 @@ private:
       expectSameType(call.getResult()->getType(), expectedReturnType, block,
                      index, "call result type");
       const auto expectedOwnership =
-          call.getResultOwnership() == CallInst::ResultOwnership::Owned
+          !call.returnsRef() && containsManagedValues(returnType)
               ? ownedForType(returnType)
               : ValueOwnership::Borrowed;
       if (call.getResult()->getOwnership() != expectedOwnership) {
         error(VerificationErrorCode::InvalidResult, &block, index,
-              "call result ownership does not match call metadata");
+              "call result ownership does not match its return type");
       }
     }
     if (!call.getArgumentIsRef().empty() &&

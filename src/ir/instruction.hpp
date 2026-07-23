@@ -223,11 +223,6 @@ public:
     Transfer,
   };
 
-  enum class ResultOwnership {
-    Borrowed,
-    Owned,
-  };
-
 private:
   std::shared_ptr<Value> result;
   std::string funcName;
@@ -239,14 +234,12 @@ private:
   ResultBorrowContract resultBorrow_;
   std::shared_ptr<Value> variadicPack;
   bool returnsRef_ = false;
-  ResultOwnership resultOwnership_ = ResultOwnership::Borrowed;
 
 public:
   CallInst(std::shared_ptr<Value> res, std::string name,
            std::vector<std::shared_ptr<Value>> arguments,
            std::vector<bool> argumentIsRef = {},
            std::shared_ptr<Value> pack = nullptr, bool returnsRef = false,
-           ResultOwnership resultOwnership = ResultOwnership::Borrowed,
            std::vector<ArgumentMode> argumentModes = {},
            std::vector<ParameterEscape> argumentEscapes = {},
            ResultBorrowContract resultBorrow = {})
@@ -255,8 +248,7 @@ public:
         argumentModes_(std::move(argumentModes)),
         argumentEscapes_(std::move(argumentEscapes)),
         resultBorrow_(resultBorrow),
-        variadicPack(std::move(pack)), returnsRef_(returnsRef),
-        resultOwnership_(resultOwnership) {
+        variadicPack(std::move(pack)), returnsRef_(returnsRef) {
     if (argumentModes_.empty()) {
       argumentModes_.assign(args.size(), ArgumentMode::Borrow);
     }
@@ -268,15 +260,13 @@ public:
   CallInst(std::shared_ptr<Value> res, std::shared_ptr<Value> callee,
            std::vector<std::shared_ptr<Value>> arguments,
            bool returnsRef = false,
-           ResultOwnership resultOwnership = ResultOwnership::Borrowed,
            std::vector<ArgumentMode> argumentModes = {},
            std::vector<ParameterEscape> argumentEscapes = {},
            ResultBorrowContract resultBorrow = {})
       : result(std::move(res)), calleeValue(std::move(callee)),
         args(std::move(arguments)), argumentModes_(std::move(argumentModes)),
         argumentEscapes_(std::move(argumentEscapes)),
-        resultBorrow_(resultBorrow), returnsRef_(returnsRef),
-        resultOwnership_(resultOwnership) {
+        resultBorrow_(resultBorrow), returnsRef_(returnsRef) {
     if (argumentModes_.empty()) {
       argumentModes_.assign(args.size(), ArgumentMode::Borrow);
     }
@@ -290,7 +280,6 @@ public:
   const std::shared_ptr<Value> &getCalleeValue() const { return calleeValue; }
   bool isIndirect() const { return calleeValue != nullptr; }
   bool returnsRef() const { return returnsRef_; }
-  ResultOwnership getResultOwnership() const { return resultOwnership_; }
   const std::vector<std::shared_ptr<Value>> &getArguments() const {
     return args;
   }

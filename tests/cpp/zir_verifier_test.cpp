@@ -279,8 +279,7 @@ bool testManagedCallRequiresOwnedResult() {
   auto entry = std::make_unique<BasicBlock>("entry");
   auto result = reg("text", stringType);
   entry->addInstruction(std::make_unique<zir::CallInst>(
-      result, callee, std::vector<std::shared_ptr<zir::Value>>{}, false,
-      zir::CallInst::ResultOwnership::Owned));
+      result, callee, std::vector<std::shared_ptr<zir::Value>>{}, false));
   entry->addInstruction(std::make_unique<ReturnInst>());
   function->addBlock(std::move(entry));
   module.addFunction(std::move(function));
@@ -409,7 +408,7 @@ bool testCallRequiresOwnershipMatchingArguments() {
   argument->setOwnership(ValueOwnership::Borrowed);
   entry->addInstruction(std::make_unique<zir::CallInst>(
       nullptr, callee, std::vector<std::shared_ptr<zir::Value>>{argument},
-      false, zir::CallInst::ResultOwnership::Borrowed,
+      false,
       std::vector<zir::CallInst::ArgumentMode>{
           zir::CallInst::ArgumentMode::Transfer}));
   entry->addInstruction(std::make_unique<ReturnInst>());
@@ -449,7 +448,6 @@ bool testCallConsumesExplicitManagedCopy() {
   auto call = std::make_unique<zir::CallInst>(
       nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{copied},
       std::vector<bool>{false}, nullptr, false,
-      zir::CallInst::ResultOwnership::Borrowed,
       std::vector<zir::CallInst::ArgumentMode>{
           zir::CallInst::ArgumentMode::Transfer});
   const auto callText = call->toString();
@@ -1368,7 +1366,6 @@ bool testDestroyRejectsLiveBorrowedStringView() {
   entry->addInstruction(std::make_unique<zir::CallInst>(
       nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{view},
       std::vector<bool>{false}, nullptr, false,
-      zir::CallInst::ResultOwnership::Borrowed,
       std::vector<zir::CallInst::ArgumentMode>{
           zir::CallInst::ArgumentMode::Borrow},
       std::vector<zir::ParameterEscape>{zir::ParameterEscape::NoEscape}));
@@ -1406,8 +1403,7 @@ bool testOwnershipLivenessTracksBorrowPhiEdges() {
   auto leftView = reg("left.view", stringViewType);
   left->addInstruction(std::make_unique<zir::CallInst>(
       leftText, "make", std::vector<std::shared_ptr<zir::Value>>{},
-      std::vector<bool>{}, nullptr, false,
-      zir::CallInst::ResultOwnership::Owned));
+      std::vector<bool>{}, nullptr, false));
   left->addInstruction(std::make_unique<BorrowInst>(leftView, leftText));
   left->addInstruction(std::make_unique<BranchInst>("merge"));
 
@@ -1417,8 +1413,7 @@ bool testOwnershipLivenessTracksBorrowPhiEdges() {
   auto rightView = reg("right.view", stringViewType);
   right->addInstruction(std::make_unique<zir::CallInst>(
       rightText, "make", std::vector<std::shared_ptr<zir::Value>>{},
-      std::vector<bool>{}, nullptr, false,
-      zir::CallInst::ResultOwnership::Owned));
+      std::vector<bool>{}, nullptr, false));
   right->addInstruction(std::make_unique<BorrowInst>(rightView, rightText));
   right->addInstruction(std::make_unique<BranchInst>("merge"));
 
@@ -1488,8 +1483,7 @@ bool testOwnershipLivenessTracksBorrowedViewsThroughLocalStorage() {
   auto leftView = reg("left.view", stringViewType);
   left->addInstruction(std::make_unique<zir::CallInst>(
       leftText, "make", std::vector<std::shared_ptr<zir::Value>>{},
-      std::vector<bool>{}, nullptr, false,
-      zir::CallInst::ResultOwnership::Owned));
+      std::vector<bool>{}, nullptr, false));
   left->addInstruction(std::make_unique<BorrowInst>(leftView, leftText));
   left->addInstruction(
       std::make_unique<StoreInst>(leftView, slot, StoreMode::Initialize));
@@ -1501,8 +1495,7 @@ bool testOwnershipLivenessTracksBorrowedViewsThroughLocalStorage() {
   auto rightView = reg("right.view", stringViewType);
   right->addInstruction(std::make_unique<zir::CallInst>(
       rightText, "make", std::vector<std::shared_ptr<zir::Value>>{},
-      std::vector<bool>{}, nullptr, false,
-      zir::CallInst::ResultOwnership::Owned));
+      std::vector<bool>{}, nullptr, false));
   right->addInstruction(std::make_unique<BorrowInst>(rightView, rightText));
   right->addInstruction(
       std::make_unique<StoreInst>(rightView, slot, StoreMode::Assign));
@@ -1549,8 +1542,7 @@ bool testReturnRejectsFunctionLocalStringView() {
   auto view = reg("view", stringViewType);
   entry->addInstruction(std::make_unique<zir::CallInst>(
       text, "make", std::vector<std::shared_ptr<zir::Value>>{},
-      std::vector<bool>{}, nullptr, false,
-      zir::CallInst::ResultOwnership::Owned));
+      std::vector<bool>{}, nullptr, false));
   entry->addInstruction(std::make_unique<BorrowInst>(view, text));
   entry->addInstruction(std::make_unique<ReturnInst>(view));
   function->addBlock(std::move(entry));
@@ -1597,8 +1589,7 @@ bool testReturnRejectsStringViewLoadedFromLocalStorage() {
   auto loaded = reg("loaded", stringViewType);
   entry->addInstruction(std::make_unique<zir::CallInst>(
       text, "make", std::vector<std::shared_ptr<zir::Value>>{},
-      std::vector<bool>{}, nullptr, false,
-      zir::CallInst::ResultOwnership::Owned));
+      std::vector<bool>{}, nullptr, false));
   entry->addInstruction(std::make_unique<BorrowInst>(view, text));
   entry->addInstruction(
       std::make_unique<zir::AllocaInst>(slot, stringViewType));
@@ -1630,8 +1621,7 @@ bool testReturnRejectsCastFunctionLocalStringView() {
   auto castView = reg("cast.view", stringViewType);
   entry->addInstruction(std::make_unique<zir::CallInst>(
       text, "make", std::vector<std::shared_ptr<zir::Value>>{},
-      std::vector<bool>{}, nullptr, false,
-      zir::CallInst::ResultOwnership::Owned));
+      std::vector<bool>{}, nullptr, false));
   entry->addInstruction(std::make_unique<BorrowInst>(view, text));
   entry->addInstruction(
       std::make_unique<CastInst>(castView, view, stringViewType));
@@ -1664,8 +1654,7 @@ bool testStoreRejectsEscapingFunctionLocalStringView() {
   auto view = reg("view", stringViewType);
   entry->addInstruction(std::make_unique<zir::CallInst>(
       text, "make", std::vector<std::shared_ptr<zir::Value>>{},
-      std::vector<bool>{}, nullptr, false,
-      zir::CallInst::ResultOwnership::Owned));
+      std::vector<bool>{}, nullptr, false));
   entry->addInstruction(std::make_unique<BorrowInst>(view, text));
   entry->addInstruction(
       std::make_unique<StoreInst>(view, destination, StoreMode::Assign));
@@ -1918,13 +1907,11 @@ bool testOwnershipLoweringReleasesOwnerAfterBorrowUse() {
   auto view = reg("view", stringViewType);
   entry->addInstruction(std::make_unique<zir::CallInst>(
       text, "make", std::vector<std::shared_ptr<zir::Value>>{},
-      std::vector<bool>{}, nullptr, false,
-      zir::CallInst::ResultOwnership::Owned));
+      std::vector<bool>{}, nullptr, false));
   entry->addInstruction(std::make_unique<BorrowInst>(view, text));
   entry->addInstruction(std::make_unique<zir::CallInst>(
       nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{view},
       std::vector<bool>{false}, nullptr, false,
-      zir::CallInst::ResultOwnership::Borrowed,
       std::vector<zir::CallInst::ArgumentMode>{
           zir::CallInst::ArgumentMode::Borrow},
       std::vector<zir::ParameterEscape>{zir::ParameterEscape::NoEscape}));
@@ -1962,8 +1949,7 @@ bool testCallBorrowAllowsOwnedValueToBeReleasedAfterward() {
   value->setOwnership(ValueOwnership::Owned);
   entry->addInstruction(std::make_unique<zir::CallInst>(
       value, "make", std::vector<std::shared_ptr<zir::Value>>{},
-      std::vector<bool>{}, nullptr, false,
-      zir::CallInst::ResultOwnership::Owned));
+      std::vector<bool>{}, nullptr, false));
   entry->addInstruction(std::make_unique<zir::CallInst>(
       nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{value}));
   entry->addInstruction(std::make_unique<ReturnInst>());
@@ -2049,8 +2035,7 @@ bool testOwnershipLoweringRemovesUnusedBorrowedPhiBeforeCleanup() {
   owned->setOwnership(ValueOwnership::Owned);
   ownedPath->addInstruction(std::make_unique<zir::CallInst>(
       owned, "make", std::vector<std::shared_ptr<zir::Value>>{},
-      std::vector<bool>{}, nullptr, false,
-      zir::CallInst::ResultOwnership::Owned));
+      std::vector<bool>{}, nullptr, false));
   ownedPath->addInstruction(std::make_unique<BranchInst>("merge"));
 
   auto merge = std::make_unique<BasicBlock>("merge");

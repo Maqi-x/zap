@@ -825,10 +825,8 @@ void BoundIRGenerator::visit(sema::BoundFunctionCall &node) {
                                                    : ValueOwnership::Borrowed);
   currentBlock_->addInstruction(std::make_unique<CallInst>(
       reg, node.symbol->linkName, args, node.argumentIsRef, variadicPack,
-      node.symbol->returnsRef,
-      ownsResult ? CallInst::ResultOwnership::Owned
-                 : CallInst::ResultOwnership::Borrowed,
-      std::move(argumentModes), std::move(argumentEscapes),
+      node.symbol->returnsRef, std::move(argumentModes),
+      std::move(argumentEscapes),
       node.symbol->resultBorrow));
 
   // If ref-returning function is used as value (not address), load it
@@ -878,10 +876,8 @@ void BoundIRGenerator::visit(sema::BoundIndirectCall &node) {
   auto reg = createRegister(node.type, ownsResult ? ownedForType(node.type)
                                                   : ValueOwnership::Borrowed);
   currentBlock_->addInstruction(std::make_unique<CallInst>(
-      reg, calleeVal, std::move(args), false,
-      ownsResult ? CallInst::ResultOwnership::Owned
-                 : CallInst::ResultOwnership::Borrowed,
-      std::move(argumentModes), std::move(argumentEscapes),
+      reg, calleeVal, std::move(args), false, std::move(argumentModes),
+      std::move(argumentEscapes),
       functionType->getResultBorrow()));
   valueStack_.push(reg);
 }
@@ -2069,7 +2065,7 @@ void BoundIRGenerator::visit(sema::BoundNewExpression &node) {
     currentBlock_->addInstruction(std::make_unique<CallInst>(
         nullptr, node.constructor->linkName, std::move(args),
         std::move(argumentIsRef), nullptr, false,
-        CallInst::ResultOwnership::Borrowed, std::move(argumentModes)));
+        std::move(argumentModes)));
   }
 
   valueStack_.push(result);
