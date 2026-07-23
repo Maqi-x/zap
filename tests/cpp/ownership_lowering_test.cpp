@@ -25,6 +25,7 @@ using zir::ReturnInst;
 using zir::Type;
 using zir::TypeKind;
 using zir::ValueOwnership;
+using zir::VerificationErrorCode;
 using zir::ZirVerifier;
 
 std::shared_ptr<Type> primitive(TypeKind kind) {
@@ -41,6 +42,16 @@ bool expect(bool condition, const std::string &message) {
     std::cerr << "FAIL: " << message << '\n';
   }
   return condition;
+}
+
+bool hasError(const zir::VerificationResult &result,
+              VerificationErrorCode code) {
+  for (const auto &error : result.errors()) {
+    if (error.code == code) {
+      return true;
+    }
+  }
+  return false;
 }
 
 std::shared_ptr<zir::Argument>
@@ -202,6 +213,120 @@ bool testBreakAndContinuePathsShareOneOwnershipClosure() {
                 "break and continue ownership lowering left an obligation");
 }
 
+bool testUnreachableOwnershipDoesNotAffectReachableCleanup() {
+  Module module("ownership-unreachable");
+  auto classType = std::make_shared<ClassType>("Node");
+  auto function = std::make_unique<Function>("valid", primitive(TypeKind::Void));
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  auto unreachable = std::make_unique<BasicBlock>("unreachable");
+  auto value = reg("value", classType);
+  value->setOwnership(ValueOwnership::Owned);
+  unreachable->addInstruction(std::make_unique<zir::AllocInst>(value, classType));
+  unreachable->addInstruction(std::make_unique<ReturnInst>());
+
+  function->addBlock(std::move(entry));
+  function->addBlock(std::move(unreachable));
+  module.addFunction(std::move(function));
+
+  zir::lowerDeadOwnedResults(module);
+  auto *lowered = module.getFunctions().front().get();
+  const auto &entryInstructions = lowered->findBlock("entry")->getInstructions();
+  return expect(entryInstructions.size() == 1 &&
+                    entryInstructions.front()->getOpCode() == OpCode::Ret,
+                "unreachable ownership changed reachable cleanup") &&
+         expect(ZirVerifier().verify(module).ok(),
+                "unreachable ownership produced invalid ZIR") &&
+         expect(ZirVerifier().verifyOwnershipObligations(module).ok(),
+                "unreachable ownership produced a reachable obligation");
+}
+
+bool testNestedDiamondClosesOwnershipExactlyOnce() {
+  Module module("ownership-nested-diamond");
+  auto classType = std::make_shared<ClassType>("Node");
+  auto boolean = primitive(TypeKind::Bool);
+  auto function = std::make_unique<Function>("valid", primitive(TypeKind::Void));
+  auto value = addOwnedArgument(*function, classType);
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CondBranchInst>(
+      std::make_shared<Constant>("true", boolean), "outer.left",
+      "outer.right"));
+  auto outerLeft = std::make_unique<BasicBlock>("outer.left");
+  outerLeft->addInstruction(std::make_unique<CondBranchInst>(
+      std::make_shared<Constant>("true", boolean), "inner.left",
+      "inner.right"));
+  auto innerLeft = std::make_unique<BasicBlock>("inner.left");
+  innerLeft->addInstruction(std::make_unique<BranchInst>("merge"));
+  auto innerRight = std::make_unique<BasicBlock>("inner.right");
+  innerRight->addInstruction(std::make_unique<BranchInst>("merge"));
+  auto outerRight = std::make_unique<BasicBlock>("outer.right");
+  outerRight->addInstruction(std::make_unique<BranchInst>("merge"));
+  auto merge = std::make_unique<BasicBlock>("merge");
+  merge->addInstruction(std::make_unique<ReturnInst>());
+
+  function->addBlock(std::move(entry));
+  function->addBlock(std::move(outerLeft));
+  function->addBlock(std::move(innerLeft));
+  function->addBlock(std::move(innerRight));
+  function->addBlock(std::move(outerRight));
+  function->addBlock(std::move(merge));
+  module.addFunction(std::move(function));
+
+  zir::lowerDeadOwnedResults(module);
+  auto *lowered = module.getFunctions().front().get();
+  return expect(hasDestroyBeforeReturn(*lowered->findBlock("merge"), value),
+                "nested diamond did not close ownership once at the merge") &&
+         expect(ZirVerifier().verify(module).ok(),
+                "nested diamond ownership lowering produced invalid ZIR") &&
+         expect(ZirVerifier().verifyOwnershipObligations(module).ok(),
+                "nested diamond ownership lowering left an obligation");
+}
+
+bool testUsedMixedOwnershipPhiIsRejected() {
+  Module module("ownership-mixed-phi");
+  auto classType = std::make_shared<ClassType>("Node");
+  auto boolean = primitive(TypeKind::Bool);
+  auto function = std::make_unique<Function>("broken", primitive(TypeKind::Void));
+  auto owned = std::make_shared<zir::Argument>("owned", classType);
+  owned->setOwnership(ValueOwnership::Owned);
+  auto borrowed = std::make_shared<zir::Argument>("borrowed", classType);
+  function->arguments.push_back(owned);
+  function->arguments.push_back(borrowed);
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CondBranchInst>(
+      std::make_shared<Constant>("true", boolean), "owned.path",
+      "borrowed.path"));
+  auto ownedPath = std::make_unique<BasicBlock>("owned.path");
+  ownedPath->addInstruction(std::make_unique<BranchInst>("merge"));
+  auto borrowedPath = std::make_unique<BasicBlock>("borrowed.path");
+  borrowedPath->addInstruction(std::make_unique<BranchInst>("merge"));
+  auto merge = std::make_unique<BasicBlock>("merge");
+  auto result = reg("result", classType);
+  merge->addInstruction(std::make_unique<PhiInst>(
+      result,
+      std::vector<std::pair<std::string, std::shared_ptr<zir::Value>>>{
+          {"owned.path", owned}, {"borrowed.path", borrowed}}));
+  auto comparison = reg("comparison", boolean);
+  merge->addInstruction(std::make_unique<CmpInst>(
+      "eq", comparison, result, std::make_shared<Constant>("null", classType)));
+  merge->addInstruction(std::make_unique<ReturnInst>());
+
+  function->addBlock(std::move(entry));
+  function->addBlock(std::move(ownedPath));
+  function->addBlock(std::move(borrowedPath));
+  function->addBlock(std::move(merge));
+  module.addFunction(std::move(function));
+
+  const auto verification = ZirVerifier().verify(module);
+  return expect(
+      hasError(verification, VerificationErrorCode::InvalidResult) &&
+          verification.format().find("matching ownership") != std::string::npos,
+      "used phi with mixed ownership incoming values was not rejected");
+}
+
 } // namespace
 
 int main() {
@@ -209,5 +334,8 @@ int main() {
   ok = testLoopExitClosesOwnershipForZeroOneOrManyIterations() && ok;
   ok = testLoopBackEdgePhiTransfersOwnership() && ok;
   ok = testBreakAndContinuePathsShareOneOwnershipClosure() && ok;
+  ok = testUnreachableOwnershipDoesNotAffectReachableCleanup() && ok;
+  ok = testNestedDiamondClosesOwnershipExactlyOnce() && ok;
+  ok = testUsedMixedOwnershipPhiIsRejected() && ok;
   return ok ? 0 : 1;
 }

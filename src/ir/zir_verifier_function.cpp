@@ -881,17 +881,18 @@ private:
         !phi.getIncoming().empty() && phi.getIncoming().front().second) {
       const auto incomingOwnership =
           phi.getIncoming().front().second->getOwnership();
-      const bool allIncomingHaveSameOwnership =
-          isOwned(incomingOwnership) &&
-          std::all_of(phi.getIncoming().begin(), phi.getIncoming().end(),
-                      [incomingOwnership](const auto &incoming) {
-                        return incoming.second &&
-                               incoming.second->getOwnership() ==
-                                   incomingOwnership;
-                      });
-      if (allIncomingHaveSameOwnership) {
-        expectedOwnership = incomingOwnership;
+      const bool allIncomingHaveSameOwnership = std::all_of(
+          phi.getIncoming().begin(), phi.getIncoming().end(),
+          [incomingOwnership](const auto &incoming) {
+            return incoming.second &&
+                   incoming.second->getOwnership() == incomingOwnership;
+          });
+      if (!allIncomingHaveSameOwnership) {
+        error(VerificationErrorCode::InvalidResult, &block, index,
+              "phi incoming values must have matching ownership");
+        return;
       }
+      expectedOwnership = incomingOwnership;
     }
     if (phi.getResult()->getOwnership() != expectedOwnership) {
       error(VerificationErrorCode::InvalidResult, &block, index,
