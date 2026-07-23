@@ -76,6 +76,7 @@ private:
   std::shared_ptr<Value>
   createRegister(std::shared_ptr<Type> type,
                  ValueOwnership ownership = ValueOwnership::Borrowed);
+  void emitReturn(std::shared_ptr<Value> value = nullptr);
   std::string createBlockLabel(const std::string &prefix);
   std::shared_ptr<Value>
   lowerConstantExpression(const sema::BoundExpression &expression);

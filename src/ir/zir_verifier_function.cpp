@@ -520,6 +520,20 @@ private:
       }
       return;
     }
+    case OpCode::Move: {
+      const auto &move = static_cast<const MoveInst &>(instruction);
+      verifyValue(move.getSource(), block, index);
+      if (!move.getResult() || !ownsManagedValue(move.getSource()) ||
+          move.getResult() == move.getSource() ||
+          move.getResult()->getOwnership() != ValueOwnership::Owned) {
+        error(VerificationErrorCode::InvalidOperand, &block, index,
+              "move requires a distinct owned result and owned managed source");
+      } else {
+        expectSameType(move.getResult()->getType(), move.getSource()->getType(),
+                       block, index, "move result type");
+      }
+      return;
+    }
     case OpCode::Borrow: {
       const auto &borrow = static_cast<const BorrowInst &>(instruction);
       verifyValue(borrow.getOwner(), block, index);

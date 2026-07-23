@@ -21,11 +21,13 @@ using zir::CmpInst;
 using zir::CondBranchInst;
 using zir::Constant;
 using zir::ControlFlowGraph;
+using zir::DestroyInst;
 using zir::Function;
 using zir::FunctionPointerType;
 using zir::FunctionReference;
 using zir::LoadInst;
 using zir::Module;
+using zir::MoveInst;
 using zir::OpCode;
 using zir::OwnershipDestroyPlacementKind;
 using zir::OwnershipFlowAnalysis;
@@ -827,6 +829,27 @@ bool testUseAfterReleaseIsRejected() {
                 "use of an owned value after release was not diagnosed");
 }
 
+bool testUseAfterMoveIsRejected() {
+  Module module("use-after-move");
+  auto classType = std::make_shared<ClassType>("Node");
+  auto function = std::make_unique<Function>("broken", classType);
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto value = reg("value", classType);
+  value->setOwnership(ValueOwnership::Owned);
+  auto moved = reg("moved", classType);
+  moved->setOwnership(ValueOwnership::Owned);
+  entry->addInstruction(std::make_unique<zir::AllocInst>(value, classType));
+  entry->addInstruction(std::make_unique<MoveInst>(moved, value));
+  entry->addInstruction(std::make_unique<DestroyInst>(value));
+  entry->addInstruction(std::make_unique<ReturnInst>(moved));
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  return expect(hasError(ZirVerifier().verify(module),
+                         VerificationErrorCode::OwnershipViolation),
+                "use of an owned value after explicit move was not diagnosed");
+}
+
 bool testOwnershipExitObligationsReportLiveValues() {
   Module module("ownership-exit-obligations");
   auto classType = std::make_shared<ClassType>("Node");
@@ -940,8 +963,11 @@ bool testOwnershipExitObligationsAllowMovedReturn() {
   auto entry = std::make_unique<BasicBlock>("entry");
   auto value = reg("value", classType);
   value->setOwnership(ValueOwnership::Owned);
+  auto moved = reg("moved", classType);
+  moved->setOwnership(ValueOwnership::Owned);
   entry->addInstruction(std::make_unique<zir::AllocInst>(value, classType));
-  entry->addInstruction(std::make_unique<ReturnInst>(value));
+  entry->addInstruction(std::make_unique<MoveInst>(moved, value));
+  entry->addInstruction(std::make_unique<ReturnInst>(moved));
   auto *entryBlock = entry.get();
   function->addBlock(std::move(entry));
 
@@ -949,8 +975,12 @@ bool testOwnershipExitObligationsAllowMovedReturn() {
   OwnershipFlowAnalysis::BlockEdges successors{{entryBlock, {}}};
   OwnershipFlowAnalysis analysis(module, *function, predecessors, successors,
                                  {entryBlock});
-  return expect(analysis.analyzeExitObligations().empty(),
-                "moved return produced an unclosed ownership obligation");
+  const auto obligations = analysis.analyzeExitObligations();
+  module.addFunction(std::move(function));
+  return expect(obligations.empty(),
+                "explicitly moved return produced an ownership obligation") &&
+         expect(ZirVerifier().verify(module).ok(),
+                "explicit move return was rejected by the verifier");
 }
 
 bool testOwnershipObligationVerifierReportsLiveValues() {
@@ -1874,6 +1904,7 @@ int main() {
   ok = testControlFlowGraphBuildsEdgesAndReachability() && ok;
   ok = testReleaseConsumesOwnedValue() && ok;
   ok = testUseAfterReleaseIsRejected() && ok;
+  ok = testUseAfterMoveIsRejected() && ok;
   ok = testOwnershipExitObligationsReportLiveValues() && ok;
   ok = testOwnershipClosurePlanConnectsDefinitionAndExit() && ok;
   ok = testOwnershipClosurePlanUsesCriticalLiveEdge() && ok;

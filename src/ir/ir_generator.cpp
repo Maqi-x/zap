@@ -262,10 +262,10 @@ void BoundIRGenerator::visit(sema::BoundFunctionDeclaration &node) {
 
   if (currentBlock_ && !isTerminated(currentBlock_)) {
     if (symbol->returnType->getKind() == TypeKind::Void) {
-      currentBlock_->addInstruction(std::make_unique<ReturnInst>());
+      emitReturn();
     } else {
       auto dummy = std::make_shared<Constant>("0", symbol->returnType);
-      currentBlock_->addInstruction(std::make_unique<ReturnInst>(dummy));
+      emitReturn(dummy);
     }
   }
 
@@ -407,7 +407,7 @@ void BoundIRGenerator::visit(sema::BoundReturnStatement &node) {
     val = valueStack_.top();
     valueStack_.pop();
   }
-  currentBlock_->addInstruction(std::make_unique<ReturnInst>(val));
+  emitReturn(val);
 }
 
 void BoundIRGenerator::visit(sema::BoundFailStatement &node) {
@@ -464,7 +464,7 @@ void BoundIRGenerator::visit(sema::BoundFailStatement &node) {
 
   auto loaded = createRegister(failableType);
   currentBlock_->addInstruction(std::make_unique<LoadInst>(loaded, allocaReg));
-  currentBlock_->addInstruction(std::make_unique<ReturnInst>(loaded));
+  emitReturn(loaded);
 }
 
 void BoundIRGenerator::visit(sema::BoundAssignment &node) {
@@ -815,6 +815,16 @@ BoundIRGenerator::createRegister(std::shared_ptr<Type> type,
       std::make_shared<Register>(std::to_string(nextRegisterId_++), type);
   result->setOwnership(ownership);
   return result;
+}
+
+void BoundIRGenerator::emitReturn(std::shared_ptr<Value> value) {
+  if (value && value->getOwnership() == ValueOwnership::Owned &&
+      containsManagedValues(value->getType())) {
+    auto moved = createRegister(value->getType(), ValueOwnership::Owned);
+    currentBlock_->addInstruction(std::make_unique<MoveInst>(moved, value));
+    value = std::move(moved);
+  }
+  currentBlock_->addInstruction(std::make_unique<ReturnInst>(std::move(value)));
 }
 
 std::string BoundIRGenerator::createBlockLabel(const std::string &prefix) {
@@ -1319,7 +1329,7 @@ void BoundIRGenerator::visit(sema::BoundTryExpression &node) {
   auto propagatedValue = createRegister(propagatedType);
   currentBlock_->addInstruction(
       std::make_unique<LoadInst>(propagatedValue, propagatedAlloca));
-  currentBlock_->addInstruction(std::make_unique<ReturnInst>(propagatedValue));
+  emitReturn(propagatedValue);
 
   auto mergeBlock = std::make_unique<BasicBlock>(mergeLabel);
   auto *mergeBlockPtr = mergeBlock.get();

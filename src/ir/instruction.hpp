@@ -29,6 +29,7 @@ enum class OpCode {
   Ret,
   Call,
   Retain,
+  Move,
   Borrow,
   Destroy,
   Release,
@@ -333,6 +334,22 @@ public:
   const std::shared_ptr<Value> &getValue() const { return value; }
   std::string toString() const override {
     return "retain " + value->getTypeName() + " " + value->getName();
+  }
+};
+
+class MoveInst : public Instruction {
+  std::shared_ptr<Value> result;
+  std::shared_ptr<Value> source;
+
+public:
+  MoveInst(std::shared_ptr<Value> res, std::shared_ptr<Value> src)
+      : result(std::move(res)), source(std::move(src)) {}
+  OpCode getOpCode() const override { return OpCode::Move; }
+  const std::shared_ptr<Value> &getResult() const { return result; }
+  const std::shared_ptr<Value> &getSource() const { return source; }
+  std::string toString() const override {
+    return result->getName() + " = move " + source->getTypeName() + " " +
+           source->getName();
   }
 };
 

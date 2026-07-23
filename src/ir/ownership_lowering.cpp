@@ -44,6 +44,8 @@ std::shared_ptr<Value> instructionResult(const Instruction &instruction) {
     return static_cast<const PhiInst &>(instruction).getResult();
   case OpCode::Cast:
     return static_cast<const CastInst &>(instruction).getResult();
+  case OpCode::Move:
+    return static_cast<const MoveInst &>(instruction).getResult();
   case OpCode::Borrow:
     return static_cast<const BorrowInst &>(instruction).getResult();
   case OpCode::WeakLock:
@@ -110,6 +112,8 @@ bool transfersOwnership(const Instruction &instruction,
     }
     return false;
   }
+  case OpCode::Move:
+    return static_cast<const MoveInst &>(instruction).getSource() == value;
   case OpCode::Release:
     return static_cast<const ReleaseInst &>(instruction).getValue() == value;
   case OpCode::Destroy:

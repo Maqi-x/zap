@@ -102,6 +102,10 @@ void addInstructionUses(ValueSet &values, const Instruction &instruction,
     addUse(values, static_cast<const RetainInst &>(instruction).getValue(),
            borrowOwners);
     return;
+  case OpCode::Move:
+    addUse(values, static_cast<const MoveInst &>(instruction).getSource(),
+           borrowOwners);
+    return;
   case OpCode::Borrow:
     addUse(values, static_cast<const BorrowInst &>(instruction).getOwner(),
            borrowOwners);
@@ -443,6 +447,8 @@ std::shared_ptr<Value> instructionResult(const Instruction &instruction) {
     return static_cast<const PhiInst &>(instruction).getResult();
   case OpCode::Cast:
     return static_cast<const CastInst &>(instruction).getResult();
+  case OpCode::Move:
+    return static_cast<const MoveInst &>(instruction).getResult();
   case OpCode::Borrow:
     return static_cast<const BorrowInst &>(instruction).getResult();
   case OpCode::WeakLock:
