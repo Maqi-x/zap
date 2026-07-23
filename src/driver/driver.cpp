@@ -5,6 +5,7 @@
 #include "frontend/module_loader.hpp"
 #include "ir/ir_generator.hpp"
 #include "ir/ownership_lowering.hpp"
+#include "ir/sink_last_use.hpp"
 #include "ir/zir_verifier.hpp"
 #include "lexer/lexer.hpp"
 #include "parser/parser.hpp"
@@ -427,6 +428,7 @@ generateZIRModule(sema::BoundRootNode &node, bool verifyOwnershipObligations) {
   if (!module) {
     return nullptr;
   }
+  zir::optimizeSinkArgumentMoves(*module);
   zir::lowerDeadOwnedResults(*module);
   auto verification = zir::ZirVerifier().verify(*module);
   if (!verification) {

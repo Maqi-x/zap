@@ -112,8 +112,10 @@ fun consume(value: sink String) {
 }
 ```
 
-Calls use the ordinary syntax. An owned temporary is moved into the parameter;
-a borrowed value is copied and remains valid in the caller.
+Calls use the ordinary syntax. An owned temporary or the final use of an
+unaliased local value is moved into the parameter. The compiler keeps a copy
+when the local is read on any later control-flow path or has a dependent
+borrow, so source-level behavior does not change.
 
 ---
 

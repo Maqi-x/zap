@@ -2,6 +2,7 @@
 #include "ir/ownership_flow.hpp"
 #include "ir/ownership_liveness.hpp"
 #include "ir/ownership_lowering.hpp"
+#include "ir/sink_last_use.hpp"
 #include "ir/string_type.hpp"
 #include "ir/zir_verifier.hpp"
 
@@ -41,6 +42,7 @@ using zir::ReleaseInst;
 using zir::ReturnInst;
 using zir::StoreInst;
 using zir::StoreMode;
+using zir::TakeInst;
 using zir::Type;
 using zir::TypeKind;
 using zir::ValueOwnership;
@@ -508,6 +510,88 @@ bool testCallConsumesExplicitManagedCopy() {
                 "call rejected an explicit managed copy transfer") &&
          expect(ZirVerifier().verifyOwnershipObligations(module).ok(),
                 "call did not consume its explicit managed copy");
+}
+
+bool testSinkLastUseTakesLocalStorage() {
+  Module module("sink-last-use");
+  auto stringType = zir::makeStringType();
+  auto voidType = primitive(TypeKind::Void);
+
+  auto callee = std::make_unique<Function>("consume", voidType);
+  auto parameter = std::make_shared<zir::Argument>(
+      "value", stringType, false, false, nullptr,
+      zir::ParameterOwnership::Sink);
+  parameter->setOwnership(ValueOwnership::OwnedStrong);
+  callee->arguments.push_back(parameter);
+  auto calleeEntry = std::make_unique<BasicBlock>("entry");
+  calleeEntry->addInstruction(std::make_unique<DestroyInst>(parameter));
+  calleeEntry->addInstruction(std::make_unique<ReturnInst>());
+  callee->addBlock(std::move(calleeEntry));
+  module.addFunction(std::move(callee));
+
+  auto makeCaller = [&](const std::string &name, bool readAfterCall) {
+    auto function = std::make_unique<Function>(name, voidType);
+    auto source = std::make_shared<zir::Argument>(
+        "source", stringType, false, false, nullptr,
+        zir::ParameterOwnership::Transfer);
+    source->setOwnership(ValueOwnership::OwnedStrong);
+    function->arguments.push_back(source);
+
+    auto slot = reg(name + ".slot", std::make_shared<PointerType>(stringType));
+    auto loaded = reg(name + ".loaded", stringType);
+    auto copied = reg(name + ".copied", stringType);
+    copied->setOwnership(ValueOwnership::OwnedStrong);
+    auto entry = std::make_unique<BasicBlock>("entry");
+    entry->addInstruction(std::make_unique<zir::AllocaInst>(slot, stringType));
+    entry->addInstruction(
+        std::make_unique<StoreInst>(source, slot, StoreMode::Initialize));
+    entry->addInstruction(std::make_unique<LoadInst>(loaded, slot));
+    entry->addInstruction(std::make_unique<CopyInst>(copied, loaded));
+    entry->addInstruction(std::make_unique<zir::CallInst>(
+        nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{copied},
+        std::vector<bool>{false}, nullptr, false,
+        zir::CallInst::ResultOwnership::Borrowed,
+        std::vector<zir::CallInst::ArgumentMode>{
+            zir::CallInst::ArgumentMode::Transfer}));
+    if (readAfterCall) {
+      entry->addInstruction(
+          std::make_unique<LoadInst>(reg(name + ".later", stringType), slot));
+    }
+    entry->addInstruction(std::make_unique<ReturnInst>());
+    function->addBlock(std::move(entry));
+    module.addFunction(std::move(function));
+  };
+
+  makeCaller("last", false);
+  makeCaller("used_later", true);
+
+  const auto optimized = zir::optimizeSinkArgumentMoves(module);
+  const auto *last = module.findFunction("last");
+  const auto *usedLater = module.findFunction("used_later");
+  const auto countOpcode = [](const Function *function, OpCode opcode) {
+    size_t count = 0;
+    for (const auto &block : function->getBlocks()) {
+      for (const auto &instruction : block->getInstructions()) {
+        if (instruction && instruction->getOpCode() == opcode) {
+          ++count;
+        }
+      }
+    }
+    return count;
+  };
+
+  return expect(optimized == 1,
+                "sink last-use optimization selected the wrong calls") &&
+         expect(countOpcode(last, OpCode::Take) == 1 &&
+                    countOpcode(last, OpCode::Copy) == 0,
+                "last local sink use was not lowered to take") &&
+         expect(countOpcode(usedLater, OpCode::Take) == 0 &&
+                    countOpcode(usedLater, OpCode::Copy) == 1,
+                "sink moved a local value that is used later") &&
+         expect(ZirVerifier().verify(module).ok(),
+                "sink last-use optimization produced invalid ZIR") &&
+         expect(ZirVerifier().verifyOwnershipObligations(module).ok(),
+                "sink take did not close ownership obligations");
 }
 
 bool testOwnershipTransferAcrossControlFlow() {
@@ -2122,6 +2206,7 @@ int main() {
   ok = testCastRequiresOwnershipMatchingSourceAndTarget() && ok;
   ok = testCallRequiresOwnershipMatchingArguments() && ok;
   ok = testCallConsumesExplicitManagedCopy() && ok;
+  ok = testSinkLastUseTakesLocalStorage() && ok;
   ok = testOwnershipTransferAcrossControlFlow() && ok;
   ok = testPhiTransfersOwnershipOnIncomingEdge() && ok;
   ok = testPhiAllowsSeparateAlternativeOwnershipTransfers() && ok;

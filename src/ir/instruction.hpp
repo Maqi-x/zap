@@ -9,6 +9,7 @@ namespace zir {
 enum class OpCode {
   Alloca,
   Load,
+  Take,
   Store,
   Add,
   Sub,
@@ -171,6 +172,22 @@ public:
   std::string toString() const override {
     return result->getName() + " = load " + result->getTypeName() + ", " +
            src->getTypeName() + " " + src->getName();
+  }
+};
+
+class TakeInst : public Instruction {
+  std::shared_ptr<Value> result;
+  std::shared_ptr<Value> source;
+
+public:
+  TakeInst(std::shared_ptr<Value> result, std::shared_ptr<Value> source)
+      : result(std::move(result)), source(std::move(source)) {}
+  OpCode getOpCode() const override { return OpCode::Take; }
+  const std::shared_ptr<Value> &getResult() const { return result; }
+  const std::shared_ptr<Value> &getSource() const { return source; }
+  std::string toString() const override {
+    return result->getName() + " = take " + result->getTypeName() + ", " +
+           source->getTypeName() + " " + source->getName();
   }
 };
 

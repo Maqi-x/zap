@@ -9,6 +9,8 @@ fun makeOwned() String {
     return "owned";
 }
 
+global var payloadsDestroyed: Int = 0;
+
 class Payload {
     priv value: Int;
 
@@ -18,6 +20,10 @@ class Payload {
 
     pub fun get() Int {
         return self.value;
+    }
+
+    fun deinit() {
+        payloadsDestroyed = payloadsDestroyed + 1;
     }
 }
 
@@ -38,14 +44,63 @@ fun main() Int {
         return 3;
     }
 
+    var lastUse: String = makeOwned();
+    if inspect(lastUse) != 1 {
+        return 4;
+    }
+
     var indirect: *fun(sink String) Int = inspect;
     if indirect(makeOwned()) != 1 {
-        return 4;
+        return 5;
+    }
+
+    var branchValue: String = makeOwned();
+    var chooseFirst: Bool = true;
+    if chooseFirst {
+        if inspect(branchValue) != 1 {
+            return 6;
+        }
+    } else {
+        if inspect(branchValue) != 1 {
+            return 7;
+        }
+    }
+
+    var loopValue: String = makeOwned();
+    var index: Int = 0;
+    while index < 2 {
+        if inspect(loopValue) != 1 {
+            return 8;
+        }
+        index = index + 1;
+    }
+    if loopValue != "owned" {
+        return 9;
+    }
+
+    var owner: String = makeOwned();
+    var view: StringView = owner;
+    if inspect(owner) != 1 {
+        return 10;
+    }
+    if view != "owned" {
+        return 11;
+    }
+
+    var lastPayload: Payload = new Payload(23);
+    if inspectPayload(lastPayload) != 23 {
+        return 12;
+    }
+    if payloadsDestroyed != 1 {
+        return 13;
     }
 
     var indirectPayload: *fun(sink Payload) Int = inspectPayload;
     if indirectPayload(new Payload(17)) != 17 {
-        return 5;
+        return 14;
+    }
+    if payloadsDestroyed != 2 {
+        return 15;
     }
 
     return 0;
