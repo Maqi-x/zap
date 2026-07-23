@@ -380,8 +380,7 @@ void BoundIRGenerator::visit(sema::BoundVariableDeclaration &node) {
       evaluateAsAddress_ = old;
       auto addr = valueStack_.top();
       valueStack_.pop();
-      currentBlock_->addInstruction(
-          std::make_unique<StoreInst>(addr, refReg, StoreMode::Assign));
+      emitInitializationStore(std::move(addr), refReg);
     }
     return;
   }
@@ -395,8 +394,7 @@ void BoundIRGenerator::visit(sema::BoundVariableDeclaration &node) {
     auto val = valueStack_.top();
     valueStack_.pop();
 
-    currentBlock_->addInstruction(
-        std::make_unique<StoreInst>(val, reg, StoreMode::Assign));
+    emitInitializationStore(std::move(val), reg);
   }
 }
 
@@ -827,6 +825,26 @@ BoundIRGenerator::createRegister(std::shared_ptr<Type> type,
   return result;
 }
 
+void BoundIRGenerator::emitInitializationStore(
+    std::shared_ptr<Value> value, std::shared_ptr<Value> destination) {
+  if (value && containsManagedValues(value->getType())) {
+    const auto resultOwnership = isOwned(value->getOwnership())
+                                     ? value->getOwnership()
+                                     : ownedForType(value->getType());
+    auto prepared = createRegister(value->getType(), resultOwnership);
+    if (isOwned(value->getOwnership())) {
+      currentBlock_->addInstruction(
+          std::make_unique<MoveInst>(prepared, value));
+    } else {
+      currentBlock_->addInstruction(
+          std::make_unique<CopyInst>(prepared, value));
+    }
+    value = std::move(prepared);
+  }
+  currentBlock_->addInstruction(std::make_unique<StoreInst>(
+      std::move(value), std::move(destination), StoreMode::Initialize));
+}
+
 void BoundIRGenerator::emitReturn(std::shared_ptr<Value> value) {
   if (value && isOwned(value->getOwnership()) &&
       containsManagedValues(value->getType())) {
@@ -1222,8 +1240,7 @@ void BoundIRGenerator::visit(sema::BoundStructLiteral &node) {
           std::make_shared<PointerType>(fields[fieldIndex].type));
       currentBlock_->addInstruction(std::make_unique<GetElementPtrInst>(
           fieldAddr, allocaReg, fieldIndex));
-      currentBlock_->addInstruction(
-          std::make_unique<StoreInst>(val, fieldAddr, StoreMode::Initialize));
+      emitInitializationStore(std::move(val), fieldAddr);
     }
   }
 
@@ -1255,8 +1272,7 @@ void BoundIRGenerator::visit(sema::BoundTaggedUnionLiteral &node) {
         createRegister(std::make_shared<PointerType>(node.payload->type));
     currentBlock_->addInstruction(
         std::make_unique<GetElementPtrInst>(payloadAddr, allocaReg, 1));
-    currentBlock_->addInstruction(std::make_unique<StoreInst>(
-        payload, payloadAddr, StoreMode::Initialize));
+    emitInitializationStore(std::move(payload), payloadAddr);
   }
 
   auto result = createRegister(taggedUnionType);

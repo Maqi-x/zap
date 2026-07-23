@@ -369,6 +369,12 @@ private:
           error(VerificationErrorCode::InvalidOperand, &block, index,
                 "store ownership does not match its source value");
         }
+        if (store.getMode() == StoreMode::Initialize &&
+            containsManagedValues(store.getSource()->getType()) &&
+            !isOwned(store.getSourceOwnership())) {
+          error(VerificationErrorCode::InvalidOperand, &block, index,
+                "managed initialization must transfer ownership");
+        }
       }
       return;
     }

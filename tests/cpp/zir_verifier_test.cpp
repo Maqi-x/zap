@@ -390,6 +390,28 @@ bool testStoreRequiresOwnershipMatchingSource() {
                 "borrowed store of an owned value was not diagnosed");
 }
 
+bool testManagedInitializationRequiresOwnershipTransfer() {
+  Module module("managed-initialization-ownership");
+  auto stringType = zir::makeStringType();
+  auto function =
+      std::make_unique<Function>("broken", primitive(TypeKind::Void));
+  auto value = std::make_shared<zir::Argument>("value", stringType);
+  function->arguments.push_back(value);
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto slot = reg("slot", std::make_shared<PointerType>(stringType));
+  entry->addInstruction(std::make_unique<zir::AllocaInst>(slot, stringType));
+  entry->addInstruction(
+      std::make_unique<StoreInst>(value, slot, StoreMode::Initialize));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  return expect(hasError(ZirVerifier().verify(module),
+                         VerificationErrorCode::InvalidOperand),
+                "managed initialization accepted a borrowed source");
+}
+
 bool testCastRequiresOwnershipMatchingSourceAndTarget() {
   Module module("cast-ownership");
   auto strongType = std::make_shared<ClassType>("Node");
@@ -884,6 +906,33 @@ bool testCopyCreatesIndependentOwnership() {
                 "copy left an ownership obligation after both destroys");
 }
 
+bool testMoveTransfersOwnershipIntoInitialization() {
+  Module module("move-initialization-ownership");
+  auto classType = std::make_shared<ClassType>("Node");
+  auto function =
+      std::make_unique<Function>("valid", primitive(TypeKind::Void));
+  auto slot = reg("slot", std::make_shared<PointerType>(classType));
+  auto value = reg("value", classType);
+  value->setOwnership(ValueOwnership::OwnedStrong);
+  auto moved = reg("moved", classType);
+  moved->setOwnership(ValueOwnership::OwnedStrong);
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<zir::AllocaInst>(slot, classType));
+  entry->addInstruction(std::make_unique<zir::AllocInst>(value, classType));
+  entry->addInstruction(std::make_unique<MoveInst>(moved, value));
+  entry->addInstruction(
+      std::make_unique<StoreInst>(moved, slot, StoreMode::Initialize));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  return expect(ZirVerifier().verify(module).ok(),
+                "move into managed initialization was rejected") &&
+         expect(ZirVerifier().verifyOwnershipObligations(module).ok(),
+                "managed initialization did not consume the moved value");
+}
+
 bool testWeakCopyTransfersWeakOwnership() {
   Module module("weak-copy-ownership");
   auto weakType = std::make_shared<ClassType>("Node");
@@ -900,7 +949,7 @@ bool testWeakCopyTransfersWeakOwnership() {
   entry->addInstruction(std::make_unique<zir::AllocaInst>(slot, weakType));
   entry->addInstruction(std::make_unique<CopyInst>(copied, source));
   entry->addInstruction(
-      std::make_unique<StoreInst>(copied, slot, StoreMode::Assign));
+      std::make_unique<StoreInst>(copied, slot, StoreMode::Initialize));
   entry->addInstruction(std::make_unique<ReturnInst>());
   function->addBlock(std::move(entry));
   module.addFunction(std::move(function));
@@ -2023,6 +2072,7 @@ int main() {
   ok = testPhiRequiresOwnershipMatchingIncomingValues() && ok;
   ok = testReturnRequiresOwnershipMatchingValue() && ok;
   ok = testStoreRequiresOwnershipMatchingSource() && ok;
+  ok = testManagedInitializationRequiresOwnershipTransfer() && ok;
   ok = testCastRequiresOwnershipMatchingSourceAndTarget() && ok;
   ok = testCallRequiresOwnershipMatchingArguments() && ok;
   ok = testOwnershipTransferAcrossControlFlow() && ok;
@@ -2036,6 +2086,7 @@ int main() {
   ok = testUseAfterReleaseIsRejected() && ok;
   ok = testUseAfterMoveIsRejected() && ok;
   ok = testCopyCreatesIndependentOwnership() && ok;
+  ok = testMoveTransfersOwnershipIntoInitialization() && ok;
   ok = testWeakCopyTransfersWeakOwnership() && ok;
   ok = testWeakCopyRejectsStrongOwnership() && ok;
   ok = testOwnershipExitObligationsReportLiveValues() && ok;
