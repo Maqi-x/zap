@@ -342,11 +342,7 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         zirClassParamAllocas_.insert(allocaInst.getResult().get());
         zirPendingClassParamInitAllocas_.insert(allocaInst.getResult().get());
       }
-      const bool isBorrowedWeakParameter =
-          isParamSpill && isWeakClassType(allocaInst.getAllocatedType());
-      // Weak parameters are borrows: the caller does not transfer a weak
-      // reference, while assigning one into a field retains it explicitly.
-      if (!isBorrowedSelf && !isBorrowedWeakParameter) {
+      if (!isBorrowedSelf) {
         zirFunctionClassLocals_.push_back(
             {allocaInst.getAllocatedType(), alloca});
       }
@@ -705,25 +701,6 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
   case OpCode::Call: {
     const auto &callInst = static_cast<const CallInst &>(inst);
     std::vector<llvm::Value *> args;
-    struct OwnedStringArgument {
-      llvm::Value *loweredValue;
-      std::shared_ptr<zir::Type> type;
-    };
-    std::vector<OwnedStringArgument> ownedStringArguments;
-
-    auto recordOwnedStringArgument =
-        [&](const std::shared_ptr<zir::Value> &argument,
-            llvm::Value *loweredValue, zir::CallInst::ArgumentMode mode) {
-          if (argument && isOwnedStringType(argument->getType()) &&
-              mode == zir::CallInst::ArgumentMode::Transfer) {
-            ownedStringArguments.push_back({loweredValue, argument->getType()});
-          }
-        };
-    auto releaseOwnedStringArguments = [&]() {
-      for (const auto &argument : ownedStringArguments) {
-        emitStringReleaseIfNeeded(argument.loweredValue, argument.type);
-      }
-    };
 
     if (callInst.isIndirect()) {
       auto *calleePtr = lowerZIRRValue(callInst.getCalleeValue());
@@ -738,10 +715,8 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         const auto &arg = callInst.getArguments()[i];
         auto *lowered = lowerZIRRValue(arg);
         args.push_back(lowered);
-        recordOwnedStringArgument(arg, lowered, callInst.getArgumentModes()[i]);
       }
       auto *call = builder_.CreateCall(fnTy, calleePtr, args);
-      releaseOwnedStringArguments();
       if (callInst.getResult()) {
         zirValueMap_[callInst.getResult().get()] = call;
         if (callInst.returnsRef()) {
@@ -868,23 +843,7 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
           arg = builder_.CreateFPExt(arg, f64Ty, "cvararg.fpext");
         }
       }
-      bool isBorrowedSelfArg =
-          zirIt != zirFunctionMap_.end() && i == 0 &&
-          !zirIt->second->ownerTypeCodegenName.empty() &&
-          i < zirIt->second->getArguments().size() &&
-          zirIt->second->getArguments()[i]->getRawName() == "self";
-      if (!isRef && i < fixedParamCount && !isBorrowedSelfArg &&
-          !(calleeParamType && isWeakClassType(calleeParamType)) &&
-          isClassType(callInst.getArguments()[i]->getType()) &&
-          callInst.getArgumentModes()[i] ==
-              zir::CallInst::ArgumentMode::Borrow) {
-        emitRetainIfNeeded(arg, callInst.getArguments()[i]->getType());
-      }
       args.push_back(arg);
-      if (!isRef) {
-        recordOwnedStringArgument(callInst.getArguments()[i], arg,
-                                  callInst.getArgumentModes()[i]);
-      }
     }
     if (hasVariadicParameter) {
       auto *elemTy = toLLVMType(*variadicElementType);
@@ -1018,7 +977,6 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
     if (!call) {
       call = builder_.CreateCall(callee, args);
     }
-    releaseOwnedStringArguments();
     if (callInst.getResult()) {
       zirValueMap_[callInst.getResult().get()] = call;
       if (callInst.returnsRef()) {
@@ -1281,14 +1239,16 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
   }
   case OpCode::Destroy: {
     const auto &destroyInst = static_cast<const DestroyInst &>(inst);
-    emitManagedRelease(lowerZIRRValue(destroyInst.getValue()),
-                       destroyInst.getValue()->getType());
+    emitOwnershipRelease(lowerZIRRValue(destroyInst.getValue()),
+                         destroyInst.getValue()->getType(),
+                         destroyInst.getValue()->getOwnership());
     return;
   }
   case OpCode::Release: {
     const auto &releaseInst = static_cast<const ReleaseInst &>(inst);
-    emitManagedRelease(lowerZIRRValue(releaseInst.getValue()),
-                       releaseInst.getValue()->getType());
+    emitOwnershipRelease(lowerZIRRValue(releaseInst.getValue()),
+                         releaseInst.getValue()->getType(),
+                         releaseInst.getValue()->getOwnership());
     return;
   }
   }

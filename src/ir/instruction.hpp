@@ -292,9 +292,14 @@ public:
   }
   const std::shared_ptr<Value> &getVariadicPack() const { return variadicPack; }
   std::string toString() const override {
-    std::string s =
-        (result ? result->getName() + " = " : "") + "call @" + funcName + "(";
+    std::string s = result ? result->getName() + " = call " : "call ";
+    s += calleeValue ? calleeValue->getName() : "@" + funcName;
+    s += "(";
     for (size_t i = 0; i < args.size(); ++i) {
+      if (containsManagedValues(args[i]->getType())) {
+        s += argumentModes_[i] == ArgumentMode::Transfer ? "transfer "
+                                                         : "borrow ";
+      }
       s += args[i]->getTypeName() + " " + args[i]->getName() +
            (i < args.size() - 1 ? ", " : "");
     }

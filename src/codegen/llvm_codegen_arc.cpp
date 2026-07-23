@@ -110,6 +110,20 @@ void LLVMCodeGen::emitManagedRelease(
   }
 }
 
+void LLVMCodeGen::emitOwnershipRelease(
+    llvm::Value *value, const std::shared_ptr<zir::Type> &type,
+    zir::ValueOwnership ownership) {
+  if (ownership == zir::ValueOwnership::OwnedStrong &&
+      isWeakClassType(type)) {
+    auto strongType = std::make_shared<zir::ClassType>(
+        *std::static_pointer_cast<zir::ClassType>(type));
+    strongType->setWeak(false);
+    emitReleaseIfNeeded(value, strongType);
+    return;
+  }
+  emitManagedRelease(value, type);
+}
+
 void LLVMCodeGen::emitRetainIfNeeded(llvm::Value *value,
                                      const std::shared_ptr<zir::Type> &type) {
   if (isOwnedStringType(type)) {

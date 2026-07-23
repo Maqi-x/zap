@@ -12,6 +12,7 @@ namespace {
 using zir::ArrayType;
 using zir::ClassType;
 using zir::FunctionPointerType;
+using zir::ParameterOwnership;
 using zir::PointerType;
 using zir::PrimitiveType;
 using zir::RecordType;
@@ -66,6 +67,14 @@ bool testStructuralTypes() {
       std::vector<std::shared_ptr<Type>>{lhsArray}, primitive(TypeKind::Bool));
   auto rhsFunction = std::make_shared<FunctionPointerType>(
       std::vector<std::shared_ptr<Type>>{rhsArray}, primitive(TypeKind::Bool));
+  auto borrowedFunction = std::make_shared<FunctionPointerType>(
+      std::vector<std::shared_ptr<Type>>{zir::makeStringType()},
+      primitive(TypeKind::Void),
+      std::vector<ParameterOwnership>{ParameterOwnership::Borrow});
+  auto transferringFunction = std::make_shared<FunctionPointerType>(
+      std::vector<std::shared_ptr<Type>>{zir::makeStringType()},
+      primitive(TypeKind::Void),
+      std::vector<ParameterOwnership>{ParameterOwnership::Transfer});
 
   return expect(types.same(lhsPointer, rhsPointer),
                 "equal pointer types have different identities") &&
@@ -76,7 +85,9 @@ bool testStructuralTypes() {
          expect(!types.same(lhsArray, differentArray),
                 "array size is absent from type identity") &&
          expect(types.same(lhsFunction, rhsFunction),
-                "equal function types have different identities");
+                "equal function types have different identities") &&
+         expect(!types.same(borrowedFunction, transferringFunction),
+                "function parameter ownership is absent from type identity");
 }
 
 bool testNominalAndQualifiedTypes() {

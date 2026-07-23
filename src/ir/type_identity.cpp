@@ -69,8 +69,9 @@ private:
       tag(IdentityTag::FunctionPointer);
       const auto &function = static_cast<const FunctionPointerType &>(type);
       number(function.getParams().size());
-      for (const auto &parameter : function.getParams()) {
-        append(*parameter, atoms);
+      for (size_t i = 0; i < function.getParams().size(); ++i) {
+        append(*function.getParams()[i], atoms);
+        number(static_cast<uint64_t>(function.getParameterOwnership()[i]));
       }
       append(*function.getReturnType(), atoms);
       return;

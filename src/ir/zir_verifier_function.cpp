@@ -699,6 +699,7 @@ private:
     }
 
     std::vector<std::shared_ptr<Type>> parameterTypes;
+    std::vector<ParameterOwnership> parameterOwnership;
     std::shared_ptr<Type> returnType;
     bool variadic = false;
     if (call.isIndirect()) {
@@ -713,6 +714,7 @@ private:
         return;
       }
       parameterTypes = functionType->getParams();
+      parameterOwnership = functionType->getParameterOwnership();
       returnType = functionType->getReturnType();
     } else {
       const auto *callee = module_.findFunction(call.getFunctionName());
@@ -724,6 +726,10 @@ private:
       for (const auto &argument : callee->getArguments()) {
         if (argument && !argument->isVariadicPack()) {
           parameterTypes.push_back(argument->getType());
+          parameterOwnership.push_back(
+              isOwned(argument->getOwnership())
+                  ? ParameterOwnership::Transfer
+                  : ParameterOwnership::Borrow);
         }
       }
       returnType = callee->getReturnType();
@@ -774,6 +780,16 @@ private:
     }
     for (size_t i = 0; i < call.getArguments().size(); ++i) {
       const auto &argument = call.getArguments()[i];
+      const auto expectedMode =
+          i < parameterOwnership.size() &&
+                  parameterOwnership[i] == ParameterOwnership::Transfer
+              ? CallInst::ArgumentMode::Transfer
+              : CallInst::ArgumentMode::Borrow;
+      if (call.getArgumentModes()[i] != expectedMode) {
+        error(VerificationErrorCode::InvalidCall, &block, index,
+              "call argument ownership does not match parameter contract: " +
+                  std::to_string(i));
+      }
       if (call.getArgumentModes()[i] == CallInst::ArgumentMode::Transfer &&
           !ownsManagedValue(argument)) {
         error(VerificationErrorCode::InvalidCall, &block, index,

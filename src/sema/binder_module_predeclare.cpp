@@ -767,6 +767,7 @@ void Binder::predeclareModuleValues(ModuleState &module) {
           extDecl->name_, std::move(params), std::move(retType), linkName,
           module.info->moduleName, extDecl->visibility_, false,
           extDecl->isCVariadic_);
+      symbol->isExternal = true;
       validateAndApplyFunctionAttributes(*extDecl, symbol, true);
       if (symbol->hasNoMangle ||
           (symbol->hasExternC && symbol->externAbi == "C")) {

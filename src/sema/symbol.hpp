@@ -72,6 +72,7 @@ public:
   bool isStatic = false;
   bool isConstructor = false;
   bool isDestructor = false;
+  bool isExternal = false;
   bool returnsRef = false;
   int vtableSlot = -1;
   std::string ownerTypeCodegenName;

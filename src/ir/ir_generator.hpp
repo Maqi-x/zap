@@ -78,6 +78,9 @@ private:
                  ValueOwnership ownership = ValueOwnership::Borrowed);
   void emitInitializationStore(std::shared_ptr<Value> value,
                                std::shared_ptr<Value> destination);
+  CallInst::ArgumentMode
+  prepareCallArgument(std::shared_ptr<Value> &value,
+                      ParameterOwnership parameterOwnership);
   void emitReturn(std::shared_ptr<Value> value = nullptr);
   std::string createBlockLabel(const std::string &prefix);
   std::shared_ptr<Value>

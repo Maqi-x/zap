@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -320,25 +321,50 @@ public:
   size_t getSize() const { return size; }
 };
 
+enum class ParameterOwnership {
+  Borrow,
+  Transfer,
+};
+
+inline bool containsManagedValues(const std::shared_ptr<Type> &type);
+
 class FunctionPointerType : public Type {
   std::vector<std::shared_ptr<Type>> params;
+  std::vector<ParameterOwnership> parameterOwnership;
   std::shared_ptr<Type> returnType;
 
 public:
   FunctionPointerType(std::vector<std::shared_ptr<Type>> p,
-                      std::shared_ptr<Type> r)
-      : params(std::move(p)), returnType(std::move(r)) {}
+                      std::shared_ptr<Type> r,
+                      std::vector<ParameterOwnership> ownership = {})
+      : params(std::move(p)), parameterOwnership(std::move(ownership)),
+        returnType(std::move(r)) {
+    if (parameterOwnership.empty()) {
+      parameterOwnership.assign(params.size(), ParameterOwnership::Borrow);
+    } else if (parameterOwnership.size() != params.size()) {
+      throw std::invalid_argument(
+          "function pointer parameter ownership count mismatch");
+    }
+  }
   TypeKind getKind() const override { return TypeKind::FunctionPointer; }
   std::string toString() const override {
     std::string s = "*fun(";
     for (size_t i = 0; i < params.size(); ++i) {
       if (i)
         s += ", ";
+      if (containsManagedValues(params[i])) {
+        s += parameterOwnership[i] == ParameterOwnership::Transfer
+                 ? "transfer "
+                 : "borrow ";
+      }
       s += params[i]->toString();
     }
     return s + ") " + returnType->toString();
   }
   const std::vector<std::shared_ptr<Type>> &getParams() const { return params; }
+  const std::vector<ParameterOwnership> &getParameterOwnership() const {
+    return parameterOwnership;
+  }
   const std::shared_ptr<Type> &getReturnType() const { return returnType; }
 };
 

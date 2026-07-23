@@ -464,6 +464,50 @@ bool testCallRequiresOwnershipMatchingArguments() {
                 "transfer of a borrowed call argument was not diagnosed");
 }
 
+bool testCallConsumesExplicitManagedCopy() {
+  Module module("call-explicit-copy");
+  auto stringType = zir::makeStringType();
+
+  auto callee =
+      std::make_unique<Function>("consume", primitive(TypeKind::Void));
+  auto parameter = std::make_shared<zir::Argument>("value", stringType);
+  parameter->setOwnership(ValueOwnership::OwnedStrong);
+  callee->arguments.push_back(parameter);
+  auto calleeEntry = std::make_unique<BasicBlock>("entry");
+  calleeEntry->addInstruction(std::make_unique<DestroyInst>(parameter));
+  calleeEntry->addInstruction(std::make_unique<ReturnInst>());
+  callee->addBlock(std::move(calleeEntry));
+  module.addFunction(std::move(callee));
+
+  auto caller =
+      std::make_unique<Function>("caller", primitive(TypeKind::Void));
+  auto source = std::make_shared<zir::Argument>("source", stringType);
+  caller->arguments.push_back(source);
+  auto copied = reg("copied", stringType);
+  copied->setOwnership(ValueOwnership::OwnedStrong);
+  auto callerEntry = std::make_unique<BasicBlock>("entry");
+  callerEntry->addInstruction(std::make_unique<CopyInst>(copied, source));
+  auto call = std::make_unique<zir::CallInst>(
+      nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{copied},
+      std::vector<bool>{false}, nullptr, false,
+      zir::CallInst::ResultOwnership::Borrowed,
+      std::vector<zir::CallInst::ArgumentMode>{
+          zir::CallInst::ArgumentMode::Transfer});
+  const auto callText = call->toString();
+  callerEntry->addInstruction(std::move(call));
+  callerEntry->addInstruction(std::make_unique<ReturnInst>());
+  caller->addBlock(std::move(callerEntry));
+  module.addFunction(std::move(caller));
+
+  return expect(callText.find("transfer %String %copied") !=
+                    std::string::npos,
+                "call did not render its transfer contract") &&
+         expect(ZirVerifier().verify(module).ok(),
+                "call rejected an explicit managed copy transfer") &&
+         expect(ZirVerifier().verifyOwnershipObligations(module).ok(),
+                "call did not consume its explicit managed copy");
+}
+
 bool testOwnershipTransferAcrossControlFlow() {
   Module module("ownership-control-flow");
   auto classType = std::make_shared<ClassType>("Node");
@@ -2075,6 +2119,7 @@ int main() {
   ok = testManagedInitializationRequiresOwnershipTransfer() && ok;
   ok = testCastRequiresOwnershipMatchingSourceAndTarget() && ok;
   ok = testCallRequiresOwnershipMatchingArguments() && ok;
+  ok = testCallConsumesExplicitManagedCopy() && ok;
   ok = testOwnershipTransferAcrossControlFlow() && ok;
   ok = testPhiTransfersOwnershipOnIncomingEdge() && ok;
   ok = testPhiAllowsSeparateAlternativeOwnershipTransfers() && ok;

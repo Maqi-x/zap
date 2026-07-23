@@ -312,8 +312,16 @@ std::shared_ptr<zir::Type> Binder::mapType(const TypeNode &typeNode) {
               : std::make_shared<zir::PrimitiveType>(zir::TypeKind::Void);
       if (!ret)
         return nullptr;
+      std::vector<zir::ParameterOwnership> ownership;
+      ownership.reserve(params.size());
+      for (const auto &param : params) {
+        ownership.push_back(zir::containsManagedValues(param)
+                                ? zir::ParameterOwnership::Transfer
+                                : zir::ParameterOwnership::Borrow);
+      }
       return std::make_shared<zir::FunctionPointerType>(std::move(params),
-                                                        std::move(ret));
+                                                        std::move(ret),
+                                                        std::move(ownership));
     }
 
     std::vector<std::string> parts = typeNode.qualifiers;

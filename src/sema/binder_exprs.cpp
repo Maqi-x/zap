@@ -540,10 +540,21 @@ void Binder::visit(ConstId &node) {
     if (match) {
       // Build FunctionPointerType from the matched overload's signature
       std::vector<std::shared_ptr<zir::Type>> params;
-      for (const auto &p : match->parameters)
+      std::vector<zir::ParameterOwnership> ownership;
+      for (size_t i = 0; i < match->parameters.size(); ++i) {
+        const auto &p = match->parameters[i];
         params.push_back(p->type);
+        const bool borrowedSelf =
+            i == 0 && !match->ownerTypeCodegenName.empty() &&
+            p->name == "self";
+        const bool transfers =
+            !match->isExternal && !p->is_ref && !p->is_variadic_pack &&
+            !borrowedSelf && zir::containsManagedValues(p->type);
+        ownership.push_back(transfers ? zir::ParameterOwnership::Transfer
+                                      : zir::ParameterOwnership::Borrow);
+      }
       auto fpType = std::make_shared<zir::FunctionPointerType>(
-          std::move(params), match->returnType);
+          std::move(params), match->returnType, std::move(ownership));
       expressionStack_.push(
           std::make_unique<BoundFunctionReference>(match, fpType));
       return;

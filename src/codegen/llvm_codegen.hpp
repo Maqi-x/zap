@@ -120,6 +120,9 @@ private:
                          const std::shared_ptr<zir::Type> &type);
   void emitManagedRelease(llvm::Value *value,
                           const std::shared_ptr<zir::Type> &type);
+  void emitOwnershipRelease(llvm::Value *value,
+                            const std::shared_ptr<zir::Type> &type,
+                            zir::ValueOwnership ownership);
   void emitZIRFunctionReleases();
   void emitRetainIfNeeded(llvm::Value *value,
                           const std::shared_ptr<zir::Type> &type);

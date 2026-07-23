@@ -53,6 +53,10 @@ public:
   std::string toString() const {
     std::string res = "@" + name + "(";
     for (size_t i = 0; i < arguments.size(); ++i) {
+      if (containsManagedValues(arguments[i]->getType())) {
+        res += isOwned(arguments[i]->getOwnership()) ? "transfer "
+                                                     : "borrow ";
+      }
       res += arguments[i]->getTypeName() + " " + arguments[i]->getName();
       if (i < arguments.size() - 1)
         res += ", ";
