@@ -166,6 +166,13 @@ if(BUILD_TESTING)
     target_compile_options(zap-zir-verifier-tests PRIVATE -Wall -Wextra)
     add_test(NAME zir-verifier COMMAND zap-zir-verifier-tests)
 
+    add_executable(zap-ownership-lowering-tests
+        tests/cpp/ownership_lowering_test.cpp
+    )
+    target_link_libraries(zap-ownership-lowering-tests PRIVATE zap_zir_verifier)
+    target_compile_options(zap-ownership-lowering-tests PRIVATE -Wall -Wextra)
+    add_test(NAME ownership-lowering COMMAND zap-ownership-lowering-tests)
+
     add_executable(zap-borrow-analysis-tests
         tests/cpp/borrow_analysis_test.cpp
     )
