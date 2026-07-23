@@ -519,6 +519,9 @@ void Binder::visit(ConstId &node) {
           static_cast<const zir::FunctionPointerType &>(*expected);
       for (const auto &overload : overloadSet->overloads) {
         if (overload->parameters.size() == fpType.getParams().size()) {
+          if (overload->returnsRef != fpType.returnsRef()) {
+            continue;
+          }
           if (overload->resultBorrow != fpType.getResultBorrow()) {
             continue;
           }
@@ -570,7 +573,7 @@ void Binder::visit(ConstId &node) {
       }
       auto fpType = std::make_shared<zir::FunctionPointerType>(
           std::move(params), match->returnType, std::move(ownership),
-          std::move(escape), match->resultBorrow);
+          std::move(escape), match->resultBorrow, match->returnsRef);
       expressionStack_.push(
           std::make_unique<BoundFunctionReference>(match, fpType));
       return;

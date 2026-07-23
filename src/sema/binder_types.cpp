@@ -354,7 +354,8 @@ std::shared_ptr<zir::Type> Binder::mapType(const TypeNode &typeNode) {
           error(typeNode.span,
                 "Function pointer 'borrows' source must be a valid parameter "
                 "index.");
-        } else if (ret->getIntrinsicKind() !=
+        } else if (typeNode.funPtrReturnsRef ||
+                   ret->getIntrinsicKind() !=
                    zir::IntrinsicTypeKind::StringView) {
           error(typeNode.span,
                 "Function pointer 'borrows' requires a StringView result.");
@@ -374,7 +375,7 @@ std::shared_ptr<zir::Type> Binder::mapType(const TypeNode &typeNode) {
       }
       return std::make_shared<zir::FunctionPointerType>(
           std::move(params), std::move(ret), std::move(ownership),
-          std::move(escape), resultBorrow);
+          std::move(escape), resultBorrow, typeNode.funPtrReturnsRef);
     }
 
     std::vector<std::string> parts = typeNode.qualifiers;

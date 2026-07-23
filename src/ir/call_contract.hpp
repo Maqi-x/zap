@@ -23,6 +23,8 @@ resolveCallParameterContract(const Module &module, const CallInst &call,
 ResultBorrowContract resolveCallResultBorrowContract(const Module &module,
                                                      const CallInst &call);
 
+bool callReturnsRef(const Module &module, const CallInst &call);
+
 bool callTransfersOwnership(const Module &module, const CallInst &call,
                             size_t argumentIndex);
 

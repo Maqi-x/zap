@@ -224,28 +224,25 @@ private:
   std::vector<std::shared_ptr<Value>> args;
   std::vector<bool> argIsRef;
   std::shared_ptr<Value> variadicPack;
-  bool returnsRef_ = false;
 
 public:
   CallInst(std::shared_ptr<Value> res, std::string name,
            std::vector<std::shared_ptr<Value>> arguments,
            std::vector<bool> argumentIsRef = {},
-           std::shared_ptr<Value> pack = nullptr, bool returnsRef = false)
+           std::shared_ptr<Value> pack = nullptr)
       : result(std::move(res)), funcName(std::move(name)),
         args(std::move(arguments)), argIsRef(std::move(argumentIsRef)),
-        variadicPack(std::move(pack)), returnsRef_(returnsRef) {}
+        variadicPack(std::move(pack)) {}
   // Indirect call constructor
   CallInst(std::shared_ptr<Value> res, std::shared_ptr<Value> callee,
-           std::vector<std::shared_ptr<Value>> arguments,
-           bool returnsRef = false)
+           std::vector<std::shared_ptr<Value>> arguments)
       : result(std::move(res)), calleeValue(std::move(callee)),
-        args(std::move(arguments)), returnsRef_(returnsRef) {}
+        args(std::move(arguments)) {}
   OpCode getOpCode() const override { return OpCode::Call; }
   const std::shared_ptr<Value> &getResult() const { return result; }
   const std::string &getFunctionName() const { return funcName; }
   const std::shared_ptr<Value> &getCalleeValue() const { return calleeValue; }
   bool isIndirect() const { return calleeValue != nullptr; }
-  bool returnsRef() const { return returnsRef_; }
   const std::vector<std::shared_ptr<Value>> &getArguments() const {
     return args;
   }

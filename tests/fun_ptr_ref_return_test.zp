@@ -1,0 +1,13 @@
+global var g_value: Int = 42;
+
+fun getRef() ref Int {
+    return g_value;
+}
+
+fun main() Int {
+    var getter: *fun() ref Int = getRef;
+    if getter() != 42 { return 1; }
+    g_value = 100;
+    if getter() != 100 { return 2; }
+    return 0;
+}

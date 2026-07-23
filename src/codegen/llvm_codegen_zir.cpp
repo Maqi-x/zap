@@ -719,8 +719,10 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
       std::vector<llvm::Type *> paramTypes;
       for (const auto &p : fpType.getParams())
         paramTypes.push_back(toLLVMType(*p));
-      auto *fnTy = llvm::FunctionType::get(toLLVMType(*fpType.getReturnType()),
-                                           paramTypes, false);
+      auto *returnType = fpType.returnsRef()
+                             ? llvm::PointerType::getUnqual(ctx_)
+                             : toLLVMType(*fpType.getReturnType());
+      auto *fnTy = llvm::FunctionType::get(returnType, paramTypes, false);
       for (size_t i = 0; i < callInst.getArguments().size(); ++i) {
         const auto &arg = callInst.getArguments()[i];
         auto *lowered = lowerZIRRValue(arg);
@@ -729,7 +731,7 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
       auto *call = builder_.CreateCall(fnTy, calleePtr, args);
       if (callInst.getResult()) {
         zirValueMap_[callInst.getResult().get()] = call;
-        if (callInst.returnsRef()) {
+        if (fpType.returnsRef()) {
           refReturnValues_.insert(callInst.getResult().get());
         }
       }
@@ -989,7 +991,7 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
     }
     if (callInst.getResult()) {
       zirValueMap_[callInst.getResult().get()] = call;
-      if (callInst.returnsRef()) {
+      if (zirIt != zirFunctionMap_.end() && zirIt->second->returnsRef) {
         refReturnValues_.insert(callInst.getResult().get());
       }
     }

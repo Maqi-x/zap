@@ -75,7 +75,7 @@ void addOwnedStringAndView(BasicBlock &block, const std::string &name,
   auto view = reg(name + ".view", zir::makeStringViewType());
   block.addInstruction(std::make_unique<CallInst>(
       owner, "make", std::vector<std::shared_ptr<zir::Value>>{},
-      std::vector<bool>{}, nullptr, false));
+      std::vector<bool>{}, nullptr));
   block.addInstruction(std::make_unique<BorrowInst>(view, owner));
   block.addInstruction(std::make_unique<StoreInst>(view, slot, storeMode));
 }
@@ -164,7 +164,7 @@ bool testPhiProvenanceSelectsIncomingOwner() {
   auto leftView = reg("left.view", stringViewType);
   left->addInstruction(std::make_unique<CallInst>(
       leftOwner, "make", std::vector<std::shared_ptr<zir::Value>>{},
-      std::vector<bool>{}, nullptr, false));
+      std::vector<bool>{}, nullptr));
   left->addInstruction(std::make_unique<BorrowInst>(leftView, leftOwner));
   left->addInstruction(std::make_unique<BranchInst>("merge"));
 
@@ -174,7 +174,7 @@ bool testPhiProvenanceSelectsIncomingOwner() {
   auto rightView = reg("right.view", stringViewType);
   right->addInstruction(std::make_unique<CallInst>(
       rightOwner, "make", std::vector<std::shared_ptr<zir::Value>>{},
-      std::vector<bool>{}, nullptr, false));
+      std::vector<bool>{}, nullptr));
   right->addInstruction(std::make_unique<BorrowInst>(rightView, rightOwner));
   right->addInstruction(std::make_unique<BranchInst>("merge"));
 
@@ -285,7 +285,7 @@ bool testVerifierReportsLocalOwnerThroughPhi() {
   auto localView = reg("local.view", stringViewType);
   local->addInstruction(std::make_unique<CallInst>(
       localOwner, "make", std::vector<std::shared_ptr<zir::Value>>{},
-      std::vector<bool>{}, nullptr, false));
+      std::vector<bool>{}, nullptr));
   local->addInstruction(std::make_unique<BorrowInst>(localView, localOwner));
   local->addInstruction(std::make_unique<BranchInst>("merge"));
 
@@ -363,7 +363,7 @@ bool testVerifierReportsOwnerThroughStorageAndDerivedView() {
   auto slot = reg("slot", std::make_shared<PointerType>(stringViewType));
   entry->addInstruction(std::make_unique<CallInst>(
       owner, "make", std::vector<std::shared_ptr<zir::Value>>{},
-      std::vector<bool>{}, nullptr, false));
+      std::vector<bool>{}, nullptr));
   entry->addInstruction(std::make_unique<BorrowInst>(view, owner));
   entry->addInstruction(
       std::make_unique<zir::AllocaInst>(slot, stringViewType));
@@ -411,7 +411,7 @@ bool testVerifierAllowsOverwrittenLocalBorrowReturn() {
   auto slot = reg("slot", std::make_shared<PointerType>(stringViewType));
   entry->addInstruction(std::make_unique<CallInst>(
       owner, "make", std::vector<std::shared_ptr<zir::Value>>{},
-      std::vector<bool>{}, nullptr, false));
+      std::vector<bool>{}, nullptr));
   entry->addInstruction(std::make_unique<BorrowInst>(localView, owner));
   entry->addInstruction(
       std::make_unique<zir::AllocaInst>(slot, stringViewType));
@@ -512,7 +512,7 @@ bool testVerifierRejectsLocalBorrowForwardingToUnspecifiedParameter() {
   auto entry = std::make_unique<BasicBlock>("entry");
   entry->addInstruction(std::make_unique<CallInst>(
       owner, "make", std::vector<std::shared_ptr<zir::Value>>{},
-      std::vector<bool>{}, nullptr, false));
+      std::vector<bool>{}, nullptr));
   entry->addInstruction(std::make_unique<BorrowInst>(view, owner));
   entry->addInstruction(std::make_unique<CallInst>(
       nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{view}));
@@ -547,11 +547,11 @@ bool testVerifierAllowsLocalBorrowForwardingToNoEscapeParameter() {
   auto entry = std::make_unique<BasicBlock>("entry");
   entry->addInstruction(std::make_unique<CallInst>(
       owner, "make", std::vector<std::shared_ptr<zir::Value>>{},
-      std::vector<bool>{}, nullptr, false));
+      std::vector<bool>{}, nullptr));
   entry->addInstruction(std::make_unique<BorrowInst>(view, owner));
   entry->addInstruction(std::make_unique<CallInst>(
       nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{view},
-      std::vector<bool>{false}, nullptr, false));
+      std::vector<bool>{false}, nullptr));
   entry->addInstruction(std::make_unique<zir::DestroyInst>(owner));
   entry->addInstruction(std::make_unique<ReturnInst>());
   function->addBlock(std::move(entry));
@@ -582,7 +582,7 @@ bool testVerifierAllowsNoEscapeForwarding() {
   auto entry = std::make_unique<BasicBlock>("entry");
   entry->addInstruction(std::make_unique<CallInst>(
       nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{view},
-      std::vector<bool>{false}, nullptr, false));
+      std::vector<bool>{false}, nullptr));
   entry->addInstruction(std::make_unique<ReturnInst>());
   function->addBlock(std::move(entry));
   module.addFunction(std::move(function));
@@ -644,11 +644,11 @@ bool testVerifierTracksBorrowedCallResultToLocalOwner() {
   auto result = reg("result", stringViewType);
   entry->addInstruction(std::make_unique<CallInst>(
       owner, "make", std::vector<std::shared_ptr<zir::Value>>{},
-      std::vector<bool>{}, nullptr, false));
+      std::vector<bool>{}, nullptr));
   entry->addInstruction(std::make_unique<BorrowInst>(source, owner));
   entry->addInstruction(std::make_unique<CallInst>(
       result, "tail", std::vector<std::shared_ptr<zir::Value>>{source},
-      std::vector<bool>{false}, nullptr, false));
+      std::vector<bool>{false}, nullptr));
   entry->addInstruction(std::make_unique<ReturnInst>(result));
   function->addBlock(std::move(entry));
   module.addFunction(std::move(function));
@@ -678,10 +678,10 @@ bool testIndirectBorrowedCallResultExtendsTemporaryOwnerLiveness() {
   auto result = reg("result", stringViewType);
   entry->addInstruction(std::make_unique<CallInst>(
       owner, "make", std::vector<std::shared_ptr<zir::Value>>{},
-      std::vector<bool>{}, nullptr, false));
+      std::vector<bool>{}, nullptr));
   entry->addInstruction(std::make_unique<BorrowInst>(source, owner));
   entry->addInstruction(std::make_unique<CallInst>(
-      result, tail, std::vector<std::shared_ptr<zir::Value>>{source}, false));
+      result, tail, std::vector<std::shared_ptr<zir::Value>>{source}));
   entry->addInstruction(std::make_unique<CallInst>(
       nullptr, "consume",
       std::vector<std::shared_ptr<zir::Value>>{result}));
@@ -709,7 +709,7 @@ bool testVerifierAllowsForwardedBorrowedCallResult() {
   auto entry = std::make_unique<BasicBlock>("entry");
   entry->addInstruction(std::make_unique<CallInst>(
       result, "tail", std::vector<std::shared_ptr<zir::Value>>{source},
-      std::vector<bool>{false}, nullptr, false));
+      std::vector<bool>{false}, nullptr));
   entry->addInstruction(std::make_unique<ReturnInst>(result));
   function->addBlock(std::move(entry));
   module.addFunction(std::move(function));
@@ -735,7 +735,7 @@ bool testVerifierRejectsReturnedNoEscapeCallResult() {
   auto entry = std::make_unique<BasicBlock>("entry");
   entry->addInstruction(std::make_unique<CallInst>(
       result, "tail", std::vector<std::shared_ptr<zir::Value>>{source},
-      std::vector<bool>{false}, nullptr, false));
+      std::vector<bool>{false}, nullptr));
   entry->addInstruction(std::make_unique<ReturnInst>(result));
   function->addBlock(std::move(entry));
   module.addFunction(std::move(function));

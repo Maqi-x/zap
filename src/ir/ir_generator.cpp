@@ -820,8 +820,7 @@ void BoundIRGenerator::visit(sema::BoundFunctionCall &node) {
   auto reg = createRegister(resultType, ownsResult ? ownedForType(node.type)
                                                    : ValueOwnership::Borrowed);
   currentBlock_->addInstruction(std::make_unique<CallInst>(
-      reg, node.symbol->linkName, args, node.argumentIsRef, variadicPack,
-      node.symbol->returnsRef));
+      reg, node.symbol->linkName, args, node.argumentIsRef, variadicPack));
 
   // If ref-returning function is used as value (not address), load it
   if (node.symbol->returnsRef && !evaluateAsAddress_) {
@@ -860,12 +859,23 @@ void BoundIRGenerator::visit(sema::BoundIndirectCall &node) {
     args.push_back(std::move(argument));
   }
 
-  const bool ownsResult = containsManagedValues(node.type);
-  auto reg = createRegister(node.type, ownsResult ? ownedForType(node.type)
-                                                  : ValueOwnership::Borrowed);
+  const bool returnsRef = functionType->returnsRef();
+  auto resultType = returnsRef
+                        ? std::static_pointer_cast<zir::Type>(
+                              std::make_shared<PointerType>(node.type))
+                        : node.type;
+  const bool ownsResult = !returnsRef && containsManagedValues(node.type);
+  auto reg = createRegister(resultType, ownsResult ? ownedForType(node.type)
+                                                   : ValueOwnership::Borrowed);
   currentBlock_->addInstruction(std::make_unique<CallInst>(
-      reg, calleeVal, std::move(args), false));
-  valueStack_.push(reg);
+      reg, calleeVal, std::move(args)));
+  if (returnsRef && !evaluateAsAddress_) {
+    auto loadReg = createRegister(node.type);
+    currentBlock_->addInstruction(std::make_unique<LoadInst>(loadReg, reg));
+    valueStack_.push(loadReg);
+  } else {
+    valueStack_.push(reg);
+  }
 }
 
 std::shared_ptr<Value>
@@ -2045,7 +2055,7 @@ void BoundIRGenerator::visit(sema::BoundNewExpression &node) {
 
     currentBlock_->addInstruction(std::make_unique<CallInst>(
         nullptr, node.constructor->linkName, std::move(args),
-        std::move(argumentIsRef), nullptr, false));
+        std::move(argumentIsRef), nullptr));
   }
 
   valueStack_.push(result);

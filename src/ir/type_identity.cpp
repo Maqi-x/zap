@@ -75,6 +75,7 @@ private:
         number(static_cast<uint64_t>(function.getParameterEscapes()[i]));
       }
       append(*function.getReturnType(), atoms);
+      number(function.returnsRef() ? 1 : 0);
       number(function.getResultBorrow().hasSource() ? 1 : 0);
       if (function.getResultBorrow().hasSource()) {
         number(*function.getResultBorrow().sourceParameter());

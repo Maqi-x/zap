@@ -896,6 +896,10 @@ std::unique_ptr<TypeNode> Parser::parseType() {
                  eat(TokenType::COMMA).type == TokenType::COMMA);
       }
       Token rparenToken = eat(TokenType::RPAREN);
+      if (peek().type == TokenType::REF) {
+        eat(TokenType::REF);
+        funPtrType->funPtrReturnsRef = true;
+      }
       if (peek().type != TokenType::SEMICOLON &&
           peek().type != TokenType::COMMA && peek().type != TokenType::RPAREN &&
           peek().type != TokenType::ASSIGN &&

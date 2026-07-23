@@ -1,6 +1,7 @@
 #include "zir_verifier_internal.hpp"
 
 #include "borrow_verifier.hpp"
+#include "call_contract.hpp"
 #include "control_flow_graph.hpp"
 #include "ownership_flow.hpp"
 #include "ownership_liveness.hpp"
@@ -658,6 +659,7 @@ private:
     std::vector<ParameterOwnership> parameterOwnership;
     ResultBorrowContract resultBorrow;
     std::shared_ptr<Type> returnType;
+    const bool returnsRef = callReturnsRef(module_, call);
     bool variadic = false;
     if (call.isIndirect()) {
       verifyValue(call.getCalleeValue(), block, index);
@@ -710,13 +712,13 @@ private:
     }
     if (call.getResult() && returnType) {
       auto expectedReturnType = returnType;
-      if (call.returnsRef()) {
+      if (returnsRef) {
         expectedReturnType = std::make_shared<PointerType>(returnType);
       }
       expectSameType(call.getResult()->getType(), expectedReturnType, block,
                      index, "call result type");
       const auto expectedOwnership =
-          !call.returnsRef() && containsManagedValues(returnType)
+          !returnsRef && containsManagedValues(returnType)
               ? ownedForType(returnType)
               : ValueOwnership::Borrowed;
       if (call.getResult()->getOwnership() != expectedOwnership) {

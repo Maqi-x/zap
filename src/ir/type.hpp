@@ -371,16 +371,18 @@ class FunctionPointerType : public Type {
   std::vector<ParameterEscape> parameterEscapes;
   std::shared_ptr<Type> returnType;
   ResultBorrowContract resultBorrow_;
+  bool returnsRef_ = false;
 
 public:
   FunctionPointerType(std::vector<std::shared_ptr<Type>> p,
                       std::shared_ptr<Type> r,
                       std::vector<ParameterOwnership> ownership = {},
                       std::vector<ParameterEscape> escape = {},
-                      ResultBorrowContract resultBorrow = {})
+                      ResultBorrowContract resultBorrow = {},
+                      bool returnsRef = false)
       : params(std::move(p)), parameterOwnership(std::move(ownership)),
         parameterEscapes(std::move(escape)), returnType(std::move(r)),
-        resultBorrow_(resultBorrow) {
+        resultBorrow_(resultBorrow), returnsRef_(returnsRef) {
     if (parameterOwnership.empty()) {
       parameterOwnership.assign(params.size(), ParameterOwnership::Borrow);
     } else if (parameterOwnership.size() != params.size()) {
@@ -424,6 +426,9 @@ public:
       s += params[i]->toString();
     }
     s += ") " + returnType->toString();
+    if (returnsRef_) {
+      s += "*";
+    }
     if (resultBorrow_.hasSource()) {
       s += " borrows(" +
            std::to_string(*resultBorrow_.sourceParameter()) + ")";
@@ -439,6 +444,7 @@ public:
   }
   const std::shared_ptr<Type> &getReturnType() const { return returnType; }
   const ResultBorrowContract &getResultBorrow() const { return resultBorrow_; }
+  bool returnsRef() const { return returnsRef_; }
 };
 
 inline bool containsManagedValues(const std::shared_ptr<Type> &type) {

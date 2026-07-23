@@ -24,6 +24,7 @@ public:
   std::vector<bool> funPtrParamSinks;
   std::vector<bool> funPtrParamNoEscapes;
   std::unique_ptr<TypeNode> funPtrReturn;
+  bool funPtrReturnsRef = false;
   std::optional<std::string> funPtrResultBorrowSource;
   std::unique_ptr<TypeNode> errorType;
   std::unique_ptr<ExpressionNode> arraySize; // nullptr for non-array types
