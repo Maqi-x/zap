@@ -55,8 +55,10 @@ Zap is a modern systems programming language focused on predictable performance,
 
 ### Architecture RFCs
 
-10. [Ownership and ORC RFC](rfc/orc.md)
-    Draft design for ownership-aware ZIR and optimized reference counting. It describes the target model; it is not yet a description of released compiler behavior.
+10. [Ownership-aware ARC RFC](rfc/ownership-aware-arc.md)
+    Draft design for ownership-aware ZIR, predictable ARC semantics, borrow
+    provenance, and scheduled cycle collection. It describes the target model;
+    it is not yet a description of released compiler behavior.
 
 ---
 
