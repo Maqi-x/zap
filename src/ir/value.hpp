@@ -20,8 +20,22 @@ enum class ValueKind {
 
 enum class ValueOwnership {
   Borrowed,
-  Owned,
+  OwnedStrong,
+  OwnedWeak,
+  Owned = OwnedStrong,
 };
+
+inline bool isOwned(ValueOwnership ownership) {
+  return ownership != ValueOwnership::Borrowed;
+}
+
+inline ValueOwnership ownedForType(const std::shared_ptr<Type> &type) {
+  if (type && type->getKind() == TypeKind::Class &&
+      std::static_pointer_cast<ClassType>(type)->isWeak()) {
+    return ValueOwnership::OwnedWeak;
+  }
+  return ValueOwnership::OwnedStrong;
+}
 
 class Value {
   ValueOwnership ownership_ = ValueOwnership::Borrowed;

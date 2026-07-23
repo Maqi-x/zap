@@ -884,6 +884,56 @@ bool testCopyCreatesIndependentOwnership() {
                 "copy left an ownership obligation after both destroys");
 }
 
+bool testWeakCopyTransfersWeakOwnership() {
+  Module module("weak-copy-ownership");
+  auto weakType = std::make_shared<ClassType>("Node");
+  weakType->setWeak(true);
+  auto function =
+      std::make_unique<Function>("valid", primitive(TypeKind::Void));
+  auto source = std::make_shared<zir::Argument>("source", weakType);
+  function->arguments.push_back(source);
+
+  auto copied = reg("copied", weakType);
+  copied->setOwnership(ValueOwnership::OwnedWeak);
+  auto slot = reg("slot", std::make_shared<PointerType>(weakType));
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<zir::AllocaInst>(slot, weakType));
+  entry->addInstruction(std::make_unique<CopyInst>(copied, source));
+  entry->addInstruction(
+      std::make_unique<StoreInst>(copied, slot, StoreMode::Assign));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  return expect(ZirVerifier().verify(module).ok(),
+                "weak copy with an owned weak result was rejected") &&
+         expect(ZirVerifier().verifyOwnershipObligations(module).ok(),
+                "weak store did not consume the owned weak token");
+}
+
+bool testWeakCopyRejectsStrongOwnership() {
+  Module module("weak-copy-strong-ownership");
+  auto weakType = std::make_shared<ClassType>("Node");
+  weakType->setWeak(true);
+  auto function =
+      std::make_unique<Function>("broken", primitive(TypeKind::Void));
+  auto source = std::make_shared<zir::Argument>("source", weakType);
+  function->arguments.push_back(source);
+
+  auto copied = reg("copied", weakType);
+  copied->setOwnership(ValueOwnership::OwnedStrong);
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CopyInst>(copied, source));
+  entry->addInstruction(std::make_unique<DestroyInst>(copied));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  return expect(hasError(ZirVerifier().verify(module),
+                         VerificationErrorCode::InvalidOperand),
+                "weak copy accepted an owned strong result");
+}
+
 bool testOwnershipExitObligationsReportLiveValues() {
   Module module("ownership-exit-obligations");
   auto classType = std::make_shared<ClassType>("Node");
@@ -1986,6 +2036,8 @@ int main() {
   ok = testUseAfterReleaseIsRejected() && ok;
   ok = testUseAfterMoveIsRejected() && ok;
   ok = testCopyCreatesIndependentOwnership() && ok;
+  ok = testWeakCopyTransfersWeakOwnership() && ok;
+  ok = testWeakCopyRejectsStrongOwnership() && ok;
   ok = testOwnershipExitObligationsReportLiveValues() && ok;
   ok = testOwnershipClosurePlanConnectsDefinitionAndExit() && ok;
   ok = testOwnershipClosurePlanUsesCriticalLiveEdge() && ok;

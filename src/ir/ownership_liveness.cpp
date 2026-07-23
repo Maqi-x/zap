@@ -20,7 +20,7 @@ struct LocalStorageProvenance {
 };
 
 bool tracksOwnership(const std::shared_ptr<Value> &value) {
-  return value && value->getOwnership() == ValueOwnership::Owned &&
+  return value && isOwned(value->getOwnership()) &&
          containsManagedValues(value->getType());
 }
 

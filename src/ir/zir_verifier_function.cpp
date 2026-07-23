@@ -268,7 +268,7 @@ private:
   }
 
   static bool ownsManagedValue(const std::shared_ptr<Value> &value) {
-    return value && value->getOwnership() == ValueOwnership::Owned &&
+    return value && isOwned(value->getOwnership()) &&
            containsManagedValues(value->getType());
   }
 
@@ -500,7 +500,7 @@ private:
                 "return ownership does not match its value");
         }
         if (function_.returnsRef &&
-            returnInstruction.getValueOwnership() == ValueOwnership::Owned) {
+            isOwned(returnInstruction.getValueOwnership())) {
           error(VerificationErrorCode::InvalidReturn, &block, index,
                 "ref return cannot transfer ownership");
         }
@@ -526,7 +526,8 @@ private:
       if (!copy.getResult() || !copy.getSource() ||
           !containsManagedValues(copy.getSource()->getType()) ||
           copy.getResult() == copy.getSource() ||
-          copy.getResult()->getOwnership() != ValueOwnership::Owned) {
+          copy.getResult()->getOwnership() !=
+              ownedForType(copy.getSource()->getType())) {
         error(VerificationErrorCode::InvalidOperand, &block, index,
               "copy requires a distinct owned result and managed source");
       } else {
@@ -540,7 +541,8 @@ private:
       verifyValue(move.getSource(), block, index);
       if (!move.getResult() || !ownsManagedValue(move.getSource()) ||
           move.getResult() == move.getSource() ||
-          move.getResult()->getOwnership() != ValueOwnership::Owned) {
+          move.getResult()->getOwnership() !=
+              move.getSource()->getOwnership()) {
         error(VerificationErrorCode::InvalidOperand, &block, index,
               "move requires a distinct owned result and owned managed source");
       } else {
@@ -590,7 +592,8 @@ private:
       } else {
         expectSameType(alloc.getResult()->getType(), alloc.getAllocatedType(),
                        block, index, "alloc result type");
-        if (alloc.getResult()->getOwnership() != ValueOwnership::Owned) {
+        if (alloc.getResult()->getOwnership() !=
+            ValueOwnership::OwnedStrong) {
           error(VerificationErrorCode::InvalidResult, &block, index,
                 "alloc result must be owned");
         }
@@ -616,10 +619,10 @@ private:
         const auto expectedOwnership =
             cast.getTargetType()->getIntrinsicKind() ==
                     IntrinsicTypeKind::String
-                ? ValueOwnership::Owned
+                ? ValueOwnership::OwnedStrong
             : containsManagedValues(cast.getTargetType()) &&
-                    cast.getSource()->getOwnership() == ValueOwnership::Owned
-                ? ValueOwnership::Owned
+                    isOwned(cast.getSource()->getOwnership())
+                ? cast.getSource()->getOwnership()
                 : ValueOwnership::Borrowed;
         if (cast.getResult()->getOwnership() != expectedOwnership) {
           error(VerificationErrorCode::InvalidResult, &block, index,
@@ -650,7 +653,8 @@ private:
           expectSameType(weakLock.getResult()->getType(), expectedResultType,
                          block, index, "weak.lock result type");
         }
-        if (weakLock.getResult()->getOwnership() != ValueOwnership::Owned) {
+        if (weakLock.getResult()->getOwnership() !=
+            ValueOwnership::OwnedStrong) {
           error(VerificationErrorCode::InvalidResult, &block, index,
                 "weak.lock result must be owned");
         }
@@ -745,7 +749,7 @@ private:
                      index, "call result type");
       const auto expectedOwnership =
           call.getResultOwnership() == CallInst::ResultOwnership::Owned
-              ? ValueOwnership::Owned
+              ? ownedForType(returnType)
               : ValueOwnership::Borrowed;
       if (call.getResult()->getOwnership() != expectedOwnership) {
         error(VerificationErrorCode::InvalidResult, &block, index,
@@ -839,15 +843,18 @@ private:
 
     ValueOwnership expectedOwnership = ValueOwnership::Borrowed;
     if (containsManagedValues(phi.getResult()->getType()) &&
-        !phi.getIncoming().empty()) {
-      const bool allIncomingOwned = std::all_of(
-          phi.getIncoming().begin(), phi.getIncoming().end(),
-          [](const auto &incoming) {
-            return incoming.second &&
-                   incoming.second->getOwnership() == ValueOwnership::Owned;
-          });
-      if (allIncomingOwned) {
-        expectedOwnership = ValueOwnership::Owned;
+        !phi.getIncoming().empty() && phi.getIncoming().front().second) {
+      const auto incomingOwnership =
+          phi.getIncoming().front().second->getOwnership();
+      const bool allIncomingHaveSameOwnership = isOwned(incomingOwnership) &&
+          std::all_of(phi.getIncoming().begin(), phi.getIncoming().end(),
+                      [incomingOwnership](const auto &incoming) {
+                        return incoming.second &&
+                               incoming.second->getOwnership() ==
+                                   incomingOwnership;
+                      });
+      if (allIncomingHaveSameOwnership) {
+        expectedOwnership = incomingOwnership;
       }
     }
     if (phi.getResult()->getOwnership() != expectedOwnership) {

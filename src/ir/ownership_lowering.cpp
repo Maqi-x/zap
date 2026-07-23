@@ -68,7 +68,7 @@ std::shared_ptr<Value> instructionResult(const Instruction &instruction) {
 }
 
 bool ownsManagedValue(const std::shared_ptr<Value> &value) {
-  return value && value->getOwnership() == ValueOwnership::Owned &&
+  return value && isOwned(value->getOwnership()) &&
          containsManagedValues(value->getType());
 }
 
@@ -91,17 +91,16 @@ bool transfersOwnership(const Instruction &instruction,
   case OpCode::Store: {
     const auto &store = static_cast<const StoreInst &>(instruction);
     return store.getSource() == value &&
-           store.getSourceOwnership() == ValueOwnership::Owned;
+           isOwned(store.getSourceOwnership());
   }
   case OpCode::Ret: {
     const auto &ret = static_cast<const ReturnInst &>(instruction);
-    return ret.getValue() == value &&
-           ret.getValueOwnership() == ValueOwnership::Owned;
+    return ret.getValue() == value && isOwned(ret.getValueOwnership());
   }
   case OpCode::Cast: {
     const auto &cast = static_cast<const CastInst &>(instruction);
     return cast.getSource() == value && cast.getResult() &&
-           cast.getResult()->getOwnership() == ValueOwnership::Owned;
+           isOwned(cast.getResult()->getOwnership());
   }
   case OpCode::Call: {
     const auto &call = static_cast<const CallInst &>(instruction);

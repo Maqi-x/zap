@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../ir/type.hpp"
+#include "../ir/value.hpp"
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -33,7 +33,8 @@ public:
                             const std::shared_ptr<zir::Type> &type);
   void emitStoreWithArc(llvm::Value *addr, llvm::Value *value,
                         const std::shared_ptr<zir::Type> &type,
-                        bool valueIsOwned, bool skipReleaseOld = false);
+                        zir::ValueOwnership valueOwnership,
+                        bool skipReleaseOld = false);
   void ensureClassArcSupport(const std::shared_ptr<zir::ClassType> &classType);
 
 private:

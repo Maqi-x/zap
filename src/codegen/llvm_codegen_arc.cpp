@@ -197,12 +197,14 @@ llvm::Value *LLVMCodeGen::emitWeakLock(llvm::Value *value,
 
 void LLVMCodeGen::emitStoreWithArc(llvm::Value *addr, llvm::Value *value,
                                    const std::shared_ptr<zir::Type> &type,
-                                   bool valueIsOwned, bool skipReleaseOld) {
+                                   zir::ValueOwnership valueOwnership,
+                                   bool skipReleaseOld) {
   if (isOwnedStringType(type)) {
-    emitStoreWithStringArc(addr, value, type, valueIsOwned, skipReleaseOld);
+    emitStoreWithStringArc(addr, value, type, zir::isOwned(valueOwnership),
+                           skipReleaseOld);
     return;
   }
-  arcEmitter_->emitStoreWithArc(addr, value, type, valueIsOwned,
+  arcEmitter_->emitStoreWithArc(addr, value, type, valueOwnership,
                                 skipReleaseOld);
 }
 

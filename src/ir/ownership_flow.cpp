@@ -17,7 +17,7 @@ constexpr unsigned char unavailable =
     static_cast<unsigned char>(OwnershipFlowState::Unavailable);
 
 bool ownsManagedValue(const std::shared_ptr<Value> &value) {
-  return value && value->getOwnership() == ValueOwnership::Owned &&
+  return value && isOwned(value->getOwnership()) &&
          containsManagedValues(value->getType());
 }
 
@@ -113,8 +113,7 @@ bool isBorrowedMethodSelf(const Module &module, const CallInst &call,
 
 bool transfersThroughCast(const CastInst &cast) {
   return ownsManagedValue(cast.getSource()) && cast.getTargetType() &&
-         cast.getResult() &&
-         cast.getResult()->getOwnership() == ValueOwnership::Owned;
+         cast.getResult() && isOwned(cast.getResult()->getOwnership());
 }
 
 bool transfersThroughCallArgument(const Module &module, const CallInst &call,
@@ -290,14 +289,14 @@ std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
         }
         case OpCode::Store: {
           const auto &store = static_cast<const StoreInst &>(*instruction);
-          if (store.getSourceOwnership() == ValueOwnership::Owned) {
+          if (isOwned(store.getSourceOwnership())) {
             transition(states, store.getSource(), block, i, "store", moved);
           }
           break;
         }
         case OpCode::Ret: {
           const auto &ret = static_cast<const ReturnInst &>(*instruction);
-          if (ret.getValueOwnership() == ValueOwnership::Owned) {
+          if (isOwned(ret.getValueOwnership())) {
             transition(states, ret.getValue(), block, i, "return", moved);
           }
           break;
@@ -381,8 +380,7 @@ std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
             continue;
           }
           const auto &phi = static_cast<const PhiInst &>(*instruction);
-          if (!ownsManagedValue(phi.getResult()) ||
-              phi.getResult()->getOwnership() != ValueOwnership::Owned) {
+          if (!ownsManagedValue(phi.getResult())) {
             continue;
           }
           for (const auto &[label, value] : phi.getIncoming()) {

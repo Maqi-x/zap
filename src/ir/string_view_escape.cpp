@@ -88,7 +88,7 @@ StringViewEscapeAnalysis analyzeStringViewEscapes(const Function &function) {
         case OpCode::Borrow: {
           const auto &borrow = static_cast<const BorrowInst &>(*instruction);
           if (borrow.getResult() && borrow.getOwner() &&
-              borrow.getOwner()->getOwnership() == ValueOwnership::Owned) {
+              isOwned(borrow.getOwner()->getOwnership())) {
             changed =
                 result.localViews_.insert(borrow.getResult().get()).second ||
                 changed;

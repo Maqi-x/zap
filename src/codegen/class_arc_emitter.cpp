@@ -503,14 +503,17 @@ ClassArcEmitter::emitWeakLock(llvm::Value *value,
 
 void ClassArcEmitter::emitStoreWithArc(llvm::Value *addr, llvm::Value *value,
                                        const std::shared_ptr<zir::Type> &type,
-                                       bool valueIsOwned, bool skipReleaseOld) {
+                                       zir::ValueOwnership valueOwnership,
+                                       bool skipReleaseOld) {
   if (!isClassType(type)) {
     codegen_.builder_.CreateStore(value, addr);
     return;
   }
 
   if (isWeakClassType(type)) {
-    emitRetainWeakIfNeeded(value, type);
+    if (valueOwnership != zir::ValueOwnership::OwnedWeak) {
+      emitRetainWeakIfNeeded(value, type);
+    }
     if (!skipReleaseOld) {
       auto *oldValue = codegen_.builder_.CreateLoad(codegen_.toLLVMType(*type),
                                                     addr, "arc.weak.store.old");
@@ -519,7 +522,7 @@ void ClassArcEmitter::emitStoreWithArc(llvm::Value *addr, llvm::Value *value,
     } else {
       codegen_.builder_.CreateStore(value, addr);
     }
-    if (valueIsOwned) {
+    if (valueOwnership == zir::ValueOwnership::OwnedStrong) {
       auto strongType = std::make_shared<zir::ClassType>(
           *std::static_pointer_cast<zir::ClassType>(type));
       strongType->setWeak(false);
@@ -528,7 +531,7 @@ void ClassArcEmitter::emitStoreWithArc(llvm::Value *addr, llvm::Value *value,
     return;
   }
 
-  if (!valueIsOwned) {
+  if (valueOwnership != zir::ValueOwnership::OwnedStrong) {
     emitRetainIfNeeded(value, type);
   }
   if (!skipReleaseOld) {

@@ -52,13 +52,19 @@ ValueOwnership ownershipForPhi(
   if (!containsManagedValues(type) || incoming.empty()) {
     return ValueOwnership::Borrowed;
   }
+  const auto ownership = incoming.front().second
+                             ? incoming.front().second->getOwnership()
+                             : ValueOwnership::Borrowed;
+  if (!isOwned(ownership)) {
+    return ValueOwnership::Borrowed;
+  }
   for (const auto &[label, value] : incoming) {
     (void)label;
-    if (!value || value->getOwnership() != ValueOwnership::Owned) {
+    if (!value || value->getOwnership() != ownership) {
       return ValueOwnership::Borrowed;
     }
   }
-  return ValueOwnership::Owned;
+  return ownership;
 }
 
 ValueOwnership ownershipForCast(const std::shared_ptr<Value> &source,
@@ -67,24 +73,10 @@ ValueOwnership ownershipForCast(const std::shared_ptr<Value> &source,
     return ValueOwnership::Borrowed;
   }
   if (targetType->getIntrinsicKind() == IntrinsicTypeKind::String) {
-    return ValueOwnership::Owned;
+    return ValueOwnership::OwnedStrong;
   }
-  return source && source->getOwnership() == ValueOwnership::Owned
-             ? ValueOwnership::Owned
-             : ValueOwnership::Borrowed;
-}
-
-bool assignmentNeedsCopy(const std::shared_ptr<Type> &type) {
-  if (!type || !containsManagedValues(type)) {
-    return false;
-  }
-  if (type->getKind() != TypeKind::Class) {
-    return true;
-  }
-
-  // A weak store still owns the strong-to-weak conversion. ValueOwnership
-  // cannot yet distinguish an owned weak token from an owned strong token.
-  return !std::static_pointer_cast<ClassType>(type)->isWeak();
+  return source && isOwned(source->getOwnership()) ? source->getOwnership()
+                                                   : ValueOwnership::Borrowed;
 }
 } // namespace
 
@@ -497,8 +489,8 @@ void BoundIRGenerator::visit(sema::BoundAssignment &node) {
   valueStack_.pop();
 
   compoundTargetAddr_ = oldCompoundTargetAddr;
-  if (val && assignmentNeedsCopy(val->getType())) {
-    auto copied = createRegister(val->getType(), ValueOwnership::Owned);
+  if (val && containsManagedValues(val->getType())) {
+    auto copied = createRegister(val->getType(), ownedForType(val->getType()));
     currentBlock_->addInstruction(std::make_unique<CopyInst>(copied, val));
     val = std::move(copied);
   }
@@ -655,7 +647,7 @@ void BoundIRGenerator::visit(sema::BoundBinaryExpression &node) {
        node.left->type->getKind() == TypeKind::Char ||
        node.right->type->getKind() == TypeKind::Char);
   auto reg =
-      createRegister(node.type, ownsStringConcat ? ValueOwnership::Owned
+      createRegister(node.type, ownsStringConcat ? ValueOwnership::OwnedStrong
                                                  : ValueOwnership::Borrowed);
   bool isUnsigned = node.left->type->isUnsigned();
   if (node.op == "==" || node.op == "!=" || node.op == "<" ||
@@ -780,7 +772,7 @@ void BoundIRGenerator::visit(sema::BoundFunctionCall &node) {
                         : node.type;
   const bool ownsResult =
       !node.symbol->returnsRef && containsManagedValues(node.type);
-  auto reg = createRegister(resultType, ownsResult ? ValueOwnership::Owned
+  auto reg = createRegister(resultType, ownsResult ? ownedForType(node.type)
                                                    : ValueOwnership::Borrowed);
   currentBlock_->addInstruction(std::make_unique<CallInst>(
       reg, node.symbol->linkName, args, node.argumentIsRef, variadicPack,
@@ -817,7 +809,7 @@ void BoundIRGenerator::visit(sema::BoundIndirectCall &node) {
   }
 
   const bool ownsResult = containsManagedValues(node.type);
-  auto reg = createRegister(node.type, ownsResult ? ValueOwnership::Owned
+  auto reg = createRegister(node.type, ownsResult ? ownedForType(node.type)
                                                   : ValueOwnership::Borrowed);
   currentBlock_->addInstruction(std::make_unique<CallInst>(
       reg, calleeVal, std::move(args), false,
@@ -836,9 +828,9 @@ BoundIRGenerator::createRegister(std::shared_ptr<Type> type,
 }
 
 void BoundIRGenerator::emitReturn(std::shared_ptr<Value> value) {
-  if (value && value->getOwnership() == ValueOwnership::Owned &&
+  if (value && isOwned(value->getOwnership()) &&
       containsManagedValues(value->getType())) {
-    auto moved = createRegister(value->getType(), ValueOwnership::Owned);
+    auto moved = createRegister(value->getType(), value->getOwnership());
     currentBlock_->addInstruction(std::make_unique<MoveInst>(moved, value));
     value = std::move(moved);
   }
@@ -1703,7 +1695,7 @@ void BoundIRGenerator::visit(sema::BoundWeakLockExpression &node) {
   node.weakExpression->accept(*this);
   auto weakValue = valueStack_.top();
   valueStack_.pop();
-  auto result = createRegister(node.type, ValueOwnership::Owned);
+  auto result = createRegister(node.type, ValueOwnership::OwnedStrong);
   currentBlock_->addInstruction(
       std::make_unique<WeakLockInst>(result, weakValue));
   valueStack_.push(result);
@@ -1936,7 +1928,7 @@ void BoundIRGenerator::visit(sema::BoundCast &node) {
 }
 
 void BoundIRGenerator::visit(sema::BoundNewExpression &node) {
-  auto result = createRegister(node.type, ValueOwnership::Owned);
+  auto result = createRegister(node.type, ValueOwnership::OwnedStrong);
   currentBlock_->addInstruction(
       std::make_unique<AllocInst>(result, node.classType));
 

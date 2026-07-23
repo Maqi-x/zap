@@ -139,7 +139,8 @@ private:
                             const std::shared_ptr<zir::Type> &type);
   void emitStoreWithArc(llvm::Value *addr, llvm::Value *value,
                         const std::shared_ptr<zir::Type> &type,
-                        bool valueIsOwned, bool skipReleaseOld = false);
+                        zir::ValueOwnership valueOwnership,
+                        bool skipReleaseOld = false);
   void emitStoreWithStringArc(llvm::Value *addr, llvm::Value *value,
                               const std::shared_ptr<zir::Type> &type,
                               bool valueIsOwned, bool skipReleaseOld = false);
