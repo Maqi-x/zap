@@ -82,7 +82,6 @@ add_library(zap_zir_verifier STATIC
     src/ir/ownership_flow.cpp
     src/ir/ownership_lowering.cpp
     src/ir/ownership_liveness.cpp
-    src/ir/string_view_escape.cpp
     src/ir/zir_verifier.cpp
     src/ir/zir_verifier_function.cpp
     src/ir/zir_verifier_types.cpp
@@ -165,12 +164,12 @@ if(BUILD_TESTING)
     target_compile_options(zap-zir-verifier-tests PRIVATE -Wall -Wextra)
     add_test(NAME zir-verifier COMMAND zap-zir-verifier-tests)
 
-    add_executable(zap-ownership-liveness-tests
-        tests/cpp/ownership_liveness_test.cpp
+    add_executable(zap-borrow-analysis-tests
+        tests/cpp/borrow_analysis_test.cpp
     )
-    target_link_libraries(zap-ownership-liveness-tests PRIVATE zap_zir_verifier)
-    target_compile_options(zap-ownership-liveness-tests PRIVATE -Wall -Wextra)
-    add_test(NAME ownership-liveness COMMAND zap-ownership-liveness-tests)
+    target_link_libraries(zap-borrow-analysis-tests PRIVATE zap_zir_verifier)
+    target_compile_options(zap-borrow-analysis-tests PRIVATE -Wall -Wextra)
+    add_test(NAME borrow-analysis COMMAND zap-borrow-analysis-tests)
 
     add_executable(zap-runtime-instrumentation-tests
         tests/cpp/runtime_instrumentation_test.c

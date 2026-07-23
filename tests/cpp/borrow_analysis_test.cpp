@@ -1,6 +1,7 @@
 #include "ir/borrow_provenance.hpp"
 #include "ir/ownership_liveness.hpp"
 #include "ir/string_type.hpp"
+#include "ir/zir_verifier.hpp"
 
 #include <iostream>
 #include <memory>
@@ -19,6 +20,7 @@ using zir::Constant;
 using zir::ControlFlowGraph;
 using zir::Function;
 using zir::LoadInst;
+using zir::Module;
 using zir::PhiInst;
 using zir::PointerType;
 using zir::PrimitiveType;
@@ -29,6 +31,9 @@ using zir::StoreMode;
 using zir::Type;
 using zir::TypeKind;
 using zir::ValueOwnership;
+using zir::VerificationErrorCode;
+using zir::VerificationResult;
+using zir::ZirVerifier;
 
 std::shared_ptr<Type> primitive(TypeKind kind) {
   return std::make_shared<PrimitiveType>(kind);
@@ -44,6 +49,18 @@ bool expect(bool condition, const std::string &message) {
     std::cerr << "FAIL: " << message << '\n';
   }
   return condition;
+}
+
+bool hasError(const VerificationResult &result, VerificationErrorCode code,
+              const std::string &messageFragment = {}) {
+  for (const auto &error : result.errors()) {
+    if (error.code == code &&
+        (messageFragment.empty() ||
+         error.message.find(messageFragment) != std::string::npos)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 void addOwnedStringAndView(BasicBlock &block, const std::string &name,
@@ -238,6 +255,184 @@ bool testStorageProvenanceReachesLoopBackEdge() {
                 "storage borrow provenance did not reach the loop back-edge");
 }
 
+bool testVerifierReportsLocalOwnerThroughPhi() {
+  const auto stringType = zir::makeStringType();
+  const auto stringViewType = zir::makeStringViewType();
+  Module module("borrow-phi-escape");
+  module.addExternalFunction(std::make_unique<Function>("make", stringType));
+
+  auto function = std::make_unique<Function>("broken", stringViewType);
+  auto callerView =
+      std::make_shared<zir::Argument>("caller.view", stringViewType);
+  function->arguments.push_back(callerView);
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CondBranchInst>(
+      std::make_shared<Constant>("true", primitive(TypeKind::Bool)), "local",
+      "caller"));
+
+  auto local = std::make_unique<BasicBlock>("local");
+  auto localOwner = reg("local.owner", stringType);
+  localOwner->setOwnership(ValueOwnership::OwnedStrong);
+  auto localView = reg("local.view", stringViewType);
+  local->addInstruction(std::make_unique<CallInst>(
+      localOwner, "make", std::vector<std::shared_ptr<zir::Value>>{},
+      std::vector<bool>{}, nullptr, false, CallInst::ResultOwnership::Owned));
+  local->addInstruction(std::make_unique<BorrowInst>(localView, localOwner));
+  local->addInstruction(std::make_unique<BranchInst>("merge"));
+
+  auto caller = std::make_unique<BasicBlock>("caller");
+  caller->addInstruction(std::make_unique<BranchInst>("merge"));
+
+  auto merge = std::make_unique<BasicBlock>("merge");
+  auto mergedView = reg("merged.view", stringViewType);
+  merge->addInstruction(std::make_unique<PhiInst>(
+      mergedView,
+      std::vector<std::pair<std::string, std::shared_ptr<zir::Value>>>{
+          {"local", localView}, {"caller", callerView}}));
+  merge->addInstruction(std::make_unique<ReturnInst>(mergedView));
+
+  function->addBlock(std::move(entry));
+  function->addBlock(std::move(local));
+  function->addBlock(std::move(caller));
+  function->addBlock(std::move(merge));
+  module.addFunction(std::move(function));
+
+  const auto verification = ZirVerifier().verify(module);
+  return expect(hasError(verification, VerificationErrorCode::InvalidReturn,
+                         "%local.owner"),
+                "verifier did not identify the local owner of a phi escape");
+}
+
+bool testVerifierAllowsCallerBorrowPhiReturn() {
+  const auto stringViewType = zir::makeStringViewType();
+  Module module("borrowed-phi-return");
+  auto function = std::make_unique<Function>("valid", stringViewType);
+  auto leftView = std::make_shared<zir::Argument>("left", stringViewType);
+  auto rightView = std::make_shared<zir::Argument>("right", stringViewType);
+  function->arguments.push_back(leftView);
+  function->arguments.push_back(rightView);
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CondBranchInst>(
+      std::make_shared<Constant>("true", primitive(TypeKind::Bool)), "left",
+      "right"));
+  auto left = std::make_unique<BasicBlock>("left");
+  left->addInstruction(std::make_unique<BranchInst>("merge"));
+  auto right = std::make_unique<BasicBlock>("right");
+  right->addInstruction(std::make_unique<BranchInst>("merge"));
+  auto merge = std::make_unique<BasicBlock>("merge");
+  auto mergedView = reg("merged.view", stringViewType);
+  merge->addInstruction(std::make_unique<PhiInst>(
+      mergedView,
+      std::vector<std::pair<std::string, std::shared_ptr<zir::Value>>>{
+          {"left", leftView}, {"right", rightView}}));
+  merge->addInstruction(std::make_unique<ReturnInst>(mergedView));
+
+  function->addBlock(std::move(entry));
+  function->addBlock(std::move(left));
+  function->addBlock(std::move(right));
+  function->addBlock(std::move(merge));
+  module.addFunction(std::move(function));
+
+  const auto verification = ZirVerifier().verify(module);
+  return expect(verification.ok(),
+                "verifier rejected a phi containing only caller borrows:\n" +
+                    verification.format());
+}
+
+bool testVerifierReportsOwnerThroughStorageAndDerivedView() {
+  const auto stringType = zir::makeStringType();
+  const auto stringViewType = zir::makeStringViewType();
+  Module module("borrow-storage-derived-escape");
+  module.addExternalFunction(std::make_unique<Function>("make", stringType));
+  auto function = std::make_unique<Function>("broken", stringViewType);
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto owner = reg("stored.owner", stringType);
+  owner->setOwnership(ValueOwnership::OwnedStrong);
+  auto view = reg("stored.view", stringViewType);
+  auto slot = reg("slot", std::make_shared<PointerType>(stringViewType));
+  entry->addInstruction(std::make_unique<CallInst>(
+      owner, "make", std::vector<std::shared_ptr<zir::Value>>{},
+      std::vector<bool>{}, nullptr, false, CallInst::ResultOwnership::Owned));
+  entry->addInstruction(std::make_unique<BorrowInst>(view, owner));
+  entry->addInstruction(
+      std::make_unique<zir::AllocaInst>(slot, stringViewType));
+  entry->addInstruction(
+      std::make_unique<StoreInst>(view, slot, StoreMode::Initialize));
+  entry->addInstruction(std::make_unique<BranchInst>("forward"));
+
+  auto forward = std::make_unique<BasicBlock>("forward");
+  forward->addInstruction(std::make_unique<BranchInst>("exit"));
+
+  auto exit = std::make_unique<BasicBlock>("exit");
+  auto loaded = reg("loaded.view", stringViewType);
+  auto derived = reg("derived.view", stringViewType);
+  exit->addInstruction(std::make_unique<LoadInst>(loaded, slot));
+  exit->addInstruction(
+      std::make_unique<CastInst>(derived, loaded, stringViewType));
+  exit->addInstruction(std::make_unique<ReturnInst>(derived));
+
+  function->addBlock(std::move(entry));
+  function->addBlock(std::move(forward));
+  function->addBlock(std::move(exit));
+  module.addFunction(std::move(function));
+
+  const auto verification = ZirVerifier().verify(module);
+  return expect(
+      hasError(verification, VerificationErrorCode::InvalidReturn,
+               "%stored.owner"),
+      "verifier lost the local owner through storage and a derived view");
+}
+
+bool testVerifierAllowsOverwrittenLocalBorrowReturn() {
+  const auto stringType = zir::makeStringType();
+  const auto stringViewType = zir::makeStringViewType();
+  Module module("overwritten-local-borrow");
+  module.addExternalFunction(std::make_unique<Function>("make", stringType));
+  auto function = std::make_unique<Function>("valid", stringViewType);
+  auto callerView =
+      std::make_shared<zir::Argument>("caller.view", stringViewType);
+  function->arguments.push_back(callerView);
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto owner = reg("local.owner", stringType);
+  owner->setOwnership(ValueOwnership::OwnedStrong);
+  auto localView = reg("local.view", stringViewType);
+  auto slot = reg("slot", std::make_shared<PointerType>(stringViewType));
+  entry->addInstruction(std::make_unique<CallInst>(
+      owner, "make", std::vector<std::shared_ptr<zir::Value>>{},
+      std::vector<bool>{}, nullptr, false, CallInst::ResultOwnership::Owned));
+  entry->addInstruction(std::make_unique<BorrowInst>(localView, owner));
+  entry->addInstruction(
+      std::make_unique<zir::AllocaInst>(slot, stringViewType));
+  entry->addInstruction(
+      std::make_unique<StoreInst>(localView, slot, StoreMode::Initialize));
+  entry->addInstruction(std::make_unique<BranchInst>("overwrite"));
+
+  auto overwrite = std::make_unique<BasicBlock>("overwrite");
+  overwrite->addInstruction(
+      std::make_unique<StoreInst>(callerView, slot, StoreMode::Assign));
+  overwrite->addInstruction(std::make_unique<BranchInst>("exit"));
+
+  auto exit = std::make_unique<BasicBlock>("exit");
+  auto loaded = reg("loaded.view", stringViewType);
+  exit->addInstruction(std::make_unique<LoadInst>(loaded, slot));
+  exit->addInstruction(std::make_unique<ReturnInst>(loaded));
+
+  function->addBlock(std::move(entry));
+  function->addBlock(std::move(overwrite));
+  function->addBlock(std::move(exit));
+  module.addFunction(std::move(function));
+
+  const auto verification = ZirVerifier().verify(module);
+  return expect(
+      verification.ok(),
+      "verifier retained a stale owner after overwriting local storage:\n" +
+          verification.format());
+}
+
 } // namespace
 
 int main() {
@@ -245,5 +440,9 @@ int main() {
   ok = testStorageProvenanceCrossesPassThroughBlocks() && ok;
   ok = testPhiProvenanceSelectsIncomingOwner() && ok;
   ok = testStorageProvenanceReachesLoopBackEdge() && ok;
+  ok = testVerifierReportsLocalOwnerThroughPhi() && ok;
+  ok = testVerifierAllowsCallerBorrowPhiReturn() && ok;
+  ok = testVerifierReportsOwnerThroughStorageAndDerivedView() && ok;
+  ok = testVerifierAllowsOverwrittenLocalBorrowReturn() && ok;
   return ok ? 0 : 1;
 }

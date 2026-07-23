@@ -193,7 +193,8 @@ void collectEntryLoads(
 StorageStates analyzeStorageOwners(const Function &function,
                                    const ControlFlowGraph &cfg,
                                    const OwnerSet &localStorage,
-                                   const OwnerMap &valueOwners) {
+                                   const OwnerMap &valueOwners,
+                                   OwnerMap &loadOwners) {
   StorageStates entryStates;
   StorageStates exitStates;
   bool changed = true;
@@ -214,7 +215,18 @@ StorageStates analyzeStorageOwners(const Function &function,
 
       StorageState state = std::move(entry);
       for (const auto &instruction : blockOwner->getInstructions()) {
-        if (!instruction || instruction->getOpCode() != OpCode::Store) {
+        if (!instruction) {
+          continue;
+        }
+        if (instruction->getOpCode() == OpCode::Load) {
+          const auto &load = static_cast<const LoadInst &>(*instruction);
+          if (load.getResult() && load.getSource() &&
+              localStorage.count(load.getSource().get()) != 0) {
+            loadOwners[load.getResult().get()] = state[load.getSource().get()];
+          }
+          continue;
+        }
+        if (instruction->getOpCode() != OpCode::Store) {
           continue;
         }
         const auto &store = static_cast<const StoreInst &>(*instruction);
@@ -251,6 +263,38 @@ BorrowProvenance::ownersOf(const std::shared_ptr<Value> &value) const {
   }
   const auto owners = owners_.find(value.get());
   return owners == owners_.end() ? emptyOwners() : owners->second;
+}
+
+BorrowProvenance::OwnerSet BorrowProvenance::ownersAtDefinition(
+    const std::shared_ptr<Value> &value) const {
+  OwnerSet result;
+  OwnerSet visited;
+  std::vector<std::shared_ptr<Value>> pending{value};
+  while (!pending.empty()) {
+    auto current = std::move(pending.back());
+    pending.pop_back();
+    if (!current || !visited.insert(current.get()).second) {
+      continue;
+    }
+    const auto load = loadOwners_.find(current.get());
+    if (load != loadOwners_.end()) {
+      result.insert(load->second.begin(), load->second.end());
+      continue;
+    }
+    const auto derived = derivedFrom_.find(current.get());
+    if (derived != derivedFrom_.end()) {
+      pending.push_back(derived->second);
+      continue;
+    }
+    const auto phi = phiIncoming_.find(current.get());
+    if (phi != phiIncoming_.end()) {
+      pending.insert(pending.end(), phi->second.begin(), phi->second.end());
+      continue;
+    }
+    const auto &owners = ownersOf(current);
+    result.insert(owners.begin(), owners.end());
+  }
+  return result;
 }
 
 BorrowProvenance::OwnerSet
@@ -324,9 +368,27 @@ BorrowProvenance analyzeBorrowProvenance(const Function &function,
   result.localStorage_ = collectLocalStorage(function);
   result.owners_ =
       collectValueOwners(function, result.localStorage_, result.derivedFrom_);
+  for (const auto &blockOwner : function.getBlocks()) {
+    if (!blockOwner) {
+      continue;
+    }
+    for (const auto &instruction : blockOwner->getInstructions()) {
+      if (!instruction || instruction->getOpCode() != OpCode::Phi) {
+        continue;
+      }
+      const auto &phi = static_cast<const PhiInst &>(*instruction);
+      if (!phi.getResult()) {
+        continue;
+      }
+      auto &incoming = result.phiIncoming_[phi.getResult().get()];
+      for (const auto &[_, value] : phi.getIncoming()) {
+        incoming.push_back(value);
+      }
+    }
+  }
   collectEntryLoads(function, result.localStorage_, result.entryLoads_);
-  result.exitStorage_ =
-      analyzeStorageOwners(function, cfg, result.localStorage_, result.owners_);
+  result.exitStorage_ = analyzeStorageOwners(
+      function, cfg, result.localStorage_, result.owners_, result.loadOwners_);
   return result;
 }
 

@@ -1,14 +1,15 @@
 #include "zir_verifier_internal.hpp"
 
+#include "borrow_provenance.hpp"
 #include "control_flow_graph.hpp"
 #include "ownership_flow.hpp"
 #include "ownership_liveness.hpp"
 #include "string_type.hpp"
-#include "string_view_escape.hpp"
 
 #include <algorithm>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 namespace zir {
 namespace {
@@ -18,6 +19,25 @@ using verifier_detail::isAssignable;
 using verifier_detail::isStringType;
 using verifier_detail::isTerminator;
 using verifier_detail::typeName;
+
+std::string formatOwners(const BorrowProvenance::OwnerSet &owners) {
+  std::vector<std::string> names;
+  names.reserve(owners.size());
+  for (const auto *owner : owners) {
+    if (owner) {
+      names.push_back(owner->getName());
+    }
+  }
+  std::sort(names.begin(), names.end());
+  std::string result;
+  for (size_t i = 0; i < names.size(); ++i) {
+    if (i != 0) {
+      result += ", ";
+    }
+    result += names[i];
+  }
+  return result;
+}
 
 class FunctionVerifier {
 public:
@@ -38,7 +58,7 @@ public:
     collectBlocks();
     collectDefinitionsAndEdges();
     verifyInstructions();
-    verifyStringViewEscapes();
+    verifyBorrowEscapes();
     verifyOwnershipTransfers();
   }
 
@@ -56,8 +76,8 @@ private:
   std::unordered_map<std::string, const Value *> valueNames_;
   ControlFlowGraph cfg_;
 
-  void verifyStringViewEscapes() {
-    const auto analysis = analyzeStringViewEscapes(function_);
+  void verifyBorrowEscapes() {
+    const auto provenance = analyzeBorrowProvenance(function_, cfg_);
     for (const auto &blockOwner : function_.getBlocks()) {
       if (!blockOwner) {
         continue;
@@ -70,18 +90,22 @@ private:
         }
         if (instruction->getOpCode() == OpCode::Ret) {
           const auto &ret = static_cast<const ReturnInst &>(*instruction);
-          if (analysis.isFunctionLocalView(ret.getValue())) {
-            error(
-                VerificationErrorCode::InvalidReturn, &block, i,
-                "cannot return a StringView backed by a function-local String");
+          const auto owners = provenance.ownersAtDefinition(ret.getValue());
+          if (!owners.empty()) {
+            error(VerificationErrorCode::InvalidReturn, &block, i,
+                  "cannot return " + ret.getValue()->getName() +
+                      " backed by function-local owner " +
+                      formatOwners(owners));
           }
         } else if (instruction->getOpCode() == OpCode::Store) {
           const auto &store = static_cast<const StoreInst &>(*instruction);
-          if (analysis.isFunctionLocalView(store.getSource()) &&
-              !analysis.isFunctionLocalStorage(store.getDestination())) {
+          const auto owners = provenance.ownersAtDefinition(store.getSource());
+          if (!owners.empty() &&
+              !provenance.isLocalStorage(store.getDestination())) {
             error(VerificationErrorCode::InvalidOperand, &block, i,
-                  "cannot store a function-local StringView outside local "
-                  "storage");
+                  "cannot store " + store.getSource()->getName() +
+                      " backed by function-local owner " +
+                      formatOwners(owners) + " outside local storage");
           }
         }
       }
@@ -598,8 +622,7 @@ private:
       } else {
         expectSameType(alloc.getResult()->getType(), alloc.getAllocatedType(),
                        block, index, "alloc result type");
-        if (alloc.getResult()->getOwnership() !=
-            ValueOwnership::OwnedStrong) {
+        if (alloc.getResult()->getOwnership() != ValueOwnership::OwnedStrong) {
           error(VerificationErrorCode::InvalidResult, &block, index,
                 "alloc result must be owned");
         }
@@ -865,7 +888,8 @@ private:
         !phi.getIncoming().empty() && phi.getIncoming().front().second) {
       const auto incomingOwnership =
           phi.getIncoming().front().second->getOwnership();
-      const bool allIncomingHaveSameOwnership = isOwned(incomingOwnership) &&
+      const bool allIncomingHaveSameOwnership =
+          isOwned(incomingOwnership) &&
           std::all_of(phi.getIncoming().begin(), phi.getIncoming().end(),
                       [incomingOwnership](const auto &incoming) {
                         return incoming.second &&
