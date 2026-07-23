@@ -8,7 +8,7 @@ pub fun len(s: noescape StringView) Int {
   return sv.len;
 }
 
-pub fun at(s: StringView, i: Int) Char {
+pub fun at(s: noescape StringView, i: Int) Char {
   var sv: StringView = s;
   if sv.ptr == null || i < 0 || i >= sv.len {
     return '\0';
@@ -40,7 +40,7 @@ pub fun slice(s: StringView, start: Int, len: Int) StringView borrows(s) {
   }
 }
 
-pub fun eq(a: StringView, b: StringView) Bool {
+pub fun eq(a: noescape StringView, b: noescape StringView) Bool {
   if a.len != b.len {
     return false;
   }
@@ -63,7 +63,8 @@ pub fun view(s: StringView) StringView borrows(s) {
   return s;
 }
 
-pub fun startsWith(s: StringView, prefix: StringView) Bool {
+pub fun startsWith(s: noescape StringView,
+                   prefix: noescape StringView) Bool {
   var n: Int = len(s);
   var m: Int = len(prefix);
   if m > n {
@@ -79,7 +80,8 @@ pub fun startsWith(s: StringView, prefix: StringView) Bool {
   return true;
 }
 
-pub fun indexOf(s: StringView, needle: StringView) Int {
+pub fun indexOf(s: noescape StringView,
+                needle: noescape StringView) Int {
   var n: Int = len(s);
   var m: Int = len(needle);
   if m == 0 {

@@ -38,13 +38,6 @@ const Value *resultBorrowSource(const Function &function) {
              : nullptr;
 }
 
-bool isContractParameterSource(const Function &function, const Value *source) {
-  const auto *argument = dynamic_cast<const Argument *>(source);
-  return argument &&
-         (argument->getParameterEscape() == ParameterEscape::NoEscape ||
-          source == resultBorrowSource(function));
-}
-
 bool hasDisallowedReturnSource(
     const Function &function,
     const BorrowProvenance::OwnerSet &sources) {
@@ -117,17 +110,15 @@ void verifyEscapes(const Function &function, const ControlFlowGraph &cfg,
             call.getArguments().size(), call.getArgumentEscapes().size());
         for (size_t argumentIndex = 0; argumentIndex < checkedArguments;
              ++argumentIndex) {
+          if (!isBorrowTrackedValue(call.getArguments()[argumentIndex])) {
+            continue;
+          }
           const auto sources = provenance.ownersAtDefinition(
               call.getArguments()[argumentIndex]);
           const bool mayBackResult =
               call.getResultBorrow().hasSource() &&
               *call.getResultBorrow().sourceParameter() == argumentIndex;
-          const bool hasContractSource =
-              std::any_of(sources.begin(), sources.end(),
-                          [&function](const Value *source) {
-                            return isContractParameterSource(function, source);
-                          });
-          if (hasContractSource &&
+          if (!sources.empty() &&
               call.getArgumentEscapes()[argumentIndex] !=
                   ParameterEscape::NoEscape &&
               !mayBackResult) {
@@ -136,7 +127,7 @@ void verifyEscapes(const Function &function, const ControlFlowGraph &cfg,
                 i,
                 "cannot pass " +
                     call.getArguments()[argumentIndex]->getName() +
-                    " backed by contract-bound source " +
+                    " backed by tracked borrow source " +
                     formatSources(sources) +
                     " to a parameter with an unspecified escape contract");
           }

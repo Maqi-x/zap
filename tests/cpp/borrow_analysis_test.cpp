@@ -483,6 +483,83 @@ bool testVerifierRejectsNoEscapeForwardingToUnspecifiedParameter() {
                 "parameter");
 }
 
+void addStringFactory(Module &module) {
+  module.addExternalFunction(
+      std::make_unique<Function>("make", zir::makeStringType()));
+}
+
+bool testVerifierRejectsLocalBorrowForwardingToUnspecifiedParameter() {
+  const auto stringViewType = zir::makeStringViewType();
+  Module module("local-borrow-forwarding");
+  addStringFactory(module);
+  auto consume =
+      std::make_unique<Function>("consume", primitive(TypeKind::Void));
+  consume->arguments.push_back(
+      std::make_shared<zir::Argument>("view", stringViewType));
+  module.addExternalFunction(std::move(consume));
+
+  auto function =
+      std::make_unique<Function>("broken", primitive(TypeKind::Void));
+  auto owner = reg("owner", zir::makeStringType());
+  owner->setOwnership(ValueOwnership::OwnedStrong);
+  auto view = reg("view", stringViewType);
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CallInst>(
+      owner, "make", std::vector<std::shared_ptr<zir::Value>>{},
+      std::vector<bool>{}, nullptr, false, CallInst::ResultOwnership::Owned));
+  entry->addInstruction(std::make_unique<BorrowInst>(view, owner));
+  entry->addInstruction(std::make_unique<CallInst>(
+      nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{view}));
+  entry->addInstruction(std::make_unique<zir::DestroyInst>(owner));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  const auto verification = ZirVerifier().verify(module);
+  return expect(
+      hasError(verification, VerificationErrorCode::InvalidCall,
+               "tracked borrow source %owner"),
+      "verifier allowed a local borrow to cross an unspecified call boundary");
+}
+
+bool testVerifierAllowsLocalBorrowForwardingToNoEscapeParameter() {
+  const auto stringViewType = zir::makeStringViewType();
+  Module module("local-borrow-noescape-forwarding");
+  addStringFactory(module);
+  auto consume =
+      std::make_unique<Function>("consume", primitive(TypeKind::Void));
+  consume->arguments.push_back(std::make_shared<zir::Argument>(
+      "view", stringViewType, false, false, nullptr,
+      zir::ParameterOwnership::Borrow, ParameterEscape::NoEscape));
+  module.addExternalFunction(std::move(consume));
+
+  auto function =
+      std::make_unique<Function>("valid", primitive(TypeKind::Void));
+  auto owner = reg("owner", zir::makeStringType());
+  owner->setOwnership(ValueOwnership::OwnedStrong);
+  auto view = reg("view", stringViewType);
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CallInst>(
+      owner, "make", std::vector<std::shared_ptr<zir::Value>>{},
+      std::vector<bool>{}, nullptr, false, CallInst::ResultOwnership::Owned));
+  entry->addInstruction(std::make_unique<BorrowInst>(view, owner));
+  entry->addInstruction(std::make_unique<CallInst>(
+      nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{view},
+      std::vector<bool>{false}, nullptr, false,
+      CallInst::ResultOwnership::Borrowed,
+      std::vector<CallInst::ArgumentMode>{CallInst::ArgumentMode::Borrow},
+      std::vector<ParameterEscape>{ParameterEscape::NoEscape}));
+  entry->addInstruction(std::make_unique<zir::DestroyInst>(owner));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  const auto verification = ZirVerifier().verify(module);
+  return expect(verification.ok(),
+                "verifier rejected a local borrow passed to noescape:\n" +
+                    verification.format());
+}
+
 bool testVerifierAllowsNoEscapeForwarding() {
   const auto stringViewType = zir::makeStringViewType();
   Module module("noescape-forwarding-valid");
@@ -715,6 +792,8 @@ int main() {
   ok = testVerifierAllowsOverwrittenLocalBorrowReturn() && ok;
   ok = testVerifierRejectsNoEscapeParameterReturn() && ok;
   ok = testVerifierRejectsNoEscapeForwardingToUnspecifiedParameter() && ok;
+  ok = testVerifierRejectsLocalBorrowForwardingToUnspecifiedParameter() && ok;
+  ok = testVerifierAllowsLocalBorrowForwardingToNoEscapeParameter() && ok;
   ok = testVerifierAllowsNoEscapeForwarding() && ok;
   ok = testVerifierRejectsMismatchedCallEscapeMetadata() && ok;
   ok = testVerifierTracksBorrowedCallResultToLocalOwner() && ok;

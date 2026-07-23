@@ -1383,8 +1383,9 @@ bool testReleaseRejectsLiveBorrowedStringView() {
   auto stringViewType = zir::makeStringViewType();
   auto consume =
       std::make_unique<Function>("consume", primitive(TypeKind::Void));
-  consume->arguments.push_back(
-      std::make_shared<zir::Argument>("view", stringViewType));
+  consume->arguments.push_back(std::make_shared<zir::Argument>(
+      "view", stringViewType, false, false, nullptr,
+      zir::ParameterOwnership::Borrow, zir::ParameterEscape::NoEscape));
   module.addExternalFunction(std::move(consume));
 
   auto function =
@@ -1397,7 +1398,12 @@ bool testReleaseRejectsLiveBorrowedStringView() {
   entry->addInstruction(std::make_unique<BorrowInst>(view, text));
   entry->addInstruction(std::make_unique<ReleaseInst>(text));
   entry->addInstruction(std::make_unique<zir::CallInst>(
-      nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{view}));
+      nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{view},
+      std::vector<bool>{false}, nullptr, false,
+      zir::CallInst::ResultOwnership::Borrowed,
+      std::vector<zir::CallInst::ArgumentMode>{
+          zir::CallInst::ArgumentMode::Borrow},
+      std::vector<zir::ParameterEscape>{zir::ParameterEscape::NoEscape}));
   entry->addInstruction(std::make_unique<ReturnInst>());
   function->addBlock(std::move(entry));
   module.addFunction(std::move(function));
@@ -1927,8 +1933,9 @@ bool testOwnershipLoweringReleasesOwnerAfterBorrowUse() {
   module.addExternalFunction(std::move(make));
   auto consume =
       std::make_unique<Function>("consume", primitive(TypeKind::Void));
-  consume->arguments.push_back(
-      std::make_shared<zir::Argument>("view", stringViewType));
+  consume->arguments.push_back(std::make_shared<zir::Argument>(
+      "view", stringViewType, false, false, nullptr,
+      zir::ParameterOwnership::Borrow, zir::ParameterEscape::NoEscape));
   module.addExternalFunction(std::move(consume));
 
   auto function =
@@ -1943,7 +1950,12 @@ bool testOwnershipLoweringReleasesOwnerAfterBorrowUse() {
       zir::CallInst::ResultOwnership::Owned));
   entry->addInstruction(std::make_unique<BorrowInst>(view, text));
   entry->addInstruction(std::make_unique<zir::CallInst>(
-      nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{view}));
+      nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{view},
+      std::vector<bool>{false}, nullptr, false,
+      zir::CallInst::ResultOwnership::Borrowed,
+      std::vector<zir::CallInst::ArgumentMode>{
+          zir::CallInst::ArgumentMode::Borrow},
+      std::vector<zir::ParameterEscape>{zir::ParameterEscape::NoEscape}));
   entry->addInstruction(std::make_unique<ReturnInst>());
   function->addBlock(std::move(entry));
   module.addFunction(std::move(function));
