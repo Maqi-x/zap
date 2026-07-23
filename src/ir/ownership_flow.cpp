@@ -394,4 +394,45 @@ OwnershipFlowAnalysis::analyzeExitObligations() {
   return obligations;
 }
 
+std::vector<OwnershipClosurePlan>
+OwnershipFlowAnalysis::analyzeOwnershipClosurePlans() {
+  const auto obligations = analyzeExitObligations();
+  const auto ownedValues = collectOwnedValues(function_);
+  std::unordered_map<const Value *, OwnershipDefinitionSite> definitions;
+  for (const auto &argument : function_.getArguments()) {
+    if (ownsManagedValue(argument)) {
+      definitions.emplace(argument.get(),
+                          OwnershipDefinitionSite{nullptr, std::nullopt});
+    }
+  }
+  for (const auto &blockOwner : function_.getBlocks()) {
+    if (!blockOwner) {
+      continue;
+    }
+    for (size_t i = 0; i < blockOwner->getInstructions().size(); ++i) {
+      const auto &instruction = blockOwner->getInstructions()[i];
+      if (const auto value =
+              instruction ? instructionResult(*instruction) : nullptr;
+          ownsManagedValue(value)) {
+        definitions.emplace(value.get(),
+                            OwnershipDefinitionSite{blockOwner.get(), i});
+      }
+    }
+  }
+
+  std::vector<OwnershipClosurePlan> plans;
+  for (const auto *value : ownedValues) {
+    OwnershipClosurePlan plan{value, definitions[value], {}};
+    for (const auto &obligation : obligations) {
+      if (obligation.value == value) {
+        plan.liveExits.push_back(obligation);
+      }
+    }
+    if (!plan.liveExits.empty()) {
+      plans.push_back(std::move(plan));
+    }
+  }
+  return plans;
+}
+
 } // namespace zir

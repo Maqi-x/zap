@@ -852,6 +852,34 @@ bool testOwnershipExitObligationsReportLiveValues() {
                 "exit obligations did not report a live owned value");
 }
 
+bool testOwnershipClosurePlanConnectsDefinitionAndExit() {
+  Module module("ownership-closure-plan");
+  auto classType = std::make_shared<ClassType>("Node");
+  auto function =
+      std::make_unique<Function>("valid", primitive(TypeKind::Void));
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto value = reg("value", classType);
+  value->setOwnership(ValueOwnership::Owned);
+  entry->addInstruction(std::make_unique<zir::AllocInst>(value, classType));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  auto *entryBlock = entry.get();
+  function->addBlock(std::move(entry));
+
+  OwnershipFlowAnalysis::BlockEdges predecessors{{entryBlock, {}}};
+  OwnershipFlowAnalysis::BlockEdges successors{{entryBlock, {}}};
+  OwnershipFlowAnalysis analysis(module, *function, predecessors, successors,
+                                 {entryBlock});
+  const auto plans = analysis.analyzeOwnershipClosurePlans();
+  return expect(plans.size() == 1 && plans.front().value == value.get() &&
+                    plans.front().definition.block == entryBlock &&
+                    plans.front().definition.instructionIndex == 0 &&
+                    plans.front().liveExits.size() == 1 &&
+                    plans.front().liveExits.front().block == entryBlock &&
+                    plans.front().liveExits.front().instructionIndex == 1,
+                "closure plan did not connect an owned definition to its "
+                "live exit");
+}
+
 bool testOwnershipExitObligationsAllowMovedReturn() {
   Module module("ownership-exit-moved-return");
   auto classType = std::make_shared<ClassType>("Node");
@@ -1663,6 +1691,7 @@ int main() {
   ok = testReleaseConsumesOwnedValue() && ok;
   ok = testUseAfterReleaseIsRejected() && ok;
   ok = testOwnershipExitObligationsReportLiveValues() && ok;
+  ok = testOwnershipClosurePlanConnectsDefinitionAndExit() && ok;
   ok = testOwnershipExitObligationsAllowMovedReturn() && ok;
   ok = testOwnershipObligationVerifierReportsLiveValues() && ok;
   ok = testOwnershipExitObligationsTrackPartialDefinitions() && ok;

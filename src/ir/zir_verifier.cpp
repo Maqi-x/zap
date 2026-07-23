@@ -83,13 +83,23 @@ ZirVerifier::verifyOwnershipObligations(const Module &module) const {
     ControlFlowGraph cfg(*function);
     OwnershipFlowAnalysis analysis(module, *function, cfg.predecessors(),
                                    cfg.successors(), cfg.reachable());
-    for (const auto &obligation : analysis.analyzeExitObligations()) {
-      result.errors_.push_back(
-          {VerificationErrorCode::OwnershipViolation, function->name,
-           obligation.block ? obligation.block->label : std::string{},
-           obligation.instructionIndex,
-           "owned value may remain live at function exit: " +
-               obligation.value->getName()});
+    for (const auto &plan : analysis.analyzeOwnershipClosurePlans()) {
+      std::string definition = "function argument";
+      if (plan.definition.block) {
+        definition = "block %" + plan.definition.block->label;
+        if (plan.definition.instructionIndex) {
+          definition += " instruction " +
+                        std::to_string(*plan.definition.instructionIndex);
+        }
+      }
+      for (const auto &obligation : plan.liveExits) {
+        result.errors_.push_back(
+            {VerificationErrorCode::OwnershipViolation, function->name,
+             obligation.block ? obligation.block->label : std::string{},
+             obligation.instructionIndex,
+             "owned value may remain live at function exit: " +
+                 plan.value->getName() + " (defined in " + definition + ")"});
+      }
     }
   }
   return result;

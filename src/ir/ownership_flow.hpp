@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -36,6 +37,17 @@ struct OwnershipExitObligation {
   OwnershipFlowState state;
 };
 
+struct OwnershipDefinitionSite {
+  const BasicBlock *block;
+  std::optional<size_t> instructionIndex;
+};
+
+struct OwnershipClosurePlan {
+  const Value *value;
+  OwnershipDefinitionSite definition;
+  std::vector<OwnershipExitObligation> liveExits;
+};
+
 class OwnershipFlowAnalysis {
 public:
   using BlockEdges =
@@ -48,6 +60,7 @@ public:
 
   std::vector<OwnershipTransferViolation> analyze();
   std::vector<OwnershipExitObligation> analyzeExitObligations();
+  std::vector<OwnershipClosurePlan> analyzeOwnershipClosurePlans();
   OwnershipFlowState stateOnEdge(const BasicBlock &source,
                                  const BasicBlock &destination,
                                  const std::shared_ptr<Value> &value) const;
