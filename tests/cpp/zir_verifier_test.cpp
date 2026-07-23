@@ -1584,6 +1584,52 @@ bool testOwnershipLoweringReleasesDeadOwnedResults() {
                 "ownership-lowered ZIR was rejected by the verifier");
 }
 
+bool testOwnershipLoweringPreservesManagedAssignmentCopy() {
+  Module module("ownership-assignment-copy-lowering");
+  auto classType = std::make_shared<ClassType>("Node");
+  auto boolean = primitive(TypeKind::Bool);
+  auto function =
+      std::make_unique<Function>("valid", primitive(TypeKind::Void));
+  auto source = std::make_shared<zir::Argument>("source", classType);
+  source->setOwnership(ValueOwnership::Owned);
+  function->arguments.push_back(source);
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto slot = reg("slot", std::make_shared<PointerType>(classType));
+  auto copied = reg("copied", classType);
+  copied->setOwnership(ValueOwnership::Owned);
+  auto comparison = reg("comparison", boolean);
+  entry->addInstruction(std::make_unique<zir::AllocaInst>(slot, classType));
+  entry->addInstruction(std::make_unique<CopyInst>(copied, source));
+  entry->addInstruction(
+      std::make_unique<StoreInst>(copied, slot, StoreMode::Assign));
+  entry->addInstruction(std::make_unique<CmpInst>(
+      "eq", comparison, source, std::make_shared<Constant>("null", classType)));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  zir::lowerDeadOwnedResults(module);
+  const auto &instructions =
+      module.getFunctions().front()->getBlocks().front()->getInstructions();
+  if (instructions.size() < 3 || instructions[1]->getOpCode() != OpCode::Copy ||
+      instructions[2]->getOpCode() != OpCode::Store) {
+    return expect(false, "managed assignment copy was not preserved");
+  }
+  const auto &copy = static_cast<const CopyInst &>(*instructions[1]);
+  const auto &store = static_cast<const StoreInst &>(*instructions[2]);
+  return expect(instructions.size() == 6 &&
+                    store.getSource() == copy.getResult() &&
+                    store.getSourceOwnership() == ValueOwnership::Owned &&
+                    instructions[3]->getOpCode() == OpCode::Cmp &&
+                    instructions[4]->getOpCode() == OpCode::Destroy,
+                "managed assignment copy did not transfer into the store") &&
+         expect(ZirVerifier().verify(module).ok(),
+                "managed assignment copy produced invalid ZIR") &&
+         expect(ZirVerifier().verifyOwnershipObligations(module).ok(),
+                "managed assignment copy left ownership open");
+}
+
 bool testOwnershipLoweringClosesUnambiguousOwnedArgumentAtReturn() {
   Module module("ownership-return-closure-lowering");
   auto classType = std::make_shared<ClassType>("Node");
@@ -1959,6 +2005,7 @@ int main() {
   ok = testReturnRejectsCastFunctionLocalStringView() && ok;
   ok = testStoreRejectsEscapingFunctionLocalStringView() && ok;
   ok = testOwnershipLoweringReleasesDeadOwnedResults() && ok;
+  ok = testOwnershipLoweringPreservesManagedAssignmentCopy() && ok;
   ok = testOwnershipLoweringClosesUnambiguousOwnedArgumentAtReturn() && ok;
   ok = testOwnershipLoweringClosesSimpleEdgeObligations() && ok;
   ok = testOwnershipLoweringClosesCriticalEdgeObligations() && ok;

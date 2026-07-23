@@ -73,6 +73,19 @@ ValueOwnership ownershipForCast(const std::shared_ptr<Value> &source,
              ? ValueOwnership::Owned
              : ValueOwnership::Borrowed;
 }
+
+bool assignmentNeedsCopy(const std::shared_ptr<Type> &type) {
+  if (!type || !containsManagedValues(type)) {
+    return false;
+  }
+  if (type->getKind() != TypeKind::Class) {
+    return true;
+  }
+
+  // A weak store still owns the strong-to-weak conversion. ValueOwnership
+  // cannot yet distinguish an owned weak token from an owned strong token.
+  return !std::static_pointer_cast<ClassType>(type)->isWeak();
+}
 } // namespace
 
 std::shared_ptr<Value> BoundIRGenerator::lowerConstantExpression(
@@ -484,6 +497,11 @@ void BoundIRGenerator::visit(sema::BoundAssignment &node) {
   valueStack_.pop();
 
   compoundTargetAddr_ = oldCompoundTargetAddr;
+  if (val && assignmentNeedsCopy(val->getType())) {
+    auto copied = createRegister(val->getType(), ValueOwnership::Owned);
+    currentBlock_->addInstruction(std::make_unique<CopyInst>(copied, val));
+    val = std::move(copied);
+  }
   currentBlock_->addInstruction(
       std::make_unique<StoreInst>(val, target, StoreMode::Assign));
 }
