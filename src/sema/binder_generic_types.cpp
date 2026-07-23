@@ -296,15 +296,24 @@ std::shared_ptr<TypeSymbol> Binder::instantiateGenericTypeSymbol(
       }
       for (size_t i = 0; i < methodDecl->params_.size(); ++i) {
         const auto &p = methodDecl->params_[i];
+        if (p->isRef && p->isSink) {
+          error(p->span,
+                "Parameter cannot be passed by both 'ref' and 'sink'.");
+        }
+        if (p->isVariadic && p->isSink) {
+          error(p->span, "Variadic parameter cannot be passed by 'sink'.");
+        }
         auto mappedType = mapType(*p->type);
         if (!mappedType) {
           error(p->span, "Unknown type: " + p->type->qualifiedName());
           mappedType =
               std::make_shared<zir::PrimitiveType>(zir::TypeKind::Void);
         }
-        params.push_back(std::make_shared<VariableSymbol>(
+        auto parameter = std::make_shared<VariableSymbol>(
             p->name, mappedType, false, p->isRef, p->name,
-            moduleIt->second.info->moduleName, Visibility::Private));
+            moduleIt->second.info->moduleName, Visibility::Private);
+        parameter->is_sink = p->isSink;
+        params.push_back(std::move(parameter));
       }
 
       std::shared_ptr<zir::Type> retType;

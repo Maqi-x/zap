@@ -54,8 +54,17 @@ public:
     std::string res = "@" + name + "(";
     for (size_t i = 0; i < arguments.size(); ++i) {
       if (containsManagedValues(arguments[i]->getType())) {
-        res += isOwned(arguments[i]->getOwnership()) ? "transfer "
-                                                     : "borrow ";
+        switch (arguments[i]->getParameterOwnership()) {
+        case ParameterOwnership::Borrow:
+          res += "borrow ";
+          break;
+        case ParameterOwnership::Transfer:
+          res += "transfer ";
+          break;
+        case ParameterOwnership::Sink:
+          res += "sink ";
+          break;
+        }
       }
       res += arguments[i]->getTypeName() + " " + arguments[i]->getName();
       if (i < arguments.size() - 1)

@@ -75,6 +75,10 @@ bool testStructuralTypes() {
       std::vector<std::shared_ptr<Type>>{zir::makeStringType()},
       primitive(TypeKind::Void),
       std::vector<ParameterOwnership>{ParameterOwnership::Transfer});
+  auto sinkingFunction = std::make_shared<FunctionPointerType>(
+      std::vector<std::shared_ptr<Type>>{zir::makeStringType()},
+      primitive(TypeKind::Void),
+      std::vector<ParameterOwnership>{ParameterOwnership::Sink});
 
   return expect(types.same(lhsPointer, rhsPointer),
                 "equal pointer types have different identities") &&
@@ -87,7 +91,9 @@ bool testStructuralTypes() {
          expect(types.same(lhsFunction, rhsFunction),
                 "equal function types have different identities") &&
          expect(!types.same(borrowedFunction, transferringFunction),
-                "function parameter ownership is absent from type identity");
+                "function parameter ownership is absent from type identity") &&
+         expect(!types.same(transferringFunction, sinkingFunction),
+                "sink is absent from function parameter type identity");
 }
 
 bool testNominalAndQualifiedTypes() {

@@ -324,7 +324,13 @@ public:
 enum class ParameterOwnership {
   Borrow,
   Transfer,
+  Sink,
 };
+
+inline bool transfersOwnership(ParameterOwnership ownership) {
+  return ownership == ParameterOwnership::Transfer ||
+         ownership == ParameterOwnership::Sink;
+}
 
 inline bool containsManagedValues(const std::shared_ptr<Type> &type);
 
@@ -353,9 +359,17 @@ public:
       if (i)
         s += ", ";
       if (containsManagedValues(params[i])) {
-        s += parameterOwnership[i] == ParameterOwnership::Transfer
-                 ? "transfer "
-                 : "borrow ";
+        switch (parameterOwnership[i]) {
+        case ParameterOwnership::Borrow:
+          s += "borrow ";
+          break;
+        case ParameterOwnership::Transfer:
+          s += "transfer ";
+          break;
+        case ParameterOwnership::Sink:
+          s += "sink ";
+          break;
+        }
       }
       s += params[i]->toString();
     }

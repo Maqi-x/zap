@@ -1,0 +1,5 @@
+ext fun consume(value: sink String);
+
+fun main() Int {
+    return 0;
+}

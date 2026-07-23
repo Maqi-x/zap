@@ -127,10 +127,7 @@ bool transfersThroughCallArgument(const Module &module, const CallInst &call,
        call.getArgumentIsRef()[argumentIndex])) {
     return false;
   }
-  const auto &type = call.getArguments()[argumentIndex]->getType();
-  return type->getIntrinsicKind() == IntrinsicTypeKind::String ||
-         (!call.isIndirect() && type->getKind() == TypeKind::Class &&
-          !isBorrowedMethodSelf(module, call, argumentIndex));
+  return !isBorrowedMethodSelf(module, call, argumentIndex);
 }
 
 } // namespace

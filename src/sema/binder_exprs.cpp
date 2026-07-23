@@ -550,8 +550,10 @@ void Binder::visit(ConstId &node) {
         const bool transfers =
             !match->isExternal && !p->is_ref && !p->is_variadic_pack &&
             !borrowedSelf && zir::containsManagedValues(p->type);
-        ownership.push_back(transfers ? zir::ParameterOwnership::Transfer
-                                      : zir::ParameterOwnership::Borrow);
+        ownership.push_back(
+            transfers ? (p->is_sink ? zir::ParameterOwnership::Sink
+                                    : zir::ParameterOwnership::Transfer)
+                      : zir::ParameterOwnership::Borrow);
       }
       auto fpType = std::make_shared<zir::FunctionPointerType>(
           std::move(params), match->returnType, std::move(ownership));

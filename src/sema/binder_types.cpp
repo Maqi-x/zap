@@ -314,10 +314,15 @@ std::shared_ptr<zir::Type> Binder::mapType(const TypeNode &typeNode) {
         return nullptr;
       std::vector<zir::ParameterOwnership> ownership;
       ownership.reserve(params.size());
-      for (const auto &param : params) {
-        ownership.push_back(zir::containsManagedValues(param)
-                                ? zir::ParameterOwnership::Transfer
-                                : zir::ParameterOwnership::Borrow);
+      for (size_t i = 0; i < params.size(); ++i) {
+        if (!zir::containsManagedValues(params[i])) {
+          ownership.push_back(zir::ParameterOwnership::Borrow);
+        } else if (i < typeNode.funPtrParamSinks.size() &&
+                   typeNode.funPtrParamSinks[i]) {
+          ownership.push_back(zir::ParameterOwnership::Sink);
+        } else {
+          ownership.push_back(zir::ParameterOwnership::Transfer);
+        }
       }
       return std::make_shared<zir::FunctionPointerType>(std::move(params),
                                                         std::move(ret),

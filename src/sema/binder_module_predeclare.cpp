@@ -465,11 +465,18 @@ void Binder::predeclareModuleValues(ModuleState &module) {
       std::vector<std::shared_ptr<VariableSymbol>> params;
       for (size_t i = 0; i < funDecl->params_.size(); ++i) {
         const auto &p = funDecl->params_[i];
+        if (p->isRef && p->isSink) {
+          error(p->span,
+                "Parameter cannot be passed by both 'ref' and 'sink'.");
+        }
         if (p->isVariadic && i + 1 != funDecl->params_.size()) {
           error(p->span, "Variadic parameter must be the last parameter.");
         }
         if (p->isVariadic && p->isRef) {
           error(p->span, "Variadic parameter cannot be passed by 'ref'.");
+        }
+        if (p->isVariadic && p->isSink) {
+          error(p->span, "Variadic parameter cannot be passed by 'sink'.");
         }
         auto mappedType = mapType(*p->type);
         if (!mappedType) {
@@ -480,6 +487,7 @@ void Binder::predeclareModuleValues(ModuleState &module) {
         auto symbol = std::make_shared<VariableSymbol>(
             p->name, mappedType, false, p->isRef, p->name,
             module.info->moduleName, Visibility::Private);
+        symbol->is_sink = p->isSink;
         if (p->isVariadic) {
           symbol->is_variadic_pack = true;
           symbol->variadic_element_type = mappedType;
@@ -646,15 +654,24 @@ void Binder::predeclareModuleValues(ModuleState &module) {
 
         for (size_t i = 0; i < methodDecl->params_.size(); ++i) {
           const auto &p = methodDecl->params_[i];
+          if (p->isRef && p->isSink) {
+            error(p->span,
+                  "Parameter cannot be passed by both 'ref' and 'sink'.");
+          }
+          if (p->isVariadic && p->isSink) {
+            error(p->span, "Variadic parameter cannot be passed by 'sink'.");
+          }
           auto mappedType = mapType(*p->type);
           if (!mappedType) {
             error(p->span, "Unknown type: " + p->type->qualifiedName());
             mappedType =
                 std::make_shared<zir::PrimitiveType>(zir::TypeKind::Void);
           }
-          params.push_back(std::make_shared<VariableSymbol>(
+          auto parameter = std::make_shared<VariableSymbol>(
               p->name, mappedType, false, p->isRef, p->name,
-              module.info->moduleName, Visibility::Private));
+              module.info->moduleName, Visibility::Private);
+          parameter->is_sink = p->isSink;
+          params.push_back(std::move(parameter));
         }
 
         std::shared_ptr<zir::Type> retType;
@@ -729,6 +746,10 @@ void Binder::predeclareModuleValues(ModuleState &module) {
       ++externTypeContextDepth_;
       std::vector<std::shared_ptr<VariableSymbol>> params;
       for (const auto &p : extDecl->params_) {
+        if (p->isSink) {
+          error(p->span,
+                "External function parameter cannot be passed by 'sink'.");
+        }
         if (p->isVariadic) {
           error(p->span, "Variadic parameters are only supported in Zap "
                          "function declarations.");
@@ -739,9 +760,11 @@ void Binder::predeclareModuleValues(ModuleState &module) {
           mappedType =
               std::make_shared<zir::PrimitiveType>(zir::TypeKind::Void);
         }
-        params.push_back(std::make_shared<VariableSymbol>(
+        auto parameter = std::make_shared<VariableSymbol>(
             p->name, mappedType, false, p->isRef, p->name,
-            module.info->moduleName, Visibility::Private));
+            module.info->moduleName, Visibility::Private);
+        parameter->is_sink = p->isSink;
+        params.push_back(std::move(parameter));
       }
 
       auto retType =

@@ -560,6 +560,8 @@ Binder::renderFunctionSignature(const FunctionSymbol &function) const {
     const auto &param = function.parameters[i];
     if (param->is_ref) {
       rendered += "ref ";
+    } else if (param->is_sink) {
+      rendered += "sink ";
     }
     if (param->is_variadic_pack) {
       rendered += "...";

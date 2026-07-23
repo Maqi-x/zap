@@ -65,10 +65,13 @@ std::string renderParameter(const ParameterNode *param) {
     return "";
   }
   std::string prefix = param->isRef ? "ref " : "";
+  std::string typePrefix = param->isSink ? "sink " : "";
   if (param->isVariadic) {
-    return prefix + param->name + ": ..." + renderType(param->type.get());
+    return prefix + param->name + ": " + typePrefix + "..." +
+           renderType(param->type.get());
   }
-  return prefix + param->name + ": " + renderType(param->type.get());
+  return prefix + param->name + ": " + typePrefix +
+         renderType(param->type.get());
 }
 
 std::optional<LspSignature> signatureForNode(const Node *node) {

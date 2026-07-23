@@ -138,14 +138,17 @@ class Argument : public Value {
   bool isRef_;
   bool isVariadicPack_;
   std::shared_ptr<Type> variadicElementType_;
+  ParameterOwnership parameterOwnership_;
 
 public:
   Argument(std::string n, std::shared_ptr<Type> t, bool isRef = false,
            bool isVariadicPack = false,
-           std::shared_ptr<Type> variadicElementType = nullptr)
+           std::shared_ptr<Type> variadicElementType = nullptr,
+           ParameterOwnership parameterOwnership = ParameterOwnership::Borrow)
       : name(std::move(n)), type(std::move(t)), isRef_(isRef),
         isVariadicPack_(isVariadicPack),
-        variadicElementType_(std::move(variadicElementType)) {}
+        variadicElementType_(std::move(variadicElementType)),
+        parameterOwnership_(parameterOwnership) {}
   ValueKind getKind() const override { return ValueKind::Argument; }
   std::string getName() const override { return "%" + name; }
   std::shared_ptr<Type> getType() const override { return type; }
@@ -154,6 +157,9 @@ public:
   bool isVariadicPack() const { return isVariadicPack_; }
   const std::shared_ptr<Type> &getVariadicElementType() const {
     return variadicElementType_;
+  }
+  ParameterOwnership getParameterOwnership() const {
+    return parameterOwnership_;
   }
 };
 

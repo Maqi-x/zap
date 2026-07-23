@@ -45,6 +45,7 @@ class VariableSymbol : public Symbol {
 public:
   bool is_const = false;
   bool is_ref = false;
+  bool is_sink = false;
   bool is_variadic_pack = false;
   bool is_external = false;
   std::shared_ptr<zir::Type> variadic_element_type = nullptr;

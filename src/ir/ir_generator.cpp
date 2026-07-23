@@ -78,6 +78,24 @@ ValueOwnership ownershipForCast(const std::shared_ptr<Value> &source,
   return source && isOwned(source->getOwnership()) ? source->getOwnership()
                                                    : ValueOwnership::Borrowed;
 }
+
+ParameterOwnership parameterOwnershipFor(
+    const sema::FunctionSymbol &function, size_t parameterIndex) {
+  if (parameterIndex >= function.parameters.size()) {
+    return ParameterOwnership::Borrow;
+  }
+  const auto &parameter = function.parameters[parameterIndex];
+  const bool borrowedSelf =
+      parameterIndex == 0 && !function.ownerTypeCodegenName.empty() &&
+      parameter->name == "self";
+  if (function.isExternal || parameter->is_ref ||
+      parameter->is_variadic_pack || borrowedSelf ||
+      !containsManagedValues(parameter->type)) {
+    return ParameterOwnership::Borrow;
+  }
+  return parameter->is_sink ? ParameterOwnership::Sink
+                            : ParameterOwnership::Transfer;
+}
 } // namespace
 
 std::shared_ptr<Value> BoundIRGenerator::lowerConstantExpression(
@@ -244,9 +262,13 @@ void BoundIRGenerator::visit(sema::BoundFunctionDeclaration &node) {
                        ? std::static_pointer_cast<Type>(
                              std::make_shared<PointerType>(paramSymbol->type))
                        : paramSymbol->type;
+    const size_t parameterIndex = currentFunction_->arguments.size();
+    const auto parameterOwnership =
+        parameterOwnershipFor(*symbol, parameterIndex);
     auto arg = std::make_shared<Argument>(
         paramSymbol->name, argType, paramSymbol->is_ref,
-        paramSymbol->is_variadic_pack, paramSymbol->variadic_element_type);
+        paramSymbol->is_variadic_pack, paramSymbol->variadic_element_type,
+        parameterOwnership);
     const bool borrowedSelf =
         !symbol->ownerTypeCodegenName.empty() && paramSymbol->name == "self";
     if (!paramSymbol->is_ref && !paramSymbol->is_variadic_pack &&
@@ -300,7 +322,8 @@ void BoundIRGenerator::visit(sema::BoundExternalFunctionDeclaration &node) {
                        : paramSymbol->type;
     auto arg = std::make_shared<Argument>(
         paramSymbol->name, argType, paramSymbol->is_ref,
-        paramSymbol->is_variadic_pack, paramSymbol->variadic_element_type);
+        paramSymbol->is_variadic_pack, paramSymbol->variadic_element_type,
+        ParameterOwnership::Borrow);
     func->arguments.push_back(arg);
   }
 
@@ -761,18 +784,7 @@ void BoundIRGenerator::visit(sema::BoundFunctionCall &node) {
     evaluateAsAddress_ = oldEvaluateAsAddress;
     auto argument = valueStack_.top();
     valueStack_.pop();
-    ParameterOwnership parameterOwnership = ParameterOwnership::Borrow;
-    if (i < node.symbol->parameters.size()) {
-      const auto &parameter = node.symbol->parameters[i];
-      const bool borrowedSelf =
-          i == 0 && !node.symbol->ownerTypeCodegenName.empty() &&
-          parameter->name == "self";
-      if (!node.symbol->isExternal && !parameter->is_ref &&
-          !parameter->is_variadic_pack && !borrowedSelf &&
-          containsManagedValues(parameter->type)) {
-        parameterOwnership = ParameterOwnership::Transfer;
-      }
-    }
+    const auto parameterOwnership = parameterOwnershipFor(*node.symbol, i);
     argumentModes.push_back(
         prepareCallArgument(argument, parameterOwnership));
     args.push_back(std::move(argument));
@@ -883,14 +895,23 @@ void BoundIRGenerator::emitInitializationStore(
 CallInst::ArgumentMode BoundIRGenerator::prepareCallArgument(
     std::shared_ptr<Value> &value,
     ParameterOwnership parameterOwnership) {
-  if (parameterOwnership != ParameterOwnership::Transfer || !value ||
+  if (!transfersOwnership(parameterOwnership) || !value ||
       !containsManagedValues(value->getType())) {
     return CallInst::ArgumentMode::Borrow;
   }
 
-  auto copied = createRegister(value->getType(), ownedForType(value->getType()));
-  currentBlock_->addInstruction(std::make_unique<CopyInst>(copied, value));
-  value = std::move(copied);
+  const bool moveOwnedValue =
+      parameterOwnership == ParameterOwnership::Sink &&
+      isOwned(value->getOwnership());
+  const auto resultOwnership =
+      moveOwnedValue ? value->getOwnership() : ownedForType(value->getType());
+  auto prepared = createRegister(value->getType(), resultOwnership);
+  if (moveOwnedValue) {
+    currentBlock_->addInstruction(std::make_unique<MoveInst>(prepared, value));
+  } else {
+    currentBlock_->addInstruction(std::make_unique<CopyInst>(prepared, value));
+  }
+  value = std::move(prepared);
   return CallInst::ArgumentMode::Transfer;
 }
 
@@ -2013,15 +2034,8 @@ void BoundIRGenerator::visit(sema::BoundNewExpression &node) {
       auto argument = valueStack_.top();
       valueStack_.pop();
       const size_t parameterIndex = i + 1;
-      ParameterOwnership parameterOwnership = ParameterOwnership::Borrow;
-      if (parameterIndex < node.constructor->parameters.size()) {
-        const auto &parameter =
-            node.constructor->parameters[parameterIndex];
-        if (!parameter->is_ref && !parameter->is_variadic_pack &&
-            containsManagedValues(parameter->type)) {
-          parameterOwnership = ParameterOwnership::Transfer;
-        }
-      }
+      const auto parameterOwnership =
+          parameterOwnershipFor(*node.constructor, parameterIndex);
       argumentModes.push_back(
           prepareCallArgument(argument, parameterOwnership));
       args.push_back(std::move(argument));

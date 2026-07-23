@@ -514,6 +514,11 @@ std::unique_ptr<ParameterNode> Parser::parseParameter(bool allowDefault) {
   }
   Token paramNameToken = eat(TokenType::ID);
   eat(TokenType::COLON);
+  bool isSink = false;
+  if (peek().type == TokenType::ID && peek().value == "sink") {
+    eat(TokenType::ID);
+    isSink = true;
+  }
   auto typeNode = parseType();
   auto *typeNodePtr = typeNode.get();
   bool isVariadic = typeNode && typeNode->isVarArgs;
@@ -525,7 +530,7 @@ std::unique_ptr<ParameterNode> Parser::parseParameter(bool allowDefault) {
   auto endSpan = defaultValue ? defaultValue->span : typeNodePtr->span;
   auto paramNode =
       _builder.makeParam(paramNameToken.value, std::move(typeNode), isRef,
-                         isVariadic, std::move(defaultValue));
+                         isSink, isVariadic, std::move(defaultValue));
   _builder.setSpan(paramNode.get(),
                    SourceSpan::merge(paramNameToken.span, endSpan));
   return paramNode;
@@ -849,7 +854,13 @@ std::unique_ptr<TypeNode> Parser::parseType() {
       funPtrType->isFunPtr = true;
       if (peek().type != TokenType::RPAREN) {
         do {
+          const bool isSink =
+              peek().type == TokenType::ID && peek().value == "sink";
+          if (isSink) {
+            eat(TokenType::ID);
+          }
           funPtrType->funPtrParams.push_back(parseType());
+          funPtrType->funPtrParamSinks.push_back(isSink);
         } while (peek().type == TokenType::COMMA &&
                  eat(TokenType::COMMA).type == TokenType::COMMA);
       }

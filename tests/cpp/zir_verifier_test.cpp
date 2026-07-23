@@ -470,7 +470,9 @@ bool testCallConsumesExplicitManagedCopy() {
 
   auto callee =
       std::make_unique<Function>("consume", primitive(TypeKind::Void));
-  auto parameter = std::make_shared<zir::Argument>("value", stringType);
+  auto parameter = std::make_shared<zir::Argument>(
+      "value", stringType, false, false, nullptr,
+      zir::ParameterOwnership::Transfer);
   parameter->setOwnership(ValueOwnership::OwnedStrong);
   callee->arguments.push_back(parameter);
   auto calleeEntry = std::make_unique<BasicBlock>("entry");

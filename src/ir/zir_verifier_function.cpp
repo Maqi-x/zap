@@ -726,10 +726,7 @@ private:
       for (const auto &argument : callee->getArguments()) {
         if (argument && !argument->isVariadicPack()) {
           parameterTypes.push_back(argument->getType());
-          parameterOwnership.push_back(
-              isOwned(argument->getOwnership())
-                  ? ParameterOwnership::Transfer
-                  : ParameterOwnership::Borrow);
+          parameterOwnership.push_back(argument->getParameterOwnership());
         }
       }
       returnType = callee->getReturnType();
@@ -782,7 +779,7 @@ private:
       const auto &argument = call.getArguments()[i];
       const auto expectedMode =
           i < parameterOwnership.size() &&
-                  parameterOwnership[i] == ParameterOwnership::Transfer
+                  transfersOwnership(parameterOwnership[i])
               ? CallInst::ArgumentMode::Transfer
               : CallInst::ArgumentMode::Borrow;
       if (call.getArgumentModes()[i] != expectedMode) {

@@ -102,6 +102,19 @@ Notes:
 - `ref` arguments must be assignable values (l-values).
 - Passing incompatible ref/value style is a semantic error.
 
+### Ownership sink (`sink`)
+
+Use `sink` when a managed parameter may take ownership of an argument:
+
+```zap
+fun consume(value: sink String) {
+    println(value);
+}
+```
+
+Calls use the ordinary syntax. An owned temporary is moved into the parameter;
+a borrowed value is copied and remains valid in the caller.
+
 ---
 
 ## Return Values
