@@ -50,10 +50,6 @@ void addInstructionUses(ValueSet &values, const Instruction &instruction,
     addUse(values, static_cast<const LoadInst &>(instruction).getSource(),
            borrowOwners);
     return;
-  case OpCode::Take:
-    addUse(values, static_cast<const TakeInst &>(instruction).getSource(),
-           borrowOwners);
-    return;
   case OpCode::Store: {
     const auto &store = static_cast<const StoreInst &>(instruction);
     addUse(values, store.getSource(), borrowOwners);
@@ -362,12 +358,6 @@ LocalStorageProvenance analyzeLocalStorageProvenance(
             result.localStorage.count(store.getDestination().get()) != 0) {
           writtenStorage.insert(store.getDestination().get());
         }
-      } else if (instruction->getOpCode() == OpCode::Take) {
-        const auto &take = static_cast<const TakeInst &>(*instruction);
-        if (take.getSource() &&
-            result.localStorage.count(take.getSource().get()) != 0) {
-          writtenStorage.insert(take.getSource().get());
-        }
       } else if (instruction->getOpCode() == OpCode::Load) {
         const auto &load = static_cast<const LoadInst &>(*instruction);
         if (load.getResult() && load.getSource() &&
@@ -404,14 +394,6 @@ LocalStorageProvenance analyzeLocalStorageProvenance(
         if (!instruction) {
           continue;
         }
-        if (instruction->getOpCode() == OpCode::Take) {
-          const auto &take = static_cast<const TakeInst &>(*instruction);
-          if (take.getSource() &&
-              result.localStorage.count(take.getSource().get()) != 0) {
-            state[take.getSource().get()].clear();
-          }
-          continue;
-        }
         if (instruction->getOpCode() != OpCode::Store) {
           continue;
         }
@@ -446,8 +428,6 @@ std::shared_ptr<Value> instructionResult(const Instruction &instruction) {
     return static_cast<const AllocaInst &>(instruction).getResult();
   case OpCode::Load:
     return static_cast<const LoadInst &>(instruction).getResult();
-  case OpCode::Take:
-    return static_cast<const TakeInst &>(instruction).getResult();
   case OpCode::Add:
   case OpCode::Sub:
   case OpCode::Mul:

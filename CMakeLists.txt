@@ -81,7 +81,6 @@ add_library(zap_zir_verifier STATIC
     src/ir/ownership_flow.cpp
     src/ir/ownership_lowering.cpp
     src/ir/ownership_liveness.cpp
-    src/ir/sink_last_use.cpp
     src/ir/string_view_escape.cpp
     src/ir/zir_verifier.cpp
     src/ir/zir_verifier_function.cpp

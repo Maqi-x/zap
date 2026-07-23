@@ -351,41 +351,6 @@ private:
       }
       return;
     }
-    case OpCode::Take: {
-      const auto &take = static_cast<const TakeInst &>(instruction);
-      verifyValue(take.getSource(), block, index);
-      auto pointer =
-          take.getSource()
-              ? std::dynamic_pointer_cast<PointerType>(
-                    take.getSource()->getType())
-              : nullptr;
-      const auto sourceDefinition =
-          take.getSource() ? definitions_.find(take.getSource().get())
-                           : definitions_.end();
-      const bool isLocalStorage =
-          sourceDefinition != definitions_.end() &&
-          sourceDefinition->second.block &&
-          sourceDefinition->second.instructionIndex <
-              sourceDefinition->second.block->getInstructions().size() &&
-          sourceDefinition->second.block
-                  ->getInstructions()[sourceDefinition->second.instructionIndex]
-                  ->getOpCode() == OpCode::Alloca;
-      if (!pointer || !take.getResult() ||
-          !containsManagedValues(pointer->getBaseType()) ||
-          !isOwned(take.getResult()->getOwnership()) || !isLocalStorage) {
-        error(VerificationErrorCode::InvalidOperand, &block, index,
-              "take requires managed local storage and an owned result");
-      } else {
-        expectSameType(take.getResult()->getType(), pointer->getBaseType(),
-                       block, index, "take result type");
-        if (take.getResult()->getOwnership() !=
-            ownedForType(pointer->getBaseType())) {
-          error(VerificationErrorCode::InvalidResult, &block, index,
-                "take result ownership does not match storage type");
-        }
-      }
-      return;
-    }
     case OpCode::Store: {
       const auto &store = static_cast<const StoreInst &>(instruction);
       verifyValue(store.getSource(), block, index);

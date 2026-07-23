@@ -18,8 +18,6 @@ std::shared_ptr<Value> instructionResult(const Instruction &instruction) {
     return static_cast<const AllocaInst &>(instruction).getResult();
   case OpCode::Load:
     return static_cast<const LoadInst &>(instruction).getResult();
-  case OpCode::Take:
-    return static_cast<const TakeInst &>(instruction).getResult();
   case OpCode::Add:
   case OpCode::Sub:
   case OpCode::Mul:

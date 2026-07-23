@@ -376,17 +376,6 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
     zirValueMap_[loadInst.getResult().get()] = value;
     return;
   }
-  case OpCode::Take: {
-    const auto &takeInst = static_cast<const TakeInst &>(inst);
-    auto *source = lowerZIRValue(takeInst.getSource());
-    auto *type = toLLVMType(*takeInst.getResult()->getType());
-    auto *value = builder_.CreateLoad(
-        type, source,
-        static_cast<const Register &>(*takeInst.getResult()).getRawName());
-    builder_.CreateStore(llvm::Constant::getNullValue(type), source);
-    zirValueMap_[takeInst.getResult().get()] = value;
-    return;
-  }
   case OpCode::Store: {
     const auto &storeInst = static_cast<const StoreInst &>(inst);
     auto *dst = lowerZIRValue(storeInst.getDestination());

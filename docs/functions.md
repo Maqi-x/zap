@@ -112,10 +112,10 @@ fun consume(value: sink String) {
 }
 ```
 
-Calls use the ordinary syntax. An owned temporary or the final use of an
-unaliased local value is moved into the parameter. The compiler keeps a copy
-when the local is read on any later control-flow path or has a dependent
-borrow, so source-level behavior does not change.
+Calls use the ordinary syntax. An owned temporary is moved into the parameter.
+A named local is copied, even at its final use, and remains alive until the end
+of its lexical scope. This keeps destructor timing predictable and identical
+between optimized and unoptimized builds.
 
 ---
 

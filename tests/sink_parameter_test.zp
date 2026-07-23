@@ -31,6 +31,17 @@ fun inspectPayload(payload: sink Payload) Int {
     return payload.get();
 }
 
+fun checkNamedPayloadLifetime() Int {
+    var payload: Payload = new Payload(23);
+    if inspectPayload(payload) != 23 {
+        return 1;
+    }
+    if payloadsDestroyed != 0 {
+        return 2;
+    }
+    return 0;
+}
+
 fun main() Int {
     var reusable: String = "owned";
     if inspect(reusable) != 1 {
@@ -87,8 +98,7 @@ fun main() Int {
         return 11;
     }
 
-    var lastPayload: Payload = new Payload(23);
-    if inspectPayload(lastPayload) != 23 {
+    if checkNamedPayloadLifetime() != 0 {
         return 12;
     }
     if payloadsDestroyed != 1 {
