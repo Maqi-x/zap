@@ -41,7 +41,7 @@ public:
     collectDefinitionsAndEdges();
     verifyInstructions();
     auto borrowErrors =
-        verifier_detail::verifyBorrowContracts(function_, cfg_);
+        verifier_detail::verifyBorrowContracts(module_, function_, cfg_);
     errors_.insert(errors_.end(),
                    std::make_move_iterator(borrowErrors.begin()),
                    std::make_move_iterator(borrowErrors.end()));
@@ -656,7 +656,6 @@ private:
 
     std::vector<std::shared_ptr<Type>> parameterTypes;
     std::vector<ParameterOwnership> parameterOwnership;
-    std::vector<ParameterEscape> parameterEscapes;
     ResultBorrowContract resultBorrow;
     std::shared_ptr<Type> returnType;
     bool variadic = false;
@@ -673,7 +672,6 @@ private:
       }
       parameterTypes = functionType->getParams();
       parameterOwnership = functionType->getParameterOwnership();
-      parameterEscapes = functionType->getParameterEscapes();
       resultBorrow = functionType->getResultBorrow();
       returnType = functionType->getReturnType();
     } else {
@@ -687,7 +685,6 @@ private:
         if (argument && !argument->isVariadicPack()) {
           parameterTypes.push_back(argument->getType());
           parameterOwnership.push_back(argument->getParameterOwnership());
-          parameterEscapes.push_back(argument->getParameterEscape());
         }
       }
       returnType = callee->getReturnType();
@@ -732,11 +729,6 @@ private:
       error(VerificationErrorCode::InvalidCall, &block, index,
             "call ref-argument metadata has the wrong size");
     }
-    if (call.getArgumentEscapes().size() != call.getArguments().size()) {
-      error(VerificationErrorCode::InvalidCall, &block, index,
-            "call argument escape metadata has the wrong size");
-      return;
-    }
     if (call.getResultBorrow() != resultBorrow) {
       error(VerificationErrorCode::InvalidCall, &block, index,
             "call result borrow metadata does not match the callee contract");
@@ -752,14 +744,6 @@ private:
       const bool transfers =
           i < parameterOwnership.size() &&
           transfersOwnership(parameterOwnership[i]);
-      const auto expectedEscape = i < parameterEscapes.size()
-                                      ? parameterEscapes[i]
-                                      : ParameterEscape::Unspecified;
-      if (call.getArgumentEscapes()[i] != expectedEscape) {
-        error(VerificationErrorCode::InvalidCall, &block, index,
-              "call argument escape does not match parameter contract: " +
-                  std::to_string(i));
-      }
       if (transfers && !ownsManagedValue(argument)) {
         error(VerificationErrorCode::InvalidCall, &block, index,
               "call transfer argument must be owned: " + std::to_string(i));

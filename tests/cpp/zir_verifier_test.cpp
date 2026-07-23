@@ -420,6 +420,40 @@ bool testCallRequiresOwnershipMatchingArguments() {
                 "transfer of a borrowed call argument was not diagnosed");
 }
 
+bool testIndirectCallDerivesNoEscapeFromFunctionType() {
+  Module module("indirect-call-noescape");
+  auto stringType = zir::makeStringType();
+  auto stringViewType = zir::makeStringViewType();
+  module.addExternalFunction(std::make_unique<Function>("make", stringType));
+
+  auto function =
+      std::make_unique<Function>("valid", primitive(TypeKind::Void));
+  auto owner = reg("owner", stringType);
+  owner->setOwnership(ValueOwnership::OwnedStrong);
+  auto view = reg("view", stringViewType);
+  auto calleeType = std::make_shared<FunctionPointerType>(
+      std::vector<std::shared_ptr<Type>>{stringViewType},
+      primitive(TypeKind::Void),
+      std::vector<zir::ParameterOwnership>{zir::ParameterOwnership::Borrow},
+      std::vector<zir::ParameterEscape>{zir::ParameterEscape::NoEscape});
+  auto callee = std::make_shared<FunctionReference>("consume", calleeType);
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<zir::CallInst>(
+      owner, "make", std::vector<std::shared_ptr<zir::Value>>{},
+      std::vector<bool>{}, nullptr, false));
+  entry->addInstruction(std::make_unique<BorrowInst>(view, owner));
+  entry->addInstruction(std::make_unique<zir::CallInst>(
+      nullptr, callee, std::vector<std::shared_ptr<zir::Value>>{view}, false));
+  entry->addInstruction(std::make_unique<DestroyInst>(owner));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  return expect(ZirVerifier().verify(module).ok(),
+                "indirect call did not derive noescape from function type");
+}
+
 bool testCallConsumesExplicitManagedCopy() {
   Module module("call-explicit-copy");
   auto stringType = zir::makeStringType();
@@ -1362,8 +1396,7 @@ bool testDestroyRejectsLiveBorrowedStringView() {
   entry->addInstruction(std::make_unique<DestroyInst>(text));
   entry->addInstruction(std::make_unique<zir::CallInst>(
       nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{view},
-      std::vector<bool>{false}, nullptr, false,
-      std::vector<zir::ParameterEscape>{zir::ParameterEscape::NoEscape}));
+      std::vector<bool>{false}, nullptr, false));
   entry->addInstruction(std::make_unique<ReturnInst>());
   function->addBlock(std::move(entry));
   module.addFunction(std::move(function));
@@ -1906,8 +1939,7 @@ bool testOwnershipLoweringReleasesOwnerAfterBorrowUse() {
   entry->addInstruction(std::make_unique<BorrowInst>(view, text));
   entry->addInstruction(std::make_unique<zir::CallInst>(
       nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{view},
-      std::vector<bool>{false}, nullptr, false,
-      std::vector<zir::ParameterEscape>{zir::ParameterEscape::NoEscape}));
+      std::vector<bool>{false}, nullptr, false));
   entry->addInstruction(std::make_unique<ReturnInst>());
   function->addBlock(std::move(entry));
   module.addFunction(std::move(function));
@@ -2144,6 +2176,7 @@ int main() {
   ok = testManagedInitializationRequiresOwnershipTransfer() && ok;
   ok = testCastRequiresOwnershipMatchingSourceAndTarget() && ok;
   ok = testCallRequiresOwnershipMatchingArguments() && ok;
+  ok = testIndirectCallDerivesNoEscapeFromFunctionType() && ok;
   ok = testCallConsumesExplicitManagedCopy() && ok;
   ok = testOwnershipTransferAcrossControlFlow() && ok;
   ok = testPhiTransfersOwnershipOnIncomingEdge() && ok;

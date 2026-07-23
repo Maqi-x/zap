@@ -545,8 +545,7 @@ bool testVerifierAllowsLocalBorrowForwardingToNoEscapeParameter() {
   entry->addInstruction(std::make_unique<BorrowInst>(view, owner));
   entry->addInstruction(std::make_unique<CallInst>(
       nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{view},
-      std::vector<bool>{false}, nullptr, false,
-      std::vector<ParameterEscape>{ParameterEscape::NoEscape}));
+      std::vector<bool>{false}, nullptr, false));
   entry->addInstruction(std::make_unique<zir::DestroyInst>(owner));
   entry->addInstruction(std::make_unique<ReturnInst>());
   function->addBlock(std::move(entry));
@@ -577,8 +576,7 @@ bool testVerifierAllowsNoEscapeForwarding() {
   auto entry = std::make_unique<BasicBlock>("entry");
   entry->addInstruction(std::make_unique<CallInst>(
       nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{view},
-      std::vector<bool>{false}, nullptr, false,
-      std::vector<ParameterEscape>{ParameterEscape::NoEscape}));
+      std::vector<bool>{false}, nullptr, false));
   entry->addInstruction(std::make_unique<ReturnInst>());
   function->addBlock(std::move(entry));
   module.addFunction(std::move(function));
@@ -589,7 +587,7 @@ bool testVerifierAllowsNoEscapeForwarding() {
                     verification.format());
 }
 
-bool testVerifierRejectsMismatchedCallEscapeMetadata() {
+bool testVerifierDerivesNoEscapeFromCalleeContract() {
   const auto stringViewType = zir::makeStringViewType();
   Module module("noescape-call-metadata");
   auto consume =
@@ -611,9 +609,9 @@ bool testVerifierRejectsMismatchedCallEscapeMetadata() {
   module.addFunction(std::move(function));
 
   const auto verification = ZirVerifier().verify(module);
-  return expect(hasError(verification, VerificationErrorCode::InvalidCall,
-                         "escape does not match"),
-                "verifier accepted call metadata that omitted noescape");
+  return expect(verification.ok(),
+                "verifier did not derive noescape from the callee contract:\n" +
+                    verification.format());
 }
 
 std::unique_ptr<Function>
@@ -645,7 +643,6 @@ bool testVerifierTracksBorrowedCallResultToLocalOwner() {
   entry->addInstruction(std::make_unique<CallInst>(
       result, "tail", std::vector<std::shared_ptr<zir::Value>>{source},
       std::vector<bool>{false}, nullptr, false,
-      std::vector<ParameterEscape>{ParameterEscape::Unspecified},
       ResultBorrowContract::fromParameter(0)));
   entry->addInstruction(std::make_unique<ReturnInst>(result));
   function->addBlock(std::move(entry));
@@ -673,7 +670,6 @@ bool testBorrowedCallResultExtendsTemporaryOwnerLiveness() {
   entry->addInstruction(std::make_unique<CallInst>(
       result, "tail", std::vector<std::shared_ptr<zir::Value>>{source},
       std::vector<bool>{false}, nullptr, false,
-      std::vector<ParameterEscape>{ParameterEscape::Unspecified},
       ResultBorrowContract::fromParameter(0)));
   entry->addInstruction(std::make_unique<CallInst>(
       nullptr, "consume",
@@ -703,7 +699,6 @@ bool testVerifierAllowsForwardedBorrowedCallResult() {
   entry->addInstruction(std::make_unique<CallInst>(
       result, "tail", std::vector<std::shared_ptr<zir::Value>>{source},
       std::vector<bool>{false}, nullptr, false,
-      std::vector<ParameterEscape>{ParameterEscape::Unspecified},
       ResultBorrowContract::fromParameter(0)));
   entry->addInstruction(std::make_unique<ReturnInst>(result));
   function->addBlock(std::move(entry));
@@ -731,7 +726,6 @@ bool testVerifierRejectsReturnedNoEscapeCallResult() {
   entry->addInstruction(std::make_unique<CallInst>(
       result, "tail", std::vector<std::shared_ptr<zir::Value>>{source},
       std::vector<bool>{false}, nullptr, false,
-      std::vector<ParameterEscape>{ParameterEscape::Unspecified},
       ResultBorrowContract::fromParameter(0)));
   entry->addInstruction(std::make_unique<ReturnInst>(result));
   function->addBlock(std::move(entry));
@@ -783,7 +777,7 @@ int main() {
   ok = testVerifierRejectsLocalBorrowForwardingToUnspecifiedParameter() && ok;
   ok = testVerifierAllowsLocalBorrowForwardingToNoEscapeParameter() && ok;
   ok = testVerifierAllowsNoEscapeForwarding() && ok;
-  ok = testVerifierRejectsMismatchedCallEscapeMetadata() && ok;
+  ok = testVerifierDerivesNoEscapeFromCalleeContract() && ok;
   ok = testVerifierTracksBorrowedCallResultToLocalOwner() && ok;
   ok = testBorrowedCallResultExtendsTemporaryOwnerLiveness() && ok;
   ok = testVerifierAllowsForwardedBorrowedCallResult() && ok;

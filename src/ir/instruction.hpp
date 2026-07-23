@@ -223,7 +223,6 @@ private:
   std::shared_ptr<Value> calleeValue; // non-null for indirect calls
   std::vector<std::shared_ptr<Value>> args;
   std::vector<bool> argIsRef;
-  std::vector<ParameterEscape> argumentEscapes_;
   ResultBorrowContract resultBorrow_;
   std::shared_ptr<Value> variadicPack;
   bool returnsRef_ = false;
@@ -233,30 +232,19 @@ public:
            std::vector<std::shared_ptr<Value>> arguments,
            std::vector<bool> argumentIsRef = {},
            std::shared_ptr<Value> pack = nullptr, bool returnsRef = false,
-           std::vector<ParameterEscape> argumentEscapes = {},
            ResultBorrowContract resultBorrow = {})
       : result(std::move(res)), funcName(std::move(name)),
         args(std::move(arguments)), argIsRef(std::move(argumentIsRef)),
-        argumentEscapes_(std::move(argumentEscapes)),
         resultBorrow_(resultBorrow),
-        variadicPack(std::move(pack)), returnsRef_(returnsRef) {
-    if (argumentEscapes_.empty()) {
-      argumentEscapes_.assign(args.size(), ParameterEscape::Unspecified);
-    }
-  }
+        variadicPack(std::move(pack)), returnsRef_(returnsRef) {}
   // Indirect call constructor
   CallInst(std::shared_ptr<Value> res, std::shared_ptr<Value> callee,
            std::vector<std::shared_ptr<Value>> arguments,
            bool returnsRef = false,
-           std::vector<ParameterEscape> argumentEscapes = {},
            ResultBorrowContract resultBorrow = {})
       : result(std::move(res)), calleeValue(std::move(callee)),
         args(std::move(arguments)),
-        argumentEscapes_(std::move(argumentEscapes)),
         resultBorrow_(resultBorrow), returnsRef_(returnsRef) {
-    if (argumentEscapes_.empty()) {
-      argumentEscapes_.assign(args.size(), ParameterEscape::Unspecified);
-    }
   }
   OpCode getOpCode() const override { return OpCode::Call; }
   const std::shared_ptr<Value> &getResult() const { return result; }
@@ -268,9 +256,6 @@ public:
     return args;
   }
   const std::vector<bool> &getArgumentIsRef() const { return argIsRef; }
-  const std::vector<ParameterEscape> &getArgumentEscapes() const {
-    return argumentEscapes_;
-  }
   const ResultBorrowContract &getResultBorrow() const { return resultBorrow_; }
   const std::shared_ptr<Value> &getVariadicPack() const { return variadicPack; }
   std::string toString() const override {
@@ -278,10 +263,6 @@ public:
     s += calleeValue ? calleeValue->getName() : "@" + funcName;
     s += "(";
     for (size_t i = 0; i < args.size(); ++i) {
-      if (i < argumentEscapes_.size() &&
-          argumentEscapes_[i] == ParameterEscape::NoEscape) {
-        s += "noescape ";
-      }
       s += args[i]->getTypeName() + " " + args[i]->getName() +
            (i < args.size() - 1 ? ", " : "");
     }

@@ -79,6 +79,7 @@ target_link_libraries(zap_type_layout PUBLIC zap_type_system)
 add_library(zap_zir_verifier STATIC
     src/ir/borrow_provenance.cpp
     src/ir/borrow_verifier.cpp
+    src/ir/call_contract.cpp
     src/ir/control_flow_graph.cpp
     src/ir/dead_phi_elimination.cpp
     src/ir/ownership_flow.cpp

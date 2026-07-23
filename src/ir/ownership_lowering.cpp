@@ -1,5 +1,6 @@
 #include "ownership_lowering.hpp"
 
+#include "call_contract.hpp"
 #include "control_flow_graph.hpp"
 #include "dead_phi_elimination.hpp"
 #include "ownership_flow.hpp"

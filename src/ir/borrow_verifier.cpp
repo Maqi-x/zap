@@ -1,6 +1,7 @@
 #include "borrow_verifier.hpp"
 
 #include "borrow_provenance.hpp"
+#include "call_contract.hpp"
 #include "string_type.hpp"
 
 #include <algorithm>
@@ -63,7 +64,8 @@ void addError(std::vector<VerificationError> &errors,
                     std::move(message)});
 }
 
-void verifyEscapes(const Function &function, const ControlFlowGraph &cfg,
+void verifyEscapes(const Module &module, const Function &function,
+                   const ControlFlowGraph &cfg,
                    std::vector<VerificationError> &errors) {
   const auto provenance = analyzeBorrowProvenance(function, cfg);
   for (const auto &blockOwner : function.getBlocks()) {
@@ -106,10 +108,8 @@ void verifyEscapes(const Function &function, const ControlFlowGraph &cfg,
         }
       } else if (instruction->getOpCode() == OpCode::Call) {
         const auto &call = static_cast<const CallInst &>(*instruction);
-        const auto checkedArguments = std::min(
-            call.getArguments().size(), call.getArgumentEscapes().size());
-        for (size_t argumentIndex = 0; argumentIndex < checkedArguments;
-             ++argumentIndex) {
+        for (size_t argumentIndex = 0;
+             argumentIndex < call.getArguments().size(); ++argumentIndex) {
           if (!isBorrowTrackedValue(call.getArguments()[argumentIndex])) {
             continue;
           }
@@ -118,9 +118,10 @@ void verifyEscapes(const Function &function, const ControlFlowGraph &cfg,
           const bool mayBackResult =
               call.getResultBorrow().hasSource() &&
               *call.getResultBorrow().sourceParameter() == argumentIndex;
+          const auto contract =
+              resolveCallParameterContract(module, call, argumentIndex);
           if (!sources.empty() &&
-              call.getArgumentEscapes()[argumentIndex] !=
-                  ParameterEscape::NoEscape &&
+              (!contract || contract->escape != ParameterEscape::NoEscape) &&
               !mayBackResult) {
             addError(
                 errors, function, VerificationErrorCode::InvalidCall, &block,
@@ -173,9 +174,10 @@ void verifyResultContract(const Function &function,
 } // namespace
 
 std::vector<VerificationError>
-verifyBorrowContracts(const Function &function, const ControlFlowGraph &cfg) {
+verifyBorrowContracts(const Module &module, const Function &function,
+                      const ControlFlowGraph &cfg) {
   std::vector<VerificationError> errors;
-  verifyEscapes(function, cfg, errors);
+  verifyEscapes(module, function, cfg, errors);
   verifyResultContract(function, errors);
   return errors;
 }

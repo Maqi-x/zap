@@ -1,5 +1,6 @@
 #include "ownership_flow.hpp"
 
+#include "call_contract.hpp"
 #include "module.hpp"
 
 #include <algorithm>
@@ -100,56 +101,12 @@ std::vector<const Value *> collectOwnedValues(const Function &function) {
   return values;
 }
 
-bool isBorrowedMethodSelf(const Module &module, const CallInst &call,
-                          size_t argumentIndex) {
-  if (call.isIndirect() || argumentIndex != 0) {
-    return false;
-  }
-  const auto *callee = module.findFunction(call.getFunctionName());
-  return callee && !callee->ownerTypeCodegenName.empty() &&
-         !callee->getArguments().empty() && callee->getArguments().front() &&
-         callee->getArguments().front()->getRawName() == "self";
-}
-
 bool transfersThroughCast(const CastInst &cast) {
   return ownsManagedValue(cast.getSource()) && cast.getTargetType() &&
          cast.getResult() && isOwned(cast.getResult()->getOwnership());
 }
 
 } // namespace
-
-bool callTransfersOwnership(const Module &module, const CallInst &call,
-                            size_t argumentIndex) {
-  if (argumentIndex >= call.getArguments().size() ||
-      !ownsManagedValue(call.getArguments()[argumentIndex]) ||
-      (argumentIndex < call.getArgumentIsRef().size() &&
-       call.getArgumentIsRef()[argumentIndex])) {
-    return false;
-  }
-
-  ParameterOwnership ownership = ParameterOwnership::Borrow;
-  if (call.isIndirect()) {
-    const auto functionType = call.getCalleeValue()
-                                  ? std::dynamic_pointer_cast<FunctionPointerType>(
-                                        call.getCalleeValue()->getType())
-                                  : nullptr;
-    if (!functionType ||
-        argumentIndex >= functionType->getParameterOwnership().size()) {
-      return false;
-    }
-    ownership = functionType->getParameterOwnership()[argumentIndex];
-  } else {
-    const auto *callee = module.findFunction(call.getFunctionName());
-    if (!callee || argumentIndex >= callee->getArguments().size() ||
-        !callee->getArguments()[argumentIndex]) {
-      return false;
-    }
-    ownership = callee->getArguments()[argumentIndex]->getParameterOwnership();
-  }
-
-  return transfersOwnership(ownership) &&
-         !isBorrowedMethodSelf(module, call, argumentIndex);
-}
 
 std::string formatOwnershipFlowState(OwnershipFlowState state) {
   const auto bits = static_cast<unsigned char>(state);
