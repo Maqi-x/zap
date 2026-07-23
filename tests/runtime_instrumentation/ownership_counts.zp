@@ -6,6 +6,10 @@ ext fun zap_runtime_ownership_destroy_calls() UInt64;
 class Node {
 }
 
+@error
+class Failure {
+}
+
 fun exercise() Void {
     zap_runtime_ownership_reset_counters();
 
@@ -14,17 +18,79 @@ fun exercise() Void {
     destination = source;
 }
 
+fun exerciseBranch(left: Bool) Void {
+    zap_runtime_ownership_reset_counters();
+
+    var source: Node = new Node();
+    var destination: Node;
+    if left {
+        destination = source;
+    } else {
+        destination = source;
+    }
+}
+
+fun exerciseLoop(iterations: Int) Void {
+    zap_runtime_ownership_reset_counters();
+
+    var source: Node = new Node();
+    var destination: Node;
+    var i: Int = 0;
+    while i < iterations {
+        destination = source;
+        i = i + 1;
+    }
+}
+
+fun exerciseFailure() Void!Failure {
+    zap_runtime_ownership_reset_counters();
+    fail new Failure();
+    return;
+}
+
+fun observeFailure() Void {
+    exerciseFailure() or err {
+        return;
+    };
+}
+
+fun hasCounts(copy: UInt64, drop: UInt64, destroy: UInt64) Bool {
+    return zap_runtime_ownership_copy_operations() == copy &&
+           zap_runtime_ownership_drop_operations() == drop &&
+           zap_runtime_ownership_destroy_calls() == destroy;
+}
+
 fun main() Int {
     exercise();
 
-    if zap_runtime_ownership_copy_operations() != 1 {
+    if !hasCounts(1, 2, 1) {
         return 1;
     }
-    if zap_runtime_ownership_drop_operations() != 2 {
+
+    exerciseBranch(true);
+    if !hasCounts(1, 2, 1) {
         return 2;
     }
-    if zap_runtime_ownership_destroy_calls() != 1 {
+
+    exerciseBranch(false);
+    if !hasCounts(1, 2, 1) {
         return 3;
     }
+
+    exerciseLoop(0);
+    if !hasCounts(0, 2, 1) {
+        return 4;
+    }
+
+    exerciseLoop(1);
+    if !hasCounts(1, 2, 1) {
+        return 5;
+    }
+
+    observeFailure();
+    if !hasCounts(0, 3, 1) {
+        return 6;
+    }
+
     return 0;
 }
