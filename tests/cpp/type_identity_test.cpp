@@ -12,6 +12,7 @@ namespace {
 using zir::ArrayType;
 using zir::ClassType;
 using zir::FunctionPointerType;
+using zir::ParameterEscape;
 using zir::ParameterOwnership;
 using zir::PointerType;
 using zir::PrimitiveType;
@@ -79,6 +80,16 @@ bool testStructuralTypes() {
       std::vector<std::shared_ptr<Type>>{zir::makeStringType()},
       primitive(TypeKind::Void),
       std::vector<ParameterOwnership>{ParameterOwnership::Sink});
+  auto noescapeFunction = std::make_shared<FunctionPointerType>(
+      std::vector<std::shared_ptr<Type>>{zir::makeStringViewType()},
+      primitive(TypeKind::Void),
+      std::vector<ParameterOwnership>{ParameterOwnership::Borrow},
+      std::vector<ParameterEscape>{ParameterEscape::NoEscape});
+  auto unspecifiedEscapeFunction = std::make_shared<FunctionPointerType>(
+      std::vector<std::shared_ptr<Type>>{zir::makeStringViewType()},
+      primitive(TypeKind::Void),
+      std::vector<ParameterOwnership>{ParameterOwnership::Borrow},
+      std::vector<ParameterEscape>{ParameterEscape::Unspecified});
 
   return expect(types.same(lhsPointer, rhsPointer),
                 "equal pointer types have different identities") &&
@@ -93,7 +104,9 @@ bool testStructuralTypes() {
          expect(!types.same(borrowedFunction, transferringFunction),
                 "function parameter ownership is absent from type identity") &&
          expect(!types.same(transferringFunction, sinkingFunction),
-                "sink is absent from function parameter type identity");
+                "sink is absent from function parameter type identity") &&
+         expect(!types.same(noescapeFunction, unspecifiedEscapeFunction),
+                "escape contract is absent from function type identity");
 }
 
 bool testNominalAndQualifiedTypes() {

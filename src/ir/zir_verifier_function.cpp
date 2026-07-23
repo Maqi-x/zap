@@ -39,6 +39,16 @@ std::string formatOwners(const BorrowProvenance::OwnerSet &owners) {
   return result;
 }
 
+bool containsNoEscapeParameter(
+    const BorrowProvenance::OwnerSet &borrowSources) {
+  return std::any_of(
+      borrowSources.begin(), borrowSources.end(), [](const Value *source) {
+        const auto *argument = dynamic_cast<const Argument *>(source);
+        return argument &&
+               argument->getParameterEscape() == ParameterEscape::NoEscape;
+      });
+}
+
 class FunctionVerifier {
 public:
   FunctionVerifier(const Module &module, const Function &function,
@@ -94,7 +104,7 @@ private:
           if (!owners.empty()) {
             error(VerificationErrorCode::InvalidReturn, &block, i,
                   "cannot return " + ret.getValue()->getName() +
-                      " backed by function-local owner " +
+                      " backed by non-escaping borrow source " +
                       formatOwners(owners));
           }
         } else if (instruction->getOpCode() == OpCode::Store) {
@@ -104,8 +114,26 @@ private:
               !provenance.isLocalStorage(store.getDestination())) {
             error(VerificationErrorCode::InvalidOperand, &block, i,
                   "cannot store " + store.getSource()->getName() +
-                      " backed by function-local owner " +
+                      " backed by non-escaping borrow source " +
                       formatOwners(owners) + " outside local storage");
+          }
+        } else if (instruction->getOpCode() == OpCode::Call) {
+          const auto &call = static_cast<const CallInst &>(*instruction);
+          const auto checkedArguments = std::min(
+              call.getArguments().size(), call.getArgumentEscapes().size());
+          for (size_t argumentIndex = 0; argumentIndex < checkedArguments;
+               ++argumentIndex) {
+            const auto sources = provenance.ownersAtDefinition(
+                call.getArguments()[argumentIndex]);
+            if (containsNoEscapeParameter(sources) &&
+                call.getArgumentEscapes()[argumentIndex] !=
+                    ParameterEscape::NoEscape) {
+              error(VerificationErrorCode::InvalidCall, &block, i,
+                    "cannot pass " +
+                        call.getArguments()[argumentIndex]->getName() +
+                        " backed by noescape source " + formatOwners(sources) +
+                        " to a parameter without noescape");
+            }
           }
         }
       }
@@ -133,6 +161,19 @@ private:
       if (!valueNames_.emplace(argument->getName(), argument.get()).second) {
         error(VerificationErrorCode::DuplicateValue, nullptr, std::nullopt,
               "duplicate argument name " + argument->getName());
+      }
+      if (argument->getParameterEscape() == ParameterEscape::NoEscape) {
+        if (argument->getParameterOwnership() != ParameterOwnership::Borrow) {
+          error(VerificationErrorCode::InvalidOperand, nullptr, std::nullopt,
+                "noescape parameter must use borrowed ownership: " +
+                    argument->getName());
+        }
+        if (argument->getType()->getIntrinsicKind() !=
+            IntrinsicTypeKind::StringView) {
+          error(VerificationErrorCode::InvalidOperand, nullptr, std::nullopt,
+                "noescape currently requires a StringView parameter: " +
+                    argument->getName());
+        }
       }
     }
   }
@@ -723,6 +764,7 @@ private:
 
     std::vector<std::shared_ptr<Type>> parameterTypes;
     std::vector<ParameterOwnership> parameterOwnership;
+    std::vector<ParameterEscape> parameterEscapes;
     std::shared_ptr<Type> returnType;
     bool variadic = false;
     if (call.isIndirect()) {
@@ -738,6 +780,7 @@ private:
       }
       parameterTypes = functionType->getParams();
       parameterOwnership = functionType->getParameterOwnership();
+      parameterEscapes = functionType->getParameterEscapes();
       returnType = functionType->getReturnType();
     } else {
       const auto *callee = module_.findFunction(call.getFunctionName());
@@ -750,6 +793,7 @@ private:
         if (argument && !argument->isVariadicPack()) {
           parameterTypes.push_back(argument->getType());
           parameterOwnership.push_back(argument->getParameterOwnership());
+          parameterEscapes.push_back(argument->getParameterEscape());
         }
       }
       returnType = callee->getReturnType();
@@ -798,6 +842,11 @@ private:
             "call argument mode metadata has the wrong size");
       return;
     }
+    if (call.getArgumentEscapes().size() != call.getArguments().size()) {
+      error(VerificationErrorCode::InvalidCall, &block, index,
+            "call argument escape metadata has the wrong size");
+      return;
+    }
     for (size_t i = 0; i < call.getArguments().size(); ++i) {
       const auto &argument = call.getArguments()[i];
       const auto expectedMode =
@@ -808,6 +857,14 @@ private:
       if (call.getArgumentModes()[i] != expectedMode) {
         error(VerificationErrorCode::InvalidCall, &block, index,
               "call argument ownership does not match parameter contract: " +
+                  std::to_string(i));
+      }
+      const auto expectedEscape = i < parameterEscapes.size()
+                                      ? parameterEscapes[i]
+                                      : ParameterEscape::Unspecified;
+      if (call.getArgumentEscapes()[i] != expectedEscape) {
+        error(VerificationErrorCode::InvalidCall, &block, index,
+              "call argument escape does not match parameter contract: " +
                   std::to_string(i));
       }
       if (call.getArgumentModes()[i] == CallInst::ArgumentMode::Transfer &&

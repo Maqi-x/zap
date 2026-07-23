@@ -21,6 +21,7 @@ using zir::ControlFlowGraph;
 using zir::Function;
 using zir::LoadInst;
 using zir::Module;
+using zir::ParameterEscape;
 using zir::PhiInst;
 using zir::PointerType;
 using zir::PrimitiveType;
@@ -433,6 +434,114 @@ bool testVerifierAllowsOverwrittenLocalBorrowReturn() {
           verification.format());
 }
 
+bool testVerifierRejectsNoEscapeParameterReturn() {
+  const auto stringViewType = zir::makeStringViewType();
+  Module module("noescape-return");
+  auto function = std::make_unique<Function>("broken", stringViewType);
+  auto view = std::make_shared<zir::Argument>(
+      "view", stringViewType, false, false, nullptr,
+      zir::ParameterOwnership::Borrow, ParameterEscape::NoEscape);
+  function->arguments.push_back(view);
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<ReturnInst>(view));
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  const auto verification = ZirVerifier().verify(module);
+  return expect(
+      hasError(verification, VerificationErrorCode::InvalidReturn, "%view"),
+      "verifier allowed a noescape parameter to be returned");
+}
+
+bool testVerifierRejectsNoEscapeForwardingToUnspecifiedParameter() {
+  const auto stringViewType = zir::makeStringViewType();
+  Module module("noescape-forwarding");
+  auto consume =
+      std::make_unique<Function>("consume", primitive(TypeKind::Void));
+  consume->arguments.push_back(
+      std::make_shared<zir::Argument>("view", stringViewType));
+  module.addExternalFunction(std::move(consume));
+
+  auto function =
+      std::make_unique<Function>("broken", primitive(TypeKind::Void));
+  auto view = std::make_shared<zir::Argument>(
+      "view", stringViewType, false, false, nullptr,
+      zir::ParameterOwnership::Borrow, ParameterEscape::NoEscape);
+  function->arguments.push_back(view);
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CallInst>(
+      nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{view}));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  const auto verification = ZirVerifier().verify(module);
+  return expect(hasError(verification, VerificationErrorCode::InvalidCall,
+                         "without noescape"),
+                "verifier allowed noescape forwarding to an unspecified "
+                "parameter");
+}
+
+bool testVerifierAllowsNoEscapeForwarding() {
+  const auto stringViewType = zir::makeStringViewType();
+  Module module("noescape-forwarding-valid");
+  auto consume =
+      std::make_unique<Function>("consume", primitive(TypeKind::Void));
+  consume->arguments.push_back(std::make_shared<zir::Argument>(
+      "view", stringViewType, false, false, nullptr,
+      zir::ParameterOwnership::Borrow, ParameterEscape::NoEscape));
+  module.addExternalFunction(std::move(consume));
+
+  auto function =
+      std::make_unique<Function>("valid", primitive(TypeKind::Void));
+  auto view = std::make_shared<zir::Argument>(
+      "view", stringViewType, false, false, nullptr,
+      zir::ParameterOwnership::Borrow, ParameterEscape::NoEscape);
+  function->arguments.push_back(view);
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CallInst>(
+      nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{view},
+      std::vector<bool>{false}, nullptr, false,
+      CallInst::ResultOwnership::Borrowed,
+      std::vector<CallInst::ArgumentMode>{CallInst::ArgumentMode::Borrow},
+      std::vector<ParameterEscape>{ParameterEscape::NoEscape}));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  const auto verification = ZirVerifier().verify(module);
+  return expect(verification.ok(),
+                "verifier rejected valid noescape forwarding:\n" +
+                    verification.format());
+}
+
+bool testVerifierRejectsMismatchedCallEscapeMetadata() {
+  const auto stringViewType = zir::makeStringViewType();
+  Module module("noescape-call-metadata");
+  auto consume =
+      std::make_unique<Function>("consume", primitive(TypeKind::Void));
+  consume->arguments.push_back(std::make_shared<zir::Argument>(
+      "view", stringViewType, false, false, nullptr,
+      zir::ParameterOwnership::Borrow, ParameterEscape::NoEscape));
+  module.addExternalFunction(std::move(consume));
+
+  auto function =
+      std::make_unique<Function>("broken", primitive(TypeKind::Void));
+  auto view = std::make_shared<zir::Argument>("view", stringViewType);
+  function->arguments.push_back(view);
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CallInst>(
+      nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{view}));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  const auto verification = ZirVerifier().verify(module);
+  return expect(hasError(verification, VerificationErrorCode::InvalidCall,
+                         "escape does not match"),
+                "verifier accepted call metadata that omitted noescape");
+}
+
 } // namespace
 
 int main() {
@@ -444,5 +553,9 @@ int main() {
   ok = testVerifierAllowsCallerBorrowPhiReturn() && ok;
   ok = testVerifierReportsOwnerThroughStorageAndDerivedView() && ok;
   ok = testVerifierAllowsOverwrittenLocalBorrowReturn() && ok;
+  ok = testVerifierRejectsNoEscapeParameterReturn() && ok;
+  ok = testVerifierRejectsNoEscapeForwardingToUnspecifiedParameter() && ok;
+  ok = testVerifierAllowsNoEscapeForwarding() && ok;
+  ok = testVerifierRejectsMismatchedCallEscapeMetadata() && ok;
   return ok ? 0 : 1;
 }

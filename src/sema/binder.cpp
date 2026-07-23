@@ -563,6 +563,9 @@ Binder::renderFunctionSignature(const FunctionSymbol &function) const {
     } else if (param->is_sink) {
       rendered += "sink ";
     }
+    if (param->is_noescape) {
+      rendered += "noescape ";
+    }
     if (param->is_variadic_pack) {
       rendered += "...";
       rendered += param->variadic_element_type

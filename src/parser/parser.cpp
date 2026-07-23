@@ -515,9 +515,15 @@ std::unique_ptr<ParameterNode> Parser::parseParameter(bool allowDefault) {
   Token paramNameToken = eat(TokenType::ID);
   eat(TokenType::COLON);
   bool isSink = false;
-  if (peek().type == TokenType::ID && peek().value == "sink") {
+  bool isNoEscape = false;
+  while (peek().type == TokenType::ID &&
+         (peek().value == "sink" || peek().value == "noescape")) {
+    if (peek().value == "sink") {
+      isSink = true;
+    } else {
+      isNoEscape = true;
+    }
     eat(TokenType::ID);
-    isSink = true;
   }
   auto typeNode = parseType();
   auto *typeNodePtr = typeNode.get();
@@ -528,9 +534,9 @@ std::unique_ptr<ParameterNode> Parser::parseParameter(bool allowDefault) {
     defaultValue = parseExpression();
   }
   auto endSpan = defaultValue ? defaultValue->span : typeNodePtr->span;
-  auto paramNode =
-      _builder.makeParam(paramNameToken.value, std::move(typeNode), isRef,
-                         isSink, isVariadic, std::move(defaultValue));
+  auto paramNode = _builder.makeParam(paramNameToken.value, std::move(typeNode),
+                                      isRef, isSink, isVariadic, isNoEscape,
+                                      std::move(defaultValue));
   _builder.setSpan(paramNode.get(),
                    SourceSpan::merge(paramNameToken.span, endSpan));
   return paramNode;
@@ -854,13 +860,20 @@ std::unique_ptr<TypeNode> Parser::parseType() {
       funPtrType->isFunPtr = true;
       if (peek().type != TokenType::RPAREN) {
         do {
-          const bool isSink =
-              peek().type == TokenType::ID && peek().value == "sink";
-          if (isSink) {
+          bool isSink = false;
+          bool isNoEscape = false;
+          while (peek().type == TokenType::ID &&
+                 (peek().value == "sink" || peek().value == "noescape")) {
+            if (peek().value == "sink") {
+              isSink = true;
+            } else {
+              isNoEscape = true;
+            }
             eat(TokenType::ID);
           }
           funPtrType->funPtrParams.push_back(parseType());
           funPtrType->funPtrParamSinks.push_back(isSink);
+          funPtrType->funPtrParamNoEscapes.push_back(isNoEscape);
         } while (peek().type == TokenType::COMMA &&
                  eat(TokenType::COMMA).type == TokenType::COMMA);
       }

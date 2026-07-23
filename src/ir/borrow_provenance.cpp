@@ -79,6 +79,15 @@ OwnerMap collectValueOwners(
     const Function &function, const OwnerSet &localStorage,
     std::unordered_map<const Value *, std::shared_ptr<Value>> &derivedFrom) {
   OwnerMap owners;
+  for (const auto &argument : function.getArguments()) {
+    if (argument &&
+        argument->getParameterEscape() == ParameterEscape::NoEscape &&
+        argument->getType() &&
+        argument->getType()->getIntrinsicKind() ==
+            IntrinsicTypeKind::StringView) {
+      owners[argument.get()].insert(argument.get());
+    }
+  }
   bool changed = true;
   while (changed) {
     changed = false;

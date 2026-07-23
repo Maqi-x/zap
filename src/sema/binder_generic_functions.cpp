@@ -114,6 +114,7 @@ std::shared_ptr<FunctionSymbol> Binder::ensureGenericFunctionInstantiation(
         param->name, instType, param->is_const, param->is_ref, param->linkName,
         param->moduleName, param->visibility);
     instParam->is_sink = param->is_sink;
+    instParam->is_noescape = param->is_noescape;
     instParam->is_variadic_pack = param->is_variadic_pack;
     instParam->variadic_element_type =
         substituteGenericType(param->variadic_element_type, genericBindingMap);

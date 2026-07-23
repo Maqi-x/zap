@@ -24,8 +24,8 @@ public:
            int vtableSlot = -1, bool isCVariadic = false)
       : name(std::move(name)), returnType(std::move(returnType)),
         ownerTypeCodegenName(std::move(ownerTypeCodegenName)),
-        isDestructor(isDestructor),
-        isCVariadic(isCVariadic), vtableSlot(vtableSlot) {}
+        isDestructor(isDestructor), isCVariadic(isCVariadic),
+        vtableSlot(vtableSlot) {}
 
   void addBlock(std::unique_ptr<BasicBlock> block) {
     blocks.push_back(std::move(block));
@@ -65,6 +65,9 @@ public:
           res += "sink ";
           break;
         }
+      }
+      if (arguments[i]->getParameterEscape() == ParameterEscape::NoEscape) {
+        res += "noescape ";
       }
       res += arguments[i]->getTypeName() + " " + arguments[i]->getName();
       if (i < arguments.size() - 1)

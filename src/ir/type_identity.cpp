@@ -72,6 +72,7 @@ private:
       for (size_t i = 0; i < function.getParams().size(); ++i) {
         append(*function.getParams()[i], atoms);
         number(static_cast<uint64_t>(function.getParameterOwnership()[i]));
+        number(static_cast<uint64_t>(function.getParameterEscapes()[i]));
       }
       append(*function.getReturnType(), atoms);
       return;
@@ -173,8 +174,7 @@ TypeId TypeInterner::intern(const std::shared_ptr<Type> &type) const {
   return intern(*type);
 }
 
-std::string
-TypeInterner::mangleKey(const std::shared_ptr<Type> &type) const {
+std::string TypeInterner::mangleKey(const std::shared_ptr<Type> &type) const {
   return intern(type).mangleKey();
 }
 

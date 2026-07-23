@@ -244,6 +244,7 @@ private:
   std::vector<std::shared_ptr<Value>> args;
   std::vector<bool> argIsRef;
   std::vector<ArgumentMode> argumentModes_;
+  std::vector<ParameterEscape> argumentEscapes_;
   std::shared_ptr<Value> variadicPack;
   bool returnsRef_ = false;
   ResultOwnership resultOwnership_ = ResultOwnership::Borrowed;
@@ -254,13 +255,19 @@ public:
            std::vector<bool> argumentIsRef = {},
            std::shared_ptr<Value> pack = nullptr, bool returnsRef = false,
            ResultOwnership resultOwnership = ResultOwnership::Borrowed,
-           std::vector<ArgumentMode> argumentModes = {})
+           std::vector<ArgumentMode> argumentModes = {},
+           std::vector<ParameterEscape> argumentEscapes = {})
       : result(std::move(res)), funcName(std::move(name)),
         args(std::move(arguments)), argIsRef(std::move(argumentIsRef)),
-        argumentModes_(std::move(argumentModes)), variadicPack(std::move(pack)),
-        returnsRef_(returnsRef), resultOwnership_(resultOwnership) {
+        argumentModes_(std::move(argumentModes)),
+        argumentEscapes_(std::move(argumentEscapes)),
+        variadicPack(std::move(pack)), returnsRef_(returnsRef),
+        resultOwnership_(resultOwnership) {
     if (argumentModes_.empty()) {
       argumentModes_.assign(args.size(), ArgumentMode::Borrow);
+    }
+    if (argumentEscapes_.empty()) {
+      argumentEscapes_.assign(args.size(), ParameterEscape::Unspecified);
     }
   }
   // Indirect call constructor
@@ -268,12 +275,17 @@ public:
            std::vector<std::shared_ptr<Value>> arguments,
            bool returnsRef = false,
            ResultOwnership resultOwnership = ResultOwnership::Borrowed,
-           std::vector<ArgumentMode> argumentModes = {})
+           std::vector<ArgumentMode> argumentModes = {},
+           std::vector<ParameterEscape> argumentEscapes = {})
       : result(std::move(res)), calleeValue(std::move(callee)),
         args(std::move(arguments)), argumentModes_(std::move(argumentModes)),
-        returnsRef_(returnsRef), resultOwnership_(resultOwnership) {
+        argumentEscapes_(std::move(argumentEscapes)), returnsRef_(returnsRef),
+        resultOwnership_(resultOwnership) {
     if (argumentModes_.empty()) {
       argumentModes_.assign(args.size(), ArgumentMode::Borrow);
+    }
+    if (argumentEscapes_.empty()) {
+      argumentEscapes_.assign(args.size(), ParameterEscape::Unspecified);
     }
   }
   OpCode getOpCode() const override { return OpCode::Call; }
@@ -290,15 +302,23 @@ public:
   const std::vector<ArgumentMode> &getArgumentModes() const {
     return argumentModes_;
   }
+  const std::vector<ParameterEscape> &getArgumentEscapes() const {
+    return argumentEscapes_;
+  }
   const std::shared_ptr<Value> &getVariadicPack() const { return variadicPack; }
   std::string toString() const override {
     std::string s = result ? result->getName() + " = call " : "call ";
     s += calleeValue ? calleeValue->getName() : "@" + funcName;
     s += "(";
     for (size_t i = 0; i < args.size(); ++i) {
-      if (containsManagedValues(args[i]->getType())) {
+      if (containsManagedValues(args[i]->getType()) &&
+          i < argumentModes_.size()) {
         s += argumentModes_[i] == ArgumentMode::Transfer ? "transfer "
                                                          : "borrow ";
+      }
+      if (i < argumentEscapes_.size() &&
+          argumentEscapes_[i] == ParameterEscape::NoEscape) {
+        s += "noescape ";
       }
       s += args[i]->getTypeName() + " " + args[i]->getName() +
            (i < args.size() - 1 ? ", " : "");

@@ -453,8 +453,8 @@ void Binder::predeclareModuleValues(ModuleState &module) {
         if (!genericParam) {
           continue;
         }
-        auto placeholder = zir::makeGenericParameterType(
-            genericParam->typeName);
+        auto placeholder =
+            zir::makeGenericParameterType(genericParam->typeName);
         genericBindings[genericParam->typeName] = placeholder;
       }
 
@@ -469,6 +469,10 @@ void Binder::predeclareModuleValues(ModuleState &module) {
           error(p->span,
                 "Parameter cannot be passed by both 'ref' and 'sink'.");
         }
+        if (p->isSink && p->isNoEscape) {
+          error(p->span,
+                "A 'sink' parameter cannot have a 'noescape' contract.");
+        }
         if (p->isVariadic && i + 1 != funDecl->params_.size()) {
           error(p->span, "Variadic parameter must be the last parameter.");
         }
@@ -478,16 +482,27 @@ void Binder::predeclareModuleValues(ModuleState &module) {
         if (p->isVariadic && p->isSink) {
           error(p->span, "Variadic parameter cannot be passed by 'sink'.");
         }
+        if (p->isVariadic && p->isNoEscape) {
+          error(p->span,
+                "Variadic parameter cannot have a 'noescape' contract.");
+        }
         auto mappedType = mapType(*p->type);
         if (!mappedType) {
           error(p->span, "Unknown type: " + p->type->qualifiedName());
           mappedType =
               std::make_shared<zir::PrimitiveType>(zir::TypeKind::Void);
         }
+        if (p->isNoEscape &&
+            (p->isRef || mappedType->getIntrinsicKind() !=
+                             zir::IntrinsicTypeKind::StringView)) {
+          error(p->span, "'noescape' currently requires a by-value StringView "
+                         "parameter.");
+        }
         auto symbol = std::make_shared<VariableSymbol>(
             p->name, mappedType, false, p->isRef, p->name,
             module.info->moduleName, Visibility::Private);
         symbol->is_sink = p->isSink;
+        symbol->is_noescape = p->isNoEscape;
         if (p->isVariadic) {
           symbol->is_variadic_pack = true;
           symbol->variadic_element_type = mappedType;
@@ -636,8 +651,8 @@ void Binder::predeclareModuleValues(ModuleState &module) {
             methodGenericBindings;
         for (const auto &genericParam : methodDecl->genericParams_) {
           if (genericParam) {
-            auto placeholder = zir::makeGenericParameterType(
-                genericParam->typeName);
+            auto placeholder =
+                zir::makeGenericParameterType(genericParam->typeName);
             methodGenericBindings[genericParam->typeName] = placeholder;
           }
         }
@@ -658,8 +673,16 @@ void Binder::predeclareModuleValues(ModuleState &module) {
             error(p->span,
                   "Parameter cannot be passed by both 'ref' and 'sink'.");
           }
+          if (p->isSink && p->isNoEscape) {
+            error(p->span,
+                  "A 'sink' parameter cannot have a 'noescape' contract.");
+          }
           if (p->isVariadic && p->isSink) {
             error(p->span, "Variadic parameter cannot be passed by 'sink'.");
+          }
+          if (p->isVariadic && p->isNoEscape) {
+            error(p->span,
+                  "Variadic parameter cannot have a 'noescape' contract.");
           }
           auto mappedType = mapType(*p->type);
           if (!mappedType) {
@@ -667,10 +690,18 @@ void Binder::predeclareModuleValues(ModuleState &module) {
             mappedType =
                 std::make_shared<zir::PrimitiveType>(zir::TypeKind::Void);
           }
+          if (p->isNoEscape &&
+              (p->isRef || mappedType->getIntrinsicKind() !=
+                               zir::IntrinsicTypeKind::StringView)) {
+            error(p->span,
+                  "'noescape' currently requires a by-value StringView "
+                  "parameter.");
+          }
           auto parameter = std::make_shared<VariableSymbol>(
               p->name, mappedType, false, p->isRef, p->name,
               module.info->moduleName, Visibility::Private);
           parameter->is_sink = p->isSink;
+          parameter->is_noescape = p->isNoEscape;
           params.push_back(std::move(parameter));
         }
 
@@ -750,6 +781,10 @@ void Binder::predeclareModuleValues(ModuleState &module) {
           error(p->span,
                 "External function parameter cannot be passed by 'sink'.");
         }
+        if (p->isVariadic && p->isNoEscape) {
+          error(p->span,
+                "Variadic parameter cannot have a 'noescape' contract.");
+        }
         if (p->isVariadic) {
           error(p->span, "Variadic parameters are only supported in Zap "
                          "function declarations.");
@@ -760,10 +795,17 @@ void Binder::predeclareModuleValues(ModuleState &module) {
           mappedType =
               std::make_shared<zir::PrimitiveType>(zir::TypeKind::Void);
         }
+        if (p->isNoEscape &&
+            (p->isRef || mappedType->getIntrinsicKind() !=
+                             zir::IntrinsicTypeKind::StringView)) {
+          error(p->span, "'noescape' currently requires a by-value StringView "
+                         "parameter.");
+        }
         auto parameter = std::make_shared<VariableSymbol>(
             p->name, mappedType, false, p->isRef, p->name,
             module.info->moduleName, Visibility::Private);
         parameter->is_sink = p->isSink;
+        parameter->is_noescape = p->isNoEscape;
         params.push_back(std::move(parameter));
       }
 

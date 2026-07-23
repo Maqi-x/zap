@@ -521,8 +521,16 @@ void Binder::visit(ConstId &node) {
         if (overload->parameters.size() == fpType.getParams().size()) {
           bool ok = true;
           for (size_t i = 0; i < fpType.getParams().size(); ++i) {
-            if (!conversions_.classifyImplicit(
-                    fpType.getParams()[i], overload->parameters[i]->type)) {
+            if (!conversions_.classifyImplicit(fpType.getParams()[i],
+                                               overload->parameters[i]->type)) {
+              ok = false;
+              break;
+            }
+            const auto expectedEscape = fpType.getParameterEscapes()[i];
+            const auto actualEscape = overload->parameters[i]->is_noescape
+                                          ? zir::ParameterEscape::NoEscape
+                                          : zir::ParameterEscape::Unspecified;
+            if (expectedEscape != actualEscape) {
               ok = false;
               break;
             }
@@ -541,22 +549,25 @@ void Binder::visit(ConstId &node) {
       // Build FunctionPointerType from the matched overload's signature
       std::vector<std::shared_ptr<zir::Type>> params;
       std::vector<zir::ParameterOwnership> ownership;
+      std::vector<zir::ParameterEscape> escape;
       for (size_t i = 0; i < match->parameters.size(); ++i) {
         const auto &p = match->parameters[i];
         params.push_back(p->type);
         const bool borrowedSelf =
-            i == 0 && !match->ownerTypeCodegenName.empty() &&
-            p->name == "self";
-        const bool transfers =
-            !match->isExternal && !p->is_ref && !p->is_variadic_pack &&
-            !borrowedSelf && zir::containsManagedValues(p->type);
+            i == 0 && !match->ownerTypeCodegenName.empty() && p->name == "self";
+        const bool transfers = !match->isExternal && !p->is_ref &&
+                               !p->is_variadic_pack && !borrowedSelf &&
+                               zir::containsManagedValues(p->type);
         ownership.push_back(
             transfers ? (p->is_sink ? zir::ParameterOwnership::Sink
                                     : zir::ParameterOwnership::Transfer)
                       : zir::ParameterOwnership::Borrow);
+        escape.push_back(p->is_noescape ? zir::ParameterEscape::NoEscape
+                                        : zir::ParameterEscape::Unspecified);
       }
       auto fpType = std::make_shared<zir::FunctionPointerType>(
-          std::move(params), match->returnType, std::move(ownership));
+          std::move(params), match->returnType, std::move(ownership),
+          std::move(escape));
       expressionStack_.push(
           std::make_unique<BoundFunctionReference>(match, fpType));
       return;

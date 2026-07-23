@@ -139,16 +139,19 @@ class Argument : public Value {
   bool isVariadicPack_;
   std::shared_ptr<Type> variadicElementType_;
   ParameterOwnership parameterOwnership_;
+  ParameterEscape parameterEscape_;
 
 public:
   Argument(std::string n, std::shared_ptr<Type> t, bool isRef = false,
            bool isVariadicPack = false,
            std::shared_ptr<Type> variadicElementType = nullptr,
-           ParameterOwnership parameterOwnership = ParameterOwnership::Borrow)
+           ParameterOwnership parameterOwnership = ParameterOwnership::Borrow,
+           ParameterEscape parameterEscape = ParameterEscape::Unspecified)
       : name(std::move(n)), type(std::move(t)), isRef_(isRef),
         isVariadicPack_(isVariadicPack),
         variadicElementType_(std::move(variadicElementType)),
-        parameterOwnership_(parameterOwnership) {}
+        parameterOwnership_(parameterOwnership),
+        parameterEscape_(parameterEscape) {}
   ValueKind getKind() const override { return ValueKind::Argument; }
   std::string getName() const override { return "%" + name; }
   std::shared_ptr<Type> getType() const override { return type; }
@@ -161,6 +164,7 @@ public:
   ParameterOwnership getParameterOwnership() const {
     return parameterOwnership_;
   }
+  ParameterEscape getParameterEscape() const { return parameterEscape_; }
 };
 
 class FunctionReference : public Value {

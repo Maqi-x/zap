@@ -14,6 +14,36 @@ void Binder::visit(FunCall &node) {
     return;
   }
 
+  auto bindIndirectArguments =
+      [&](const zir::FunctionPointerType &functionType,
+          std::vector<std::unique_ptr<BoundExpression>> &arguments) {
+        if (node.params_.size() != functionType.getParams().size()) {
+          error(node.span, "Function pointer call argument count mismatch.");
+          return false;
+        }
+        arguments.reserve(node.params_.size());
+        for (size_t i = 0; i < node.params_.size(); ++i) {
+          const auto &expectedType = functionType.getParams()[i];
+          auto argument = bindExpressionWithExpected(
+              node.params_[i]->value.get(), expectedType);
+          if (!argument) {
+            return false;
+          }
+          auto conversion =
+              conversions_.classifyImplicit(argument->type, expectedType);
+          if (!conversion) {
+            error(node.params_[i]->value->span,
+                  "Function pointer argument is not convertible from '" +
+                      renderTypeForUser(argument->type) + "' to '" +
+                      renderTypeForUser(expectedType) + "'.");
+            return false;
+          }
+          arguments.push_back(
+              applyConversion(std::move(argument), *conversion));
+        }
+        return true;
+      };
+
   if (auto member = dynamic_cast<MemberAccessNode *>(node.callee_.get())) {
     member->left_->accept(*this);
     if (expressionStack_.empty()) {
@@ -258,17 +288,9 @@ void Binder::visit(FunCall &node) {
             calleeExpr->type->getKind() == zir::TypeKind::FunctionPointer) {
           const auto &fpType =
               static_cast<const zir::FunctionPointerType &>(*calleeExpr->type);
-          if (node.params_.size() != fpType.getParams().size()) {
-            error(node.span, "Function pointer call argument count mismatch.");
-            return;
-          }
           std::vector<std::unique_ptr<BoundExpression>> args;
-          for (size_t i = 0; i < node.params_.size(); ++i) {
-            auto arg = bindExpressionWithExpected(node.params_[i]->value.get(),
-                                                  fpType.getParams()[i]);
-            if (!arg)
-              return;
-            args.push_back(std::move(arg));
+          if (!bindIndirectArguments(fpType, args)) {
+            return;
           }
           expressionStack_.push(std::make_unique<BoundIndirectCall>(
               std::move(calleeExpr), std::move(args), fpType.getReturnType()));
@@ -292,17 +314,9 @@ void Binder::visit(FunCall &node) {
           varSymbol->type->getKind() == zir::TypeKind::FunctionPointer) {
         const auto &fpType =
             static_cast<const zir::FunctionPointerType &>(*varSymbol->type);
-        if (node.params_.size() != fpType.getParams().size()) {
-          error(node.span, "Function pointer call argument count mismatch.");
-          return;
-        }
         std::vector<std::unique_ptr<BoundExpression>> args;
-        for (size_t i = 0; i < node.params_.size(); ++i) {
-          auto arg = bindExpressionWithExpected(node.params_[i]->value.get(),
-                                                fpType.getParams()[i]);
-          if (!arg)
-            return;
-          args.push_back(std::move(arg));
+        if (!bindIndirectArguments(fpType, args)) {
+          return;
         }
         auto calleeExpr = std::make_unique<BoundVariableExpression>(varSymbol);
         expressionStack_.push(std::make_unique<BoundIndirectCall>(

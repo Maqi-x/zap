@@ -96,6 +96,16 @@ ParameterOwnership parameterOwnershipFor(
   return parameter->is_sink ? ParameterOwnership::Sink
                             : ParameterOwnership::Transfer;
 }
+
+ParameterEscape parameterEscapeFor(const sema::FunctionSymbol &function,
+                                   size_t parameterIndex) {
+  if (parameterIndex >= function.parameters.size()) {
+    return ParameterEscape::Unspecified;
+  }
+  return function.parameters[parameterIndex]->is_noescape
+             ? ParameterEscape::NoEscape
+             : ParameterEscape::Unspecified;
+}
 } // namespace
 
 std::shared_ptr<Value> BoundIRGenerator::lowerConstantExpression(
@@ -268,7 +278,7 @@ void BoundIRGenerator::visit(sema::BoundFunctionDeclaration &node) {
     auto arg = std::make_shared<Argument>(
         paramSymbol->name, argType, paramSymbol->is_ref,
         paramSymbol->is_variadic_pack, paramSymbol->variadic_element_type,
-        parameterOwnership);
+        parameterOwnership, parameterEscapeFor(*symbol, parameterIndex));
     const bool borrowedSelf =
         !symbol->ownerTypeCodegenName.empty() && paramSymbol->name == "self";
     if (!paramSymbol->is_ref && !paramSymbol->is_variadic_pack &&
@@ -315,7 +325,9 @@ void BoundIRGenerator::visit(sema::BoundExternalFunctionDeclaration &node) {
       symbol->isDestructor, symbol->vtableSlot, symbol->isCVariadic);
   func->returnsRef = symbol->returnsRef;
 
-  for (const auto &paramSymbol : symbol->parameters) {
+  for (size_t parameterIndex = 0; parameterIndex < symbol->parameters.size();
+       ++parameterIndex) {
+    const auto &paramSymbol = symbol->parameters[parameterIndex];
     auto argType = paramSymbol->is_ref
                        ? std::static_pointer_cast<Type>(
                              std::make_shared<PointerType>(paramSymbol->type))
@@ -323,7 +335,8 @@ void BoundIRGenerator::visit(sema::BoundExternalFunctionDeclaration &node) {
     auto arg = std::make_shared<Argument>(
         paramSymbol->name, argType, paramSymbol->is_ref,
         paramSymbol->is_variadic_pack, paramSymbol->variadic_element_type,
-        ParameterOwnership::Borrow);
+        ParameterOwnership::Borrow,
+        parameterEscapeFor(*symbol, parameterIndex));
     func->arguments.push_back(arg);
   }
 
@@ -776,6 +789,7 @@ void BoundIRGenerator::visit(sema::BoundTernaryExpression &node) {
 void BoundIRGenerator::visit(sema::BoundFunctionCall &node) {
   std::vector<std::shared_ptr<Value>> args;
   std::vector<CallInst::ArgumentMode> argumentModes;
+  std::vector<ParameterEscape> argumentEscapes;
   for (size_t i = 0; i < node.arguments.size(); ++i) {
     bool oldEvaluateAsAddress = evaluateAsAddress_;
     evaluateAsAddress_ =
@@ -787,6 +801,7 @@ void BoundIRGenerator::visit(sema::BoundFunctionCall &node) {
     const auto parameterOwnership = parameterOwnershipFor(*node.symbol, i);
     argumentModes.push_back(
         prepareCallArgument(argument, parameterOwnership));
+    argumentEscapes.push_back(parameterEscapeFor(*node.symbol, i));
     args.push_back(std::move(argument));
   }
 
@@ -811,7 +826,7 @@ void BoundIRGenerator::visit(sema::BoundFunctionCall &node) {
       node.symbol->returnsRef,
       ownsResult ? CallInst::ResultOwnership::Owned
                  : CallInst::ResultOwnership::Borrowed,
-      std::move(argumentModes)));
+      std::move(argumentModes), std::move(argumentEscapes)));
 
   // If ref-returning function is used as value (not address), load it
   if (node.symbol->returnsRef && !evaluateAsAddress_) {
@@ -836,6 +851,7 @@ void BoundIRGenerator::visit(sema::BoundIndirectCall &node) {
 
   std::vector<std::shared_ptr<Value>> args;
   std::vector<CallInst::ArgumentMode> argumentModes;
+  std::vector<ParameterEscape> argumentEscapes;
   const auto functionType =
       std::static_pointer_cast<FunctionPointerType>(calleeVal->getType());
   for (size_t i = 0; i < node.arguments.size(); ++i) {
@@ -849,6 +865,9 @@ void BoundIRGenerator::visit(sema::BoundIndirectCall &node) {
             : ParameterOwnership::Borrow;
     argumentModes.push_back(
         prepareCallArgument(argument, parameterOwnership));
+    argumentEscapes.push_back(i < functionType->getParameterEscapes().size()
+                                  ? functionType->getParameterEscapes()[i]
+                                  : ParameterEscape::Unspecified);
     args.push_back(std::move(argument));
   }
 
@@ -859,7 +878,7 @@ void BoundIRGenerator::visit(sema::BoundIndirectCall &node) {
       reg, calleeVal, std::move(args), false,
       ownsResult ? CallInst::ResultOwnership::Owned
                  : CallInst::ResultOwnership::Borrowed,
-      std::move(argumentModes)));
+      std::move(argumentModes), std::move(argumentEscapes)));
   valueStack_.push(reg);
 }
 

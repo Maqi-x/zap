@@ -115,8 +115,8 @@ std::shared_ptr<TypeSymbol> Binder::instantiateGenericTypeSymbol(
     if (i != 0) {
       cacheKey += ",";
     }
-    cacheKey += genericArgs[i] ? typeInterner_.mangleKey(genericArgs[i])
-                               : "missing";
+    cacheKey +=
+        genericArgs[i] ? typeInterner_.mangleKey(genericArgs[i]) : "missing";
   }
   cacheKey += ">";
 
@@ -277,8 +277,8 @@ std::shared_ptr<TypeSymbol> Binder::instantiateGenericTypeSymbol(
           methodGenericBindings;
       for (const auto &genericParam : methodDecl->genericParams_) {
         if (genericParam) {
-          auto placeholder = zir::makeGenericParameterType(
-              genericParam->typeName);
+          auto placeholder =
+              zir::makeGenericParameterType(genericParam->typeName);
           methodGenericBindings[genericParam->typeName] = placeholder;
         }
       }
@@ -300,8 +300,16 @@ std::shared_ptr<TypeSymbol> Binder::instantiateGenericTypeSymbol(
           error(p->span,
                 "Parameter cannot be passed by both 'ref' and 'sink'.");
         }
+        if (p->isSink && p->isNoEscape) {
+          error(p->span,
+                "A 'sink' parameter cannot have a 'noescape' contract.");
+        }
         if (p->isVariadic && p->isSink) {
           error(p->span, "Variadic parameter cannot be passed by 'sink'.");
+        }
+        if (p->isVariadic && p->isNoEscape) {
+          error(p->span,
+                "Variadic parameter cannot have a 'noescape' contract.");
         }
         auto mappedType = mapType(*p->type);
         if (!mappedType) {
@@ -309,10 +317,17 @@ std::shared_ptr<TypeSymbol> Binder::instantiateGenericTypeSymbol(
           mappedType =
               std::make_shared<zir::PrimitiveType>(zir::TypeKind::Void);
         }
+        if (p->isNoEscape &&
+            (p->isRef || mappedType->getIntrinsicKind() !=
+                             zir::IntrinsicTypeKind::StringView)) {
+          error(p->span, "'noescape' currently requires a by-value StringView "
+                         "parameter.");
+        }
         auto parameter = std::make_shared<VariableSymbol>(
             p->name, mappedType, false, p->isRef, p->name,
             moduleIt->second.info->moduleName, Visibility::Private);
         parameter->is_sink = p->isSink;
+        parameter->is_noescape = p->isNoEscape;
         params.push_back(std::move(parameter));
       }
 
@@ -605,10 +620,10 @@ Binder::buildGenericBindings(
         return true;
       }
       const auto &paramName = cls->getName();
-      auto isGenericName = std::find(function.genericParameterNames.begin(),
-                                     function.genericParameterNames.end(),
-                                     paramName) !=
-                           function.genericParameterNames.end();
+      auto isGenericName =
+          std::find(function.genericParameterNames.begin(),
+                    function.genericParameterNames.end(),
+                    paramName) != function.genericParameterNames.end();
       if (isGenericName) {
         auto it = bindings.find(paramName);
         if (it == bindings.end()) {

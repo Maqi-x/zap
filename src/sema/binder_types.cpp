@@ -313,7 +313,9 @@ std::shared_ptr<zir::Type> Binder::mapType(const TypeNode &typeNode) {
       if (!ret)
         return nullptr;
       std::vector<zir::ParameterOwnership> ownership;
+      std::vector<zir::ParameterEscape> escape;
       ownership.reserve(params.size());
+      escape.reserve(params.size());
       for (size_t i = 0; i < params.size(); ++i) {
         if (!zir::containsManagedValues(params[i])) {
           ownership.push_back(zir::ParameterOwnership::Borrow);
@@ -323,10 +325,19 @@ std::shared_ptr<zir::Type> Binder::mapType(const TypeNode &typeNode) {
         } else {
           ownership.push_back(zir::ParameterOwnership::Transfer);
         }
+        const bool noescape = i < typeNode.funPtrParamNoEscapes.size() &&
+                              typeNode.funPtrParamNoEscapes[i];
+        if (noescape && ownership.back() != zir::ParameterOwnership::Borrow) {
+          error(typeNode.span,
+                "A transferring function pointer parameter cannot have a "
+                "'noescape' contract.");
+        }
+        escape.push_back(noescape ? zir::ParameterEscape::NoEscape
+                                  : zir::ParameterEscape::Unspecified);
       }
-      return std::make_shared<zir::FunctionPointerType>(std::move(params),
-                                                        std::move(ret),
-                                                        std::move(ownership));
+      return std::make_shared<zir::FunctionPointerType>(
+          std::move(params), std::move(ret), std::move(ownership),
+          std::move(escape));
     }
 
     std::vector<std::string> parts = typeNode.qualifiers;

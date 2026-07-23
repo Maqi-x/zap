@@ -327,6 +327,11 @@ enum class ParameterOwnership {
   Sink,
 };
 
+enum class ParameterEscape {
+  Unspecified,
+  NoEscape,
+};
+
 inline bool transfersOwnership(ParameterOwnership ownership) {
   return ownership == ParameterOwnership::Transfer ||
          ownership == ParameterOwnership::Sink;
@@ -337,19 +342,27 @@ inline bool containsManagedValues(const std::shared_ptr<Type> &type);
 class FunctionPointerType : public Type {
   std::vector<std::shared_ptr<Type>> params;
   std::vector<ParameterOwnership> parameterOwnership;
+  std::vector<ParameterEscape> parameterEscapes;
   std::shared_ptr<Type> returnType;
 
 public:
   FunctionPointerType(std::vector<std::shared_ptr<Type>> p,
                       std::shared_ptr<Type> r,
-                      std::vector<ParameterOwnership> ownership = {})
+                      std::vector<ParameterOwnership> ownership = {},
+                      std::vector<ParameterEscape> escape = {})
       : params(std::move(p)), parameterOwnership(std::move(ownership)),
-        returnType(std::move(r)) {
+        parameterEscapes(std::move(escape)), returnType(std::move(r)) {
     if (parameterOwnership.empty()) {
       parameterOwnership.assign(params.size(), ParameterOwnership::Borrow);
     } else if (parameterOwnership.size() != params.size()) {
       throw std::invalid_argument(
           "function pointer parameter ownership count mismatch");
+    }
+    if (parameterEscapes.empty()) {
+      parameterEscapes.assign(params.size(), ParameterEscape::Unspecified);
+    } else if (parameterEscapes.size() != params.size()) {
+      throw std::invalid_argument(
+          "function pointer parameter escape count mismatch");
     }
   }
   TypeKind getKind() const override { return TypeKind::FunctionPointer; }
@@ -371,6 +384,9 @@ public:
           break;
         }
       }
+      if (parameterEscapes[i] == ParameterEscape::NoEscape) {
+        s += "noescape ";
+      }
       s += params[i]->toString();
     }
     return s + ") " + returnType->toString();
@@ -378,6 +394,9 @@ public:
   const std::vector<std::shared_ptr<Type>> &getParams() const { return params; }
   const std::vector<ParameterOwnership> &getParameterOwnership() const {
     return parameterOwnership;
+  }
+  const std::vector<ParameterEscape> &getParameterEscapes() const {
+    return parameterEscapes;
   }
   const std::shared_ptr<Type> &getReturnType() const { return returnType; }
 };
