@@ -872,6 +872,25 @@ bool testOwnershipExitObligationsAllowMovedReturn() {
                 "moved return produced an unclosed ownership obligation");
 }
 
+bool testOwnershipObligationVerifierReportsLiveValues() {
+  Module module("ownership-obligation-verifier");
+  auto classType = std::make_shared<ClassType>("Node");
+  auto function =
+      std::make_unique<Function>("broken", primitive(TypeKind::Void));
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto value = reg("value", classType);
+  value->setOwnership(ValueOwnership::Owned);
+  entry->addInstruction(std::make_unique<zir::AllocInst>(value, classType));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  return expect(
+      hasError(ZirVerifier().verifyOwnershipObligations(module),
+               VerificationErrorCode::OwnershipViolation),
+      "ownership obligation verifier did not report a live owned value");
+}
+
 bool testOwnershipExitObligationsTrackPartialDefinitions() {
   Module module("ownership-exit-partial-definition");
   auto classType = std::make_shared<ClassType>("Node");
@@ -1645,6 +1664,7 @@ int main() {
   ok = testUseAfterReleaseIsRejected() && ok;
   ok = testOwnershipExitObligationsReportLiveValues() && ok;
   ok = testOwnershipExitObligationsAllowMovedReturn() && ok;
+  ok = testOwnershipObligationVerifierReportsLiveValues() && ok;
   ok = testOwnershipExitObligationsTrackPartialDefinitions() && ok;
   ok = testOwnershipExitObligationsAllowPhiTransfer() && ok;
   ok = testOwnershipExitObligationsTrackLoops() && ok;

@@ -53,6 +53,10 @@ ZAP_FLAG(EmitLLVM, "-emit-llvm", "Emit LLVM IR as the output format.", Flag)
 // -emit-zir
 ZAP_FLAG(EmitZIR, "-emit-zir", "Emit ZIR as the output format.", Flag)
 
+// --verify-owns
+ZAP_FLAG(VerifyOwnershipObligations, "--verify-owns",
+         "Check that owned values are closed at function exits.", Flag)
+
 // --allow-unsafe
 ZAP_FLAG(AllowUnsafe, "--allow-unsafe",
          "Enables unsafe blocks, unsafe functions, and raw pointers. (deprecated, unsafe allowed by default)", Flag)

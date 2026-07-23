@@ -1,5 +1,8 @@
 #include "zir_verifier_internal.hpp"
 
+#include "control_flow_graph.hpp"
+#include "ownership_flow.hpp"
+
 #include <sstream>
 #include <unordered_set>
 
@@ -32,20 +35,27 @@ VerificationResult ZirVerifier::verify(const Module &module) const {
   auto registerFunction = [&](const std::unique_ptr<Function> &function,
                               bool external) {
     if (!function) {
-      errors.push_back({VerificationErrorCode::NullNode, {}, {}, std::nullopt,
+      errors.push_back({VerificationErrorCode::NullNode,
+                        {},
+                        {},
+                        std::nullopt,
                         "module contains a null function"});
       return;
     }
     if (!symbols.insert(function->name).second) {
-      errors.push_back(
-          {VerificationErrorCode::DuplicateSymbol, function->name, {},
-           std::nullopt, "duplicate function symbol " + function->name});
+      errors.push_back({VerificationErrorCode::DuplicateSymbol,
+                        function->name,
+                        {},
+                        std::nullopt,
+                        "duplicate function symbol " + function->name});
     }
     if (external) {
       if (!function->getBlocks().empty()) {
-        errors.push_back(
-            {VerificationErrorCode::InvalidResult, function->name, {},
-             std::nullopt, "external function must not have a body"});
+        errors.push_back({VerificationErrorCode::InvalidResult,
+                          function->name,
+                          {},
+                          std::nullopt,
+                          "external function must not have a body"});
       }
       return;
     }
@@ -60,6 +70,28 @@ VerificationResult ZirVerifier::verify(const Module &module) const {
     registerFunction(function, false);
   }
   result.errors_ = std::move(errors);
+  return result;
+}
+
+VerificationResult
+ZirVerifier::verifyOwnershipObligations(const Module &module) const {
+  VerificationResult result;
+  for (const auto &function : module.getFunctions()) {
+    if (!function) {
+      continue;
+    }
+    ControlFlowGraph cfg(*function);
+    OwnershipFlowAnalysis analysis(module, *function, cfg.predecessors(),
+                                   cfg.successors(), cfg.reachable());
+    for (const auto &obligation : analysis.analyzeExitObligations()) {
+      result.errors_.push_back(
+          {VerificationErrorCode::OwnershipViolation, function->name,
+           obligation.block ? obligation.block->label : std::string{},
+           obligation.instructionIndex,
+           "owned value may remain live at function exit: " +
+               obligation.value->getName()});
+    }
+  }
   return result;
 }
 

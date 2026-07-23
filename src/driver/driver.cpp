@@ -27,19 +27,24 @@
 #include <string_view>
 
 namespace zap {
-bool compileSourceZIR(sema::BoundRootNode &node, std::ostream &ofoutput);
+bool compileSourceZIR(sema::BoundRootNode &node, std::ostream &ofoutput,
+                      bool verifyOwnershipObligations);
 bool compileSourceLLVMFromZIR(sema::BoundRootNode &node, std::string &output,
                               const std::string &targetTriple,
-                              bool freestanding);
-std::unique_ptr<zir::Module> generateZIRModule(sema::BoundRootNode &node);
+                              bool freestanding,
+                              bool verifyOwnershipObligations);
+std::unique_ptr<zir::Module> generateZIRModule(sema::BoundRootNode &node,
+                                               bool verifyOwnershipObligations);
 bool compileObjectFromZIR(sema::BoundRootNode &node,
                           const std::string &output_path,
                           int optimization_level,
-                          const std::string &targetTriple, bool freestanding);
+                          const std::string &targetTriple, bool freestanding,
+                          bool verifyOwnershipObligations);
 bool compileAssemblyFromZIR(sema::BoundRootNode &node,
                             const std::string &output_path,
                             int optimization_level,
-                            const std::string &targetTriple, bool freestanding);
+                            const std::string &targetTriple, bool freestanding,
+                            bool verifyOwnershipObligations);
 namespace {
 
 std::optional<sema::TargetInfo>
@@ -57,9 +62,9 @@ targetInfoForTriple(const std::string &requestedTriple) {
   return std::nullopt;
 }
 
-std::filesystem::path executableObjectPath(
-    const std::filesystem::path &executablePath,
-    const std::filesystem::path &sourcePath) {
+std::filesystem::path
+executableObjectPath(const std::filesystem::path &executablePath,
+                     const std::filesystem::path &sourcePath) {
   std::error_code ec;
   auto normalizedSource = std::filesystem::absolute(sourcePath, ec);
   if (ec) {
@@ -91,7 +96,8 @@ bool emitRequestedTextOutputs(driver &drv, sema::BoundRootNode &node,
                           "\nreason: ", strerror(errno));
       return true;
     }
-    if (compileSourceZIR(node, zir_output)) {
+    if (compileSourceZIR(node, zir_output,
+                         drv.verifies_ownership_obligations())) {
       return true;
     }
   }
@@ -104,7 +110,8 @@ bool emitRequestedTextOutputs(driver &drv, sema::BoundRootNode &node,
                                    args::OutputType::TEXT_LLVM));
     std::string llvmIr;
     if (compileSourceLLVMFromZIR(node, llvmIr, drv.get_target_triple(),
-                                 drv.is_freestanding())) {
+                                 drv.is_freestanding(),
+                                 drv.verifies_ownership_obligations())) {
       return true;
     }
 
@@ -297,8 +304,8 @@ bool compileLoadedModules(driver &drv, const std::filesystem::path &entryPath) {
 
     if (compileObjectFromZIR(*boundAst, out_path.string(),
                              static_cast<int>(drv.cmdArgs.optLevel),
-                             drv.cmdArgs.targetTriple,
-                             drv.cmdArgs.freestanding)) {
+                             drv.cmdArgs.targetTriple, drv.cmdArgs.freestanding,
+                             drv.cmdArgs.verifyOwnershipObligations)) {
       return true;
     }
 
@@ -308,10 +315,10 @@ bool compileLoadedModules(driver &drv, const std::filesystem::path &entryPath) {
         drv.is_implicit_output() ? entryPath : drv.get_output();
     out_path.replace_extension(
         driver::format_fileextension(args::OutputType::ASM));
-    if (compileAssemblyFromZIR(*boundAst, out_path.string(),
-                               static_cast<int>(drv.cmdArgs.optLevel),
-                               drv.cmdArgs.targetTriple,
-                               drv.cmdArgs.freestanding)) {
+    if (compileAssemblyFromZIR(
+            *boundAst, out_path.string(),
+            static_cast<int>(drv.cmdArgs.optLevel), drv.cmdArgs.targetTriple,
+            drv.cmdArgs.freestanding, drv.cmdArgs.verifyOwnershipObligations)) {
       return true;
     }
   } else if (drv.emits_text_output()) {
@@ -413,7 +420,8 @@ bool driver::verifySources() {
   return false;
 }
 
-std::unique_ptr<zir::Module> generateZIRModule(sema::BoundRootNode &node) {
+std::unique_ptr<zir::Module>
+generateZIRModule(sema::BoundRootNode &node, bool verifyOwnershipObligations) {
   zir::BoundIRGenerator irGen;
   auto module = irGen.generate(node);
   if (!module) {
@@ -425,12 +433,20 @@ std::unique_ptr<zir::Module> generateZIRModule(sema::BoundRootNode &node) {
     throw std::runtime_error("ZIR verification failed:\n" +
                              verification.format());
   }
+  if (verifyOwnershipObligations) {
+    auto obligations = zir::ZirVerifier().verifyOwnershipObligations(*module);
+    if (!obligations) {
+      throw std::runtime_error("ownership obligation verification failed:\n" +
+                               obligations.format());
+    }
+  }
   return module;
 }
 
-bool compileSourceZIR(sema::BoundRootNode &node, std::ostream &ofoutput) {
+bool compileSourceZIR(sema::BoundRootNode &node, std::ostream &ofoutput,
+                      bool verifyOwnershipObligations) {
   try {
-    auto mod = generateZIRModule(node);
+    auto mod = generateZIRModule(node, verifyOwnershipObligations);
     if (mod) {
       ofoutput << mod->toString();
     } else {
@@ -446,9 +462,10 @@ bool compileSourceZIR(sema::BoundRootNode &node, std::ostream &ofoutput) {
 
 bool compileSourceLLVMFromZIR(sema::BoundRootNode &node, std::string &output,
                               const std::string &targetTriple,
-                              bool freestanding) {
+                              bool freestanding,
+                              bool verifyOwnershipObligations) {
   try {
-    auto mod = generateZIRModule(node);
+    auto mod = generateZIRModule(node, verifyOwnershipObligations);
     if (!mod) {
       driver::reportError("failed to generate ZIR");
       return true;
@@ -473,9 +490,10 @@ bool compileSourceLLVMFromZIR(sema::BoundRootNode &node, std::string &output,
 bool compileObjectFromZIR(sema::BoundRootNode &node,
                           const std::string &output_path,
                           int optimization_level,
-                          const std::string &targetTriple, bool freestanding) {
+                          const std::string &targetTriple, bool freestanding,
+                          bool verifyOwnershipObligations) {
   try {
-    auto mod = generateZIRModule(node);
+    auto mod = generateZIRModule(node, verifyOwnershipObligations);
     if (!mod) {
       driver::reportError("failed to generate ZIR");
       return true;
@@ -497,10 +515,10 @@ bool compileObjectFromZIR(sema::BoundRootNode &node,
 bool compileAssemblyFromZIR(sema::BoundRootNode &node,
                             const std::string &output_path,
                             int optimization_level,
-                            const std::string &targetTriple,
-                            bool freestanding) {
+                            const std::string &targetTriple, bool freestanding,
+                            bool verifyOwnershipObligations) {
   try {
-    auto mod = generateZIRModule(node);
+    auto mod = generateZIRModule(node, verifyOwnershipObligations);
     if (!mod) {
       driver::reportError("failed to generate ZIR");
       return true;
@@ -571,7 +589,8 @@ bool driver::compileSourceFile(const std::string &source,
 
     if (compileObjectFromZIR(*boundAst, out_path.string(),
                              static_cast<int>(cmdArgs.optLevel),
-                             cmdArgs.targetTriple, cmdArgs.freestanding)) {
+                             cmdArgs.targetTriple, cmdArgs.freestanding,
+                             cmdArgs.verifyOwnershipObligations)) {
       return true;
     }
 
@@ -584,7 +603,8 @@ bool driver::compileSourceFile(const std::string &source,
         driver::format_fileextension(args::OutputType::ASM));
     if (compileAssemblyFromZIR(*boundAst, out_path.string(),
                                static_cast<int>(cmdArgs.optLevel),
-                               cmdArgs.targetTriple, cmdArgs.freestanding)) {
+                               cmdArgs.targetTriple, cmdArgs.freestanding,
+                               cmdArgs.verifyOwnershipObligations)) {
       return true;
     }
   } else if (emits_text_output()) {

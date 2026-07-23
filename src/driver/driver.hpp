@@ -92,6 +92,9 @@ public:
     return cmdArgs.targetTriple;
   }
   bool is_freestanding() const noexcept { return cmdArgs.freestanding; }
+  bool verifies_ownership_obligations() const noexcept {
+    return cmdArgs.verifyOwnershipObligations;
+  }
   bool emits_text_output() const noexcept {
     return cmdArgs.output.type == args::OutputType::TEXT_LLVM ||
            cmdArgs.output.type == args::OutputType::ZIR ||

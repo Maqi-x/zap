@@ -194,6 +194,8 @@ ParseResult parse(const std::vector<std::string_view> &cmdline,
   args.freestanding = holder.has(ArgTypes::Freestanding);
   args.incStdlib = !args.freestanding && !holder.has(ArgTypes::NoStdlib);
   args.incPrelude = !args.freestanding && !holder.has(ArgTypes::NoPrelude);
+  args.verifyOwnershipObligations =
+      holder.has(ArgTypes::VerifyOwnershipObligations);
 
   bool emitS = holder.has(ArgTypes::CompileOnlyS);
   bool compileOnly = holder.has(ArgTypes::CompileOnly);
