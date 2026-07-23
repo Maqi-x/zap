@@ -57,8 +57,28 @@ void zap_runtime_ownership_note_strong_release(void) {
   ++zap_runtime_ownership_counters.strong_release_calls;
 }
 
+void zap_runtime_ownership_note_copy(void) {
+  ++zap_runtime_ownership_counters.copy_operations;
+}
+
+void zap_runtime_ownership_note_drop(void) {
+  ++zap_runtime_ownership_counters.drop_operations;
+}
+
 void zap_runtime_ownership_note_destroy(void) {
   ++zap_runtime_ownership_counters.destroy_calls;
+}
+
+uint64_t zap_runtime_ownership_copy_operations(void) {
+  return zap_runtime_ownership_counters.copy_operations;
+}
+
+uint64_t zap_runtime_ownership_drop_operations(void) {
+  return zap_runtime_ownership_counters.drop_operations;
+}
+
+uint64_t zap_runtime_ownership_destroy_calls(void) {
+  return zap_runtime_ownership_counters.destroy_calls;
 }
 #endif
 

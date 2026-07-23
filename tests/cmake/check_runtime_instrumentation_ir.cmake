@@ -11,6 +11,8 @@ endif()
 
 file(READ "${OUTPUT}" emitted_ir)
 foreach(symbol
+        zap_runtime_ownership_note_copy
+        zap_runtime_ownership_note_drop
         zap_runtime_ownership_note_strong_retain
         zap_runtime_ownership_note_strong_release
         zap_runtime_ownership_note_destroy)

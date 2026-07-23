@@ -199,6 +199,14 @@ if(BUILD_TESTING)
                 -DOUTPUT=${CMAKE_BINARY_DIR}/runtime-instrumentation.ll
                 -P ${CMAKE_SOURCE_DIR}/tests/cmake/check_runtime_instrumentation_ir.cmake
         )
+        add_test(
+            NAME runtime-ownership-counts
+            COMMAND ${CMAKE_COMMAND}
+                -DZAPC=$<TARGET_FILE:zapc>
+                -DINPUT=${CMAKE_SOURCE_DIR}/tests/runtime_instrumentation/ownership_counts.zp
+                -DOUTPUT=${CMAKE_BINARY_DIR}/runtime-ownership-counts-test
+                -P ${CMAKE_SOURCE_DIR}/tests/cmake/run_runtime_ownership_counts.cmake
+        )
     endif()
 endif()
 

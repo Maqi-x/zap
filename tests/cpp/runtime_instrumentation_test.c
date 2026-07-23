@@ -49,6 +49,8 @@ static int test_direct_events_and_allocation(void) {
   free(allocation);
   zap_runtime_ownership_note_strong_retain();
   zap_runtime_ownership_note_strong_release();
+  zap_runtime_ownership_note_copy();
+  zap_runtime_ownership_note_drop();
   zap_runtime_ownership_note_destroy();
 
   zap_runtime_ownership_counters_t counters = {0};
@@ -58,6 +60,10 @@ static int test_direct_events_and_allocation(void) {
                 "strong retain counter is incorrect") &&
          expect(counters.strong_release_calls == 1,
                 "strong release counter is incorrect") &&
+         expect(counters.copy_operations == 1,
+                "copy-operation counter is incorrect") &&
+         expect(counters.drop_operations == 1,
+                "drop-operation counter is incorrect") &&
          expect(counters.destroy_calls == 1, "destroy counter is incorrect");
 }
 

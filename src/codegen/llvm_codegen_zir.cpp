@@ -283,12 +283,18 @@ LLVMCodeGen::lowerZIRCast(llvm::Value *src,
 void LLVMCodeGen::emitZIRFunctionReleases() {
   for (auto it = zirFunctionAggregateLocals_.rbegin();
        it != zirFunctionAggregateLocals_.rend(); ++it) {
+#if defined(ZAP_RUNTIME_INSTRUMENTATION)
+    emitRuntimeOwnershipEvent("zap_runtime_ownership_note_drop");
+#endif
     auto *value = builder_.CreateLoad(toLLVMType(*it->first), it->second,
                                       "zir.aggregate.ret.release");
     emitManagedRelease(value, it->first);
   }
   for (auto it = zirFunctionClassLocals_.rbegin();
        it != zirFunctionClassLocals_.rend(); ++it) {
+#if defined(ZAP_RUNTIME_INSTRUMENTATION)
+    emitRuntimeOwnershipEvent("zap_runtime_ownership_note_drop");
+#endif
     auto *value = builder_.CreateLoad(toLLVMType(*it->first), it->second,
                                       "zir.arc.ret.release");
     if (isWeakClassType(it->first)) {
@@ -299,6 +305,9 @@ void LLVMCodeGen::emitZIRFunctionReleases() {
   }
   for (auto it = zirFunctionStringLocals_.rbegin();
        it != zirFunctionStringLocals_.rend(); ++it) {
+#if defined(ZAP_RUNTIME_INSTRUMENTATION)
+    emitRuntimeOwnershipEvent("zap_runtime_ownership_note_drop");
+#endif
     auto *value = builder_.CreateLoad(toLLVMType(*it->first), it->second,
                                       "zir.str.ret.release");
     emitStringReleaseIfNeeded(value, it->first);
@@ -1092,6 +1101,9 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
   case OpCode::Copy: {
     const auto &copyInst = static_cast<const CopyInst &>(inst);
     auto *source = lowerZIRRValue(copyInst.getSource());
+#if defined(ZAP_RUNTIME_INSTRUMENTATION)
+    emitRuntimeOwnershipEvent("zap_runtime_ownership_note_copy");
+#endif
     emitManagedRetain(source, copyInst.getSource()->getType());
     zirValueMap_[copyInst.getResult().get()] = source;
     return;
@@ -1239,6 +1251,9 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
   }
   case OpCode::Destroy: {
     const auto &destroyInst = static_cast<const DestroyInst &>(inst);
+#if defined(ZAP_RUNTIME_INSTRUMENTATION)
+    emitRuntimeOwnershipEvent("zap_runtime_ownership_note_drop");
+#endif
     emitOwnershipRelease(lowerZIRRValue(destroyInst.getValue()),
                          destroyInst.getValue()->getType(),
                          destroyInst.getValue()->getOwnership());
@@ -1246,6 +1261,9 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
   }
   case OpCode::Release: {
     const auto &releaseInst = static_cast<const ReleaseInst &>(inst);
+#if defined(ZAP_RUNTIME_INSTRUMENTATION)
+    emitRuntimeOwnershipEvent("zap_runtime_ownership_note_drop");
+#endif
     emitOwnershipRelease(lowerZIRRValue(releaseInst.getValue()),
                          releaseInst.getValue()->getType(),
                          releaseInst.getValue()->getOwnership());

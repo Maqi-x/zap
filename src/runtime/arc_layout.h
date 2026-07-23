@@ -41,6 +41,8 @@ typedef struct zap_runtime_ownership_counters_t {
   uint64_t allocations;
   uint64_t strong_retain_calls;
   uint64_t strong_release_calls;
+  uint64_t copy_operations;
+  uint64_t drop_operations;
   uint64_t destroy_calls;
   uint64_t candidate_roots;
   uint64_t collection_runs;
@@ -71,7 +73,12 @@ void zap_runtime_ownership_snapshot_counters(
     zap_runtime_ownership_counters_t *out);
 void zap_runtime_ownership_note_strong_retain(void);
 void zap_runtime_ownership_note_strong_release(void);
+void zap_runtime_ownership_note_copy(void);
+void zap_runtime_ownership_note_drop(void);
 void zap_runtime_ownership_note_destroy(void);
+uint64_t zap_runtime_ownership_copy_operations(void);
+uint64_t zap_runtime_ownership_drop_operations(void);
+uint64_t zap_runtime_ownership_destroy_calls(void);
 #endif
 
 #if defined(__cplusplus)

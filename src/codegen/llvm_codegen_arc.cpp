@@ -10,6 +10,20 @@ bool isStringLikeStruct(llvm::Type *ty) {
 }
 } // namespace
 
+#if defined(ZAP_RUNTIME_INSTRUMENTATION)
+void LLVMCodeGen::emitRuntimeOwnershipEvent(const char *name) {
+  auto it = functionMap_.find(name);
+  if (it == functionMap_.end()) {
+    auto *eventType = llvm::FunctionType::get(
+        llvm::Type::getVoidTy(ctx_), {}, false);
+    auto *eventFn = llvm::Function::Create(
+        eventType, llvm::Function::ExternalLinkage, name, *module_);
+    it = functionMap_.emplace(name, eventFn).first;
+  }
+  builder_.CreateCall(it->second);
+}
+#endif
+
 bool LLVMCodeGen::isClassType(const std::shared_ptr<zir::Type> &type) const {
   return arcEmitter_->isClassType(type);
 }

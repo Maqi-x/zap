@@ -1,0 +1,30 @@
+ext fun zap_runtime_ownership_reset_counters() Void;
+ext fun zap_runtime_ownership_copy_operations() UInt64;
+ext fun zap_runtime_ownership_drop_operations() UInt64;
+ext fun zap_runtime_ownership_destroy_calls() UInt64;
+
+class Node {
+}
+
+fun exercise() Void {
+    zap_runtime_ownership_reset_counters();
+
+    var source: Node = new Node();
+    var destination: Node;
+    destination = source;
+}
+
+fun main() Int {
+    exercise();
+
+    if zap_runtime_ownership_copy_operations() != 1 {
+        return 1;
+    }
+    if zap_runtime_ownership_drop_operations() != 2 {
+        return 2;
+    }
+    if zap_runtime_ownership_destroy_calls() != 1 {
+        return 3;
+    }
+    return 0;
+}

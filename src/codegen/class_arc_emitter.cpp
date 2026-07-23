@@ -33,20 +33,6 @@ void ClassArcEmitter::emitRefcountFailure(const char *name) {
   codegen_.builder_.CreateUnreachable();
 }
 
-#if defined(ZAP_RUNTIME_INSTRUMENTATION)
-void ClassArcEmitter::emitRuntimeOwnershipEvent(const char *name) {
-  auto it = codegen_.functionMap_.find(name);
-  if (it == codegen_.functionMap_.end()) {
-    auto *eventType = llvm::FunctionType::get(
-        llvm::Type::getVoidTy(codegen_.ctx_), {}, false);
-    auto *eventFn = llvm::Function::Create(
-        eventType, llvm::Function::ExternalLinkage, name, *codegen_.module_);
-    it = codegen_.functionMap_.emplace(name, eventFn).first;
-  }
-  codegen_.builder_.CreateCall(it->second);
-}
-#endif
-
 void ClassArcEmitter::ensureNestedClassArcSupport(
     const std::shared_ptr<zir::Type> &type) {
   if (!type) {
@@ -174,7 +160,8 @@ void ClassArcEmitter::emitRetainIfNeeded(
       "arc.retain.next");
   codegen_.builder_.CreateStore(next, countAddr);
 #if defined(ZAP_RUNTIME_INSTRUMENTATION)
-  emitRuntimeOwnershipEvent("zap_runtime_ownership_note_strong_retain");
+  codegen_.emitRuntimeOwnershipEvent(
+      "zap_runtime_ownership_note_strong_retain");
 #endif
   codegen_.builder_.CreateBr(contBB);
   codegen_.builder_.SetInsertPoint(contBB);
@@ -684,7 +671,7 @@ void ClassArcEmitter::ensureClassArcSupport(
 
   codegen_.builder_.SetInsertPoint(destroyBodyBB);
 #if defined(ZAP_RUNTIME_INSTRUMENTATION)
-  emitRuntimeOwnershipEvent("zap_runtime_ownership_note_destroy");
+  codegen_.emitRuntimeOwnershipEvent("zap_runtime_ownership_note_destroy");
 #endif
   auto *destroyTypedObject = codegen_.builder_.CreateBitCast(
       destroyRawObject, llvm::PointerType::getUnqual(codegen_.ctx_), "object");
@@ -798,7 +785,8 @@ void ClassArcEmitter::ensureClassArcSupport(
       "refcount.next");
   codegen_.builder_.CreateStore(nextCount, countAddr);
 #if defined(ZAP_RUNTIME_INSTRUMENTATION)
-  emitRuntimeOwnershipEvent("zap_runtime_ownership_note_strong_release");
+  codegen_.emitRuntimeOwnershipEvent(
+      "zap_runtime_ownership_note_strong_release");
 #endif
   auto *isZero = codegen_.builder_.CreateICmpEQ(
       nextCount,
