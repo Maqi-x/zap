@@ -1585,10 +1585,11 @@ bool testOwnershipLoweringClosesSimpleEdgeObligations() {
                 "simple edge closure left an ownership obligation");
 }
 
-bool testOwnershipLoweringDoesNotCloseCriticalEdgeObligations() {
-  Module module("ownership-edge-only-closure");
+bool testOwnershipLoweringClosesCriticalEdgeObligations() {
+  Module module("ownership-critical-edge-closure");
   auto classType = std::make_shared<ClassType>("Node");
   auto boolean = primitive(TypeKind::Bool);
+  auto i32 = primitive(TypeKind::Int32);
   auto function =
       std::make_unique<Function>("valid", primitive(TypeKind::Void));
   auto value = std::make_shared<zir::Argument>("value", classType);
@@ -1602,6 +1603,12 @@ bool testOwnershipLoweringDoesNotCloseCriticalEdgeObligations() {
   closed->addInstruction(std::make_unique<ReleaseInst>(value));
   closed->addInstruction(std::make_unique<BranchInst>("exit"));
   auto exit = std::make_unique<BasicBlock>("exit");
+  auto selected = reg("selected", i32);
+  exit->addInstruction(std::make_unique<PhiInst>(
+      selected,
+      std::vector<std::pair<std::string, std::shared_ptr<zir::Value>>>{
+          {"entry", std::make_shared<Constant>("1", i32)},
+          {"closed", std::make_shared<Constant>("2", i32)}}));
   exit->addInstruction(std::make_unique<ReturnInst>());
   function->addBlock(std::move(entry));
   function->addBlock(std::move(closed));
@@ -1609,13 +1616,24 @@ bool testOwnershipLoweringDoesNotCloseCriticalEdgeObligations() {
   module.addFunction(std::move(function));
 
   zir::lowerDeadOwnedResults(module);
-  const auto &blocks = module.getFunctions().front()->getBlocks();
-  const auto &entryInstructions = blocks.front()->getInstructions();
-  return expect(blocks.size() == 3 && entryInstructions.size() == 1 &&
-                    entryInstructions.front()->getOpCode() == OpCode::CondBr,
-                "ownership lowering changed a critical-edge closure plan") &&
-         expect(!ZirVerifier().verifyOwnershipObligations(module).ok(),
-                "critical-edge ownership obligation was unexpectedly closed");
+  auto *lowered = module.getFunctions().front().get();
+  const auto &branch = static_cast<const CondBranchInst &>(
+      *lowered->findBlock("entry")->getInstructions().back());
+  auto *edge = lowered->findBlock(branch.getTrueLabel());
+  auto *exitBlock = lowered->findBlock("exit");
+  const auto &phi =
+      static_cast<const PhiInst &>(*exitBlock->getInstructions().front());
+  return expect(edge && edge->getInstructions().size() == 2 &&
+                    edge->getInstructions().front()->getOpCode() ==
+                        OpCode::Release &&
+                    edge->getInstructions().back()->getOpCode() == OpCode::Br &&
+                    phi.getIncoming().front().first == edge->label,
+                "ownership lowering did not split the critical edge and "
+                "update phi labels") &&
+         expect(ZirVerifier().verify(module).ok(),
+                "critical edge closure produced invalid ZIR") &&
+         expect(ZirVerifier().verifyOwnershipObligations(module).ok(),
+                "critical edge closure left an ownership obligation");
 }
 
 bool testOwnershipLoweringReleasesAtLastLocalUse() {
@@ -1876,7 +1894,7 @@ int main() {
   ok = testOwnershipLoweringReleasesDeadOwnedResults() && ok;
   ok = testOwnershipLoweringClosesUnambiguousOwnedArgumentAtReturn() && ok;
   ok = testOwnershipLoweringClosesSimpleEdgeObligations() && ok;
-  ok = testOwnershipLoweringDoesNotCloseCriticalEdgeObligations() && ok;
+  ok = testOwnershipLoweringClosesCriticalEdgeObligations() && ok;
   ok = testOwnershipLoweringReleasesAtLastLocalUse() && ok;
   ok = testOwnershipLoweringReleasesOwnerAfterBorrowUse() && ok;
   ok = testCallBorrowAllowsOwnedValueToBeReleasedAfterward() && ok;

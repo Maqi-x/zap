@@ -127,6 +127,64 @@ bool wasOwnershipTransferredBefore(
   return false;
 }
 
+struct PendingEdgeClosure {
+  BasicBlock *source;
+  BasicBlock *destination;
+  std::vector<std::shared_ptr<Value>> values;
+};
+
+bool splitEdgeWithReleases(
+    BasicBlock &source, BasicBlock &destination,
+    const std::vector<std::shared_ptr<Value>> &releases,
+    const char *labelPrefix, std::unordered_set<std::string> &labels,
+    size_t &edgeIndex, std::vector<std::unique_ptr<BasicBlock>> &edgeBlocks) {
+  if (releases.empty() || source.getInstructions().empty()) {
+    return false;
+  }
+  const auto &terminator = source.getInstructions().back();
+  if (!terminator) {
+    return false;
+  }
+  if (terminator->getOpCode() == OpCode::Br) {
+    if (static_cast<const BranchInst &>(*terminator).getTarget() !=
+        destination.label) {
+      return false;
+    }
+  } else if (terminator->getOpCode() == OpCode::CondBr) {
+    const auto &branch = static_cast<const CondBranchInst &>(*terminator);
+    if (branch.getTrueLabel() != destination.label &&
+        branch.getFalseLabel() != destination.label) {
+      return false;
+    }
+  } else {
+    return false;
+  }
+
+  std::string edgeLabel;
+  do {
+    edgeLabel = std::string(labelPrefix) + std::to_string(edgeIndex++);
+  } while (!labels.insert(edgeLabel).second);
+  auto edge = std::make_unique<BasicBlock>(edgeLabel);
+  for (const auto &value : releases) {
+    edge->addInstruction(std::make_unique<ReleaseInst>(value));
+  }
+  edge->addInstruction(std::make_unique<BranchInst>(destination.label));
+  if (terminator->getOpCode() == OpCode::Br) {
+    static_cast<BranchInst &>(*terminator).setTarget(edgeLabel);
+  } else {
+    static_cast<CondBranchInst &>(*terminator)
+        .replaceTarget(destination.label, edgeLabel);
+  }
+  for (const auto &instruction : destination.getInstructions()) {
+    if (instruction && instruction->getOpCode() == OpCode::Phi) {
+      static_cast<PhiInst &>(*instruction)
+          .replaceIncomingLabel(source.label, edgeLabel);
+    }
+  }
+  edgeBlocks.push_back(std::move(edge));
+  return true;
+}
+
 void lowerUnambiguousOwnershipClosures(Module &module, Function &function) {
   std::unordered_map<const Value *, std::shared_ptr<Value>> values;
   for (const auto &argument : function.getArguments()) {
@@ -153,6 +211,7 @@ void lowerUnambiguousOwnershipClosures(Module &module, Function &function) {
   std::unordered_map<BasicBlock *,
                      std::vector<std::pair<size_t, std::shared_ptr<Value>>>>
       releases;
+  std::vector<PendingEdgeClosure> criticalEdgeClosures;
   for (const auto &plan : analysis.analyzeOwnershipClosurePlans()) {
     for (const auto &placement : plan.destroyPlacements) {
       const auto value = values.find(plan.value);
@@ -183,6 +242,31 @@ void lowerUnambiguousOwnershipClosures(Module &module, Function &function) {
         block = function.findBlock(placement.source->label);
         const auto successors =
             block ? cfg.successors().find(block) : cfg.successors().end();
+        if (placement.requiresEdgeSplit) {
+          auto *destination = function.findBlock(placement.destination->label);
+          const auto predecessors = destination
+                                        ? cfg.predecessors().find(destination)
+                                        : cfg.predecessors().end();
+          if (!block || !destination || successors == cfg.successors().end() ||
+              predecessors == cfg.predecessors().end() ||
+              successors->second.size() <= 1 ||
+              predecessors->second.size() <= 1) {
+            continue;
+          }
+          auto closure = std::find_if(
+              criticalEdgeClosures.begin(), criticalEdgeClosures.end(),
+              [&](const PendingEdgeClosure &candidate) {
+                return candidate.source == block &&
+                       candidate.destination == destination;
+              });
+          if (closure == criticalEdgeClosures.end()) {
+            criticalEdgeClosures.push_back(
+                {block, destination, {value->second}});
+          } else {
+            closure->values.push_back(value->second);
+          }
+          continue;
+        }
         if (!block || successors == cfg.successors().end() ||
             successors->second.size() != 1 ||
             successors->second.front() != placement.destination ||
@@ -212,6 +296,22 @@ void lowerUnambiguousOwnershipClosures(Module &module, Function &function) {
                               static_cast<std::ptrdiff_t>(release->first),
                           std::make_unique<ReleaseInst>(release->second));
     }
+  }
+
+  std::unordered_set<std::string> labels;
+  for (const auto &blockOwner : function.getBlocks()) {
+    if (blockOwner) {
+      labels.insert(blockOwner->label);
+    }
+  }
+  size_t edgeIndex = 0;
+  std::vector<std::unique_ptr<BasicBlock>> edgeBlocks;
+  for (const auto &closure : criticalEdgeClosures) {
+    splitEdgeWithReleases(*closure.source, *closure.destination, closure.values,
+                          "ownership.close.", labels, edgeIndex, edgeBlocks);
+  }
+  for (auto &edge : edgeBlocks) {
+    function.addBlock(std::move(edge));
   }
 }
 
@@ -328,28 +428,9 @@ void lowerDeadOwnedResults(Module &module) {
         if (releases.empty()) {
           continue;
         }
-        std::string edgeLabel;
-        do {
-          edgeLabel = "ownership.release." + std::to_string(edgeIndex++);
-        } while (!labels.insert(edgeLabel).second);
-        auto edge = std::make_unique<BasicBlock>(edgeLabel);
-        for (const auto &value : releases) {
-          edge->addInstruction(std::make_unique<ReleaseInst>(value));
-        }
-        edge->addInstruction(std::make_unique<BranchInst>(targetLabel));
-        if (terminator->getOpCode() == OpCode::Br) {
-          static_cast<BranchInst &>(*terminator).setTarget(edgeLabel);
-        } else {
-          static_cast<CondBranchInst &>(*terminator)
-              .replaceTarget(targetLabel, edgeLabel);
-        }
-        for (const auto &instruction : destination->getInstructions()) {
-          if (instruction && instruction->getOpCode() == OpCode::Phi) {
-            static_cast<PhiInst &>(*instruction)
-                .replaceIncomingLabel(source.label, edgeLabel);
-          }
-        }
-        edgeBlocks.push_back(std::move(edge));
+        splitEdgeWithReleases(source, *destination, releases,
+                              "ownership.release.", labels, edgeIndex,
+                              edgeBlocks);
       }
     }
     for (auto &edge : edgeBlocks) {
