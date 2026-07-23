@@ -125,7 +125,8 @@ ZirVerifier::verifyOwnershipObligations(const Module &module) const {
              obligation.instructionIndex,
              "owned value may remain live at function exit: " +
                  plan.value->getName() + " (defined in " + definition + "; " +
-                 placement + ")"});
+                 "state: " + formatOwnershipFlowState(obligation.state) +
+                 "; " + placement + ")"});
       }
     }
   }

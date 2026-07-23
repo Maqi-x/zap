@@ -44,7 +44,6 @@ struct CmdlineArgs {
   bool freestanding = false; ///< Compile without host OS runtime assumptions.
   bool printStdlibPath = false; ///< Print the resolved stdlib directory.
   bool printCorePath = false;   ///< Print the resolved core library directory.
-  bool verifyOwnershipObligations = false; ///< Check owned values at exits.
 
   OptLevel optLevel = OptLevel::O1; ///< Optimization level (0-3).
 

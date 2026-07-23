@@ -22,6 +22,8 @@ enum class OwnershipFlowState : unsigned char {
   Mixed = Unavailable | Live | Moved | Destroyed,
 };
 
+std::string formatOwnershipFlowState(OwnershipFlowState state);
+
 struct OwnershipTransferViolation {
   const BasicBlock *block;
   size_t instructionIndex;

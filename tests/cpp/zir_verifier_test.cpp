@@ -803,10 +803,17 @@ bool testOwnershipFlowRejectsTransferAfterPartialDefinition() {
       module, *function, predecessors, successors,
       {entryBlock, leftBlock, rightBlock, mergeBlock});
   const auto violations = analysis.analyze();
+  const auto expectedState = static_cast<OwnershipFlowState>(
+      static_cast<unsigned char>(OwnershipFlowState::Unavailable) |
+      static_cast<unsigned char>(OwnershipFlowState::Live));
 
-  return expect(!violations.empty(),
-                "ownership flow accepted a transfer after a partial "
-                "definition");
+  return expect(
+      violations.size() == 1 &&
+          violations.front().priorState == expectedState &&
+          zir::formatOwnershipFlowState(violations.front().priorState) ==
+              "Unavailable|Live",
+      "ownership flow did not report the exact partial-definition merge "
+      "state");
 }
 
 bool testControlFlowGraphBuildsEdgesAndReachability() {
@@ -914,9 +921,11 @@ bool testUseAfterMoveIsRejected() {
   function->addBlock(std::move(entry));
   module.addFunction(std::move(function));
 
-  return expect(hasError(ZirVerifier().verify(module),
-                         VerificationErrorCode::OwnershipViolation),
-                "use of an owned value after explicit move was not diagnosed");
+  const auto verification = ZirVerifier().verify(module);
+  return expect(
+      hasError(verification, VerificationErrorCode::OwnershipViolation) &&
+          verification.format().find("state: Moved") != std::string::npos,
+      "use of an owned value after explicit move did not report Moved state");
 }
 
 bool testCopyCreatesIndependentOwnership() {
@@ -1175,10 +1184,12 @@ bool testOwnershipObligationVerifierReportsLiveValues() {
   function->addBlock(std::move(entry));
   module.addFunction(std::move(function));
 
+  const auto verification =
+      ZirVerifier().verifyOwnershipObligations(module);
   return expect(
-      hasError(ZirVerifier().verifyOwnershipObligations(module),
-               VerificationErrorCode::OwnershipViolation),
-      "ownership obligation verifier did not report a live owned value");
+      hasError(verification, VerificationErrorCode::OwnershipViolation) &&
+          verification.format().find("state: Live") != std::string::npos,
+      "ownership obligation verifier did not report the live exit state");
 }
 
 bool testOwnershipExitObligationsTrackPartialDefinitions() {
@@ -1866,11 +1877,14 @@ bool testOwnershipLoweringClosesCriticalEdgeObligations() {
   closed->addInstruction(std::make_unique<BranchInst>("exit"));
   auto exit = std::make_unique<BasicBlock>("exit");
   auto selected = reg("selected", i32);
+  auto comparison = reg("comparison", boolean);
   exit->addInstruction(std::make_unique<PhiInst>(
       selected,
       std::vector<std::pair<std::string, std::shared_ptr<zir::Value>>>{
           {"entry", std::make_shared<Constant>("1", i32)},
           {"closed", std::make_shared<Constant>("2", i32)}}));
+  exit->addInstruction(std::make_unique<CmpInst>(
+      "eq", comparison, selected, std::make_shared<Constant>("1", i32)));
   exit->addInstruction(std::make_unique<ReturnInst>());
   function->addBlock(std::move(entry));
   function->addBlock(std::move(closed));
@@ -2051,6 +2065,69 @@ bool testOwnershipLoweringReleasesOnDeadCfgEdge() {
                 "edge-lowered ZIR was rejected by the verifier");
 }
 
+bool testOwnershipLoweringRemovesUnusedBorrowedPhiBeforeCleanup() {
+  Module module("ownership-unused-borrowed-phi");
+  auto stringType = zir::makeStringType();
+  auto boolean = primitive(TypeKind::Bool);
+  auto make = std::make_unique<Function>("make", stringType);
+  module.addExternalFunction(std::move(make));
+
+  auto function =
+      std::make_unique<Function>("valid", primitive(TypeKind::Void));
+  auto borrowed = std::make_shared<zir::Argument>("borrowed", stringType);
+  borrowed->setOwnership(ValueOwnership::Borrowed);
+  function->arguments.push_back(borrowed);
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CondBranchInst>(
+      std::make_shared<Constant>("true", boolean), "borrowed.path",
+      "owned.path"));
+
+  auto borrowedPath = std::make_unique<BasicBlock>("borrowed.path");
+  borrowedPath->addInstruction(std::make_unique<BranchInst>("merge"));
+
+  auto ownedPath = std::make_unique<BasicBlock>("owned.path");
+  auto owned = reg("owned", stringType);
+  owned->setOwnership(ValueOwnership::Owned);
+  ownedPath->addInstruction(std::make_unique<zir::CallInst>(
+      owned, "make", std::vector<std::shared_ptr<zir::Value>>{},
+      std::vector<bool>{}, nullptr, false,
+      zir::CallInst::ResultOwnership::Owned));
+  ownedPath->addInstruction(std::make_unique<BranchInst>("merge"));
+
+  auto merge = std::make_unique<BasicBlock>("merge");
+  auto unused = reg("unused", stringType);
+  unused->setOwnership(ValueOwnership::Borrowed);
+  merge->addInstruction(std::make_unique<PhiInst>(
+      unused,
+      std::vector<std::pair<std::string, std::shared_ptr<zir::Value>>>{
+          {"borrowed.path", borrowed}, {"owned.path", owned}}));
+  merge->addInstruction(std::make_unique<ReturnInst>());
+
+  function->addBlock(std::move(entry));
+  function->addBlock(std::move(borrowedPath));
+  function->addBlock(std::move(ownedPath));
+  function->addBlock(std::move(merge));
+  module.addFunction(std::move(function));
+
+  zir::lowerDeadOwnedResults(module);
+  auto *lowered = module.getFunctions().front().get();
+  const auto &ownedInstructions =
+      lowered->findBlock("owned.path")->getInstructions();
+  const auto &mergeInstructions =
+      lowered->findBlock("merge")->getInstructions();
+  return expect(ownedInstructions.size() == 3 &&
+                    ownedInstructions[1]->getOpCode() == OpCode::Destroy &&
+                    mergeInstructions.size() == 1 &&
+                    mergeInstructions.front()->getOpCode() == OpCode::Ret,
+                "ownership lowering did not remove an unused borrowed phi "
+                "before closing its owned incoming value") &&
+         expect(ZirVerifier().verify(module).ok(),
+                "unused borrowed phi cleanup produced invalid ZIR") &&
+         expect(ZirVerifier().verifyOwnershipObligations(module).ok(),
+                "unused borrowed phi cleanup left ownership open");
+}
+
 bool testDominanceViolation() {
   Module module("dominance-violation");
   auto i32 = primitive(TypeKind::Int32);
@@ -2175,6 +2252,7 @@ int main() {
   ok = testOwnershipLoweringReleasesOwnerAfterBorrowUse() && ok;
   ok = testCallBorrowAllowsOwnedValueToBeReleasedAfterward() && ok;
   ok = testOwnershipLoweringReleasesOnDeadCfgEdge() && ok;
+  ok = testOwnershipLoweringRemovesUnusedBorrowedPhiBeforeCleanup() && ok;
   ok = testDominanceViolation() && ok;
   ok = testPhiRequiresEveryPredecessor() && ok;
   return ok ? 0 : 1;

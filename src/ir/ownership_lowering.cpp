@@ -1,6 +1,7 @@
 #include "ownership_lowering.hpp"
 
 #include "control_flow_graph.hpp"
+#include "dead_phi_elimination.hpp"
 #include "ownership_flow.hpp"
 #include "ownership_liveness.hpp"
 
@@ -252,13 +253,8 @@ void lowerUnambiguousOwnershipClosures(Module &module, Function &function) {
             block ? cfg.successors().find(block) : cfg.successors().end();
         if (placement.requiresEdgeSplit) {
           auto *destination = function.findBlock(placement.destination->label);
-          const auto predecessors = destination
-                                        ? cfg.predecessors().find(destination)
-                                        : cfg.predecessors().end();
           if (!block || !destination || successors == cfg.successors().end() ||
-              predecessors == cfg.predecessors().end() ||
-              successors->second.size() <= 1 ||
-              predecessors->second.size() <= 1) {
+              successors->second.size() <= 1) {
             continue;
           }
           auto closure = std::find_if(
@@ -330,6 +326,7 @@ void lowerDeadOwnedResults(Module &module) {
     if (!function) {
       continue;
     }
+    removeDeadPhiInstructions(*function);
     const auto liveness = analyzeOwnershipLiveness(*function);
     for (const auto &blockOwner : function->getBlocks()) {
       if (!blockOwner) {

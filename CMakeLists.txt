@@ -80,6 +80,7 @@ add_library(zap_zir_verifier STATIC
     src/ir/borrow_provenance.cpp
     src/ir/borrow_verifier.cpp
     src/ir/control_flow_graph.cpp
+    src/ir/dead_phi_elimination.cpp
     src/ir/ownership_flow.cpp
     src/ir/ownership_lowering.cpp
     src/ir/ownership_liveness.cpp

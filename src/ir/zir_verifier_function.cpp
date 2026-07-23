@@ -276,7 +276,8 @@ private:
       error(VerificationErrorCode::OwnershipViolation, violation.block,
             violation.instructionIndex,
             "owned value is not live for " + violation.operation + ": " +
-                violation.value->getName());
+                violation.value->getName() + " (state: " +
+                formatOwnershipFlowState(violation.priorState) + ")");
     }
 
     const auto liveness = analyzeOwnershipLiveness(function_);

@@ -2,6 +2,8 @@
 
 #include "module.hpp"
 
+#include <algorithm>
+#include <functional>
 #include <vector>
 
 namespace zir {
@@ -131,6 +133,25 @@ bool transfersThroughCallArgument(const Module &module, const CallInst &call,
 }
 
 } // namespace
+
+std::string formatOwnershipFlowState(OwnershipFlowState state) {
+  const auto bits = static_cast<unsigned char>(state);
+  std::string result;
+  auto append = [&](unsigned char flag, const char *name) {
+    if ((bits & flag) == 0) {
+      return;
+    }
+    if (!result.empty()) {
+      result += "|";
+    }
+    result += name;
+  };
+  append(unavailable, "Unavailable");
+  append(live, "Live");
+  append(moved, "Moved");
+  append(destroyed, "Destroyed");
+  return result.empty() ? "None" : result;
+}
 
 OwnershipFlowAnalysis::OwnershipFlowAnalysis(
     const Module &module, const Function &function,
@@ -451,49 +472,63 @@ OwnershipFlowAnalysis::analyzeOwnershipClosurePlans() {
       }
     }
     if (!plan.liveExits.empty()) {
+      auto addEdgePlacement = [&](const BasicBlock *source,
+                                  const BasicBlock *destination) {
+        const auto duplicate = std::find_if(
+            plan.destroyPlacements.begin(), plan.destroyPlacements.end(),
+            [source, destination](const OwnershipDestroyPlacement &placement) {
+              return placement.kind == OwnershipDestroyPlacementKind::OnEdge &&
+                     placement.source == source &&
+                     placement.destination == destination;
+            });
+        if (duplicate != plan.destroyPlacements.end()) {
+          return;
+        }
+        const auto successors = successors_.find(source);
+        const bool requiresEdgeSplit =
+            successors != successors_.end() && successors->second.size() > 1;
+        plan.destroyPlacements.push_back(
+            {OwnershipDestroyPlacementKind::OnEdge, source, destination,
+             std::nullopt, requiresEdgeSplit});
+      };
+
       for (const auto &exit : plan.liveExits) {
-        const auto predecessors = predecessors_.find(exit.block);
+        const auto exitState = static_cast<unsigned char>(exit.state);
         const bool definedBeforeReturn =
             plan.definition.block == exit.block &&
             plan.definition.instructionIndex &&
             *plan.definition.instructionIndex < exit.instructionIndex;
-        if (definedBeforeReturn || predecessors == predecessors_.end() ||
-            predecessors->second.empty()) {
+        if (exitState == live || definedBeforeReturn) {
           plan.destroyPlacements.push_back(
               {OwnershipDestroyPlacementKind::BeforeReturn, nullptr, exit.block,
                exit.instructionIndex, false});
           continue;
         }
 
-        std::vector<const BasicBlock *> livePredecessors;
-        bool hasAmbiguousLivePredecessor = false;
-        for (const auto *predecessor : predecessors->second) {
-          const auto state = static_cast<unsigned char>(
-              stateOnEdge(*predecessor, *exit.block, value));
-          if (state == live) {
-            livePredecessors.push_back(predecessor);
-          } else if ((state & live) != 0) {
-            hasAmbiguousLivePredecessor = true;
-          }
-        }
-        if (hasAmbiguousLivePredecessor || livePredecessors.empty()) {
-          continue;
-        }
-        if (livePredecessors.size() == predecessors->second.size()) {
-          plan.destroyPlacements.push_back(
-              {OwnershipDestroyPlacementKind::BeforeReturn, nullptr, exit.block,
-               exit.instructionIndex, false});
-          continue;
-        }
-        for (const auto *predecessor : livePredecessors) {
-          const auto successors = successors_.find(predecessor);
-          const bool requiresEdgeSplit = successors != successors_.end() &&
-                                         successors->second.size() > 1 &&
-                                         predecessors->second.size() > 1;
-          plan.destroyPlacements.push_back(
-              {OwnershipDestroyPlacementKind::OnEdge, predecessor, exit.block,
-               std::nullopt, requiresEdgeSplit});
-        }
+        std::unordered_set<const BasicBlock *> visited;
+        std::function<void(const BasicBlock *)> traceLiveFrontier =
+            [&](const BasicBlock *block) {
+              if (!block || !visited.insert(block).second) {
+                return;
+              }
+              const auto predecessors = predecessors_.find(block);
+              if (predecessors == predecessors_.end()) {
+                return;
+              }
+              for (const auto *predecessor : predecessors->second) {
+                if (reachable_.count(predecessor) == 0) {
+                  continue;
+                }
+                const auto edgeState = static_cast<unsigned char>(
+                    stateOnEdge(*predecessor, *block, value));
+                if (edgeState == live) {
+                  addEdgePlacement(predecessor, block);
+                } else if ((edgeState & live) != 0) {
+                  traceLiveFrontier(predecessor);
+                }
+              }
+            };
+        traceLiveFrontier(exit.block);
       }
       plans.push_back(std::move(plan));
     }
