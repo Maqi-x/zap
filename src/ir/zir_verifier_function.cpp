@@ -520,6 +520,21 @@ private:
       }
       return;
     }
+    case OpCode::Copy: {
+      const auto &copy = static_cast<const CopyInst &>(instruction);
+      verifyValue(copy.getSource(), block, index);
+      if (!copy.getResult() || !copy.getSource() ||
+          !containsManagedValues(copy.getSource()->getType()) ||
+          copy.getResult() == copy.getSource() ||
+          copy.getResult()->getOwnership() != ValueOwnership::Owned) {
+        error(VerificationErrorCode::InvalidOperand, &block, index,
+              "copy requires a distinct owned result and managed source");
+      } else {
+        expectSameType(copy.getResult()->getType(), copy.getSource()->getType(),
+                       block, index, "copy result type");
+      }
+      return;
+    }
     case OpCode::Move: {
       const auto &move = static_cast<const MoveInst &>(instruction);
       verifyValue(move.getSource(), block, index);

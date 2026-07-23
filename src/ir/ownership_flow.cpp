@@ -53,6 +53,8 @@ std::shared_ptr<Value> instructionResult(const Instruction &instruction) {
     return static_cast<const PhiInst &>(instruction).getResult();
   case OpCode::Cast:
     return static_cast<const CastInst &>(instruction).getResult();
+  case OpCode::Copy:
+    return static_cast<const CopyInst &>(instruction).getResult();
   case OpCode::Move:
     return static_cast<const MoveInst &>(instruction).getResult();
   case OpCode::Borrow:
@@ -327,6 +329,11 @@ std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
           requireLive(states,
                       static_cast<const RetainInst &>(*instruction).getValue(),
                       block, i, "retain");
+          break;
+        case OpCode::Copy:
+          requireLive(states,
+                      static_cast<const CopyInst &>(*instruction).getSource(),
+                      block, i, "copy");
           break;
         case OpCode::Move:
           transition(states,

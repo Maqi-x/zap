@@ -1132,6 +1132,13 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
     zirValueMap_[castInst.getResult().get()] = result;
     return;
   }
+  case OpCode::Copy: {
+    const auto &copyInst = static_cast<const CopyInst &>(inst);
+    auto *source = lowerZIRRValue(copyInst.getSource());
+    emitManagedRetain(source, copyInst.getSource()->getType());
+    zirValueMap_[copyInst.getResult().get()] = source;
+    return;
+  }
   case OpCode::Move: {
     const auto &moveInst = static_cast<const MoveInst &>(inst);
     zirValueMap_[moveInst.getResult().get()] =

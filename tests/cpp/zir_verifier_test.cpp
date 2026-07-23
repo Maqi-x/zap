@@ -21,6 +21,7 @@ using zir::CmpInst;
 using zir::CondBranchInst;
 using zir::Constant;
 using zir::ControlFlowGraph;
+using zir::CopyInst;
 using zir::DestroyInst;
 using zir::Function;
 using zir::FunctionPointerType;
@@ -848,6 +849,39 @@ bool testUseAfterMoveIsRejected() {
   return expect(hasError(ZirVerifier().verify(module),
                          VerificationErrorCode::OwnershipViolation),
                 "use of an owned value after explicit move was not diagnosed");
+}
+
+bool testCopyCreatesIndependentOwnership() {
+  Module module("copy-independent-ownership");
+  auto classType = std::make_shared<ClassType>("Node");
+  auto function =
+      std::make_unique<Function>("valid", primitive(TypeKind::Void));
+  auto source = std::make_shared<zir::Argument>("source", classType);
+  source->setOwnership(ValueOwnership::Owned);
+  function->arguments.push_back(source);
+  auto copied = reg("copied", classType);
+  copied->setOwnership(ValueOwnership::Owned);
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CopyInst>(copied, source));
+  entry->addInstruction(std::make_unique<DestroyInst>(source));
+  entry->addInstruction(std::make_unique<DestroyInst>(copied));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  const auto &copy = module.getFunctions()
+                         .front()
+                         ->getBlocks()
+                         .front()
+                         ->getInstructions()
+                         .front();
+  return expect(copy->toString().rfind("%copied = copy ", 0) == 0,
+                "copy instruction did not render its owned result") &&
+         expect(ZirVerifier().verify(module).ok(),
+                "copy with independently destroyed ownership was rejected") &&
+         expect(ZirVerifier().verifyOwnershipObligations(module).ok(),
+                "copy left an ownership obligation after both destroys");
 }
 
 bool testOwnershipExitObligationsReportLiveValues() {
@@ -1905,6 +1939,7 @@ int main() {
   ok = testReleaseConsumesOwnedValue() && ok;
   ok = testUseAfterReleaseIsRejected() && ok;
   ok = testUseAfterMoveIsRejected() && ok;
+  ok = testCopyCreatesIndependentOwnership() && ok;
   ok = testOwnershipExitObligationsReportLiveValues() && ok;
   ok = testOwnershipClosurePlanConnectsDefinitionAndExit() && ok;
   ok = testOwnershipClosurePlanUsesCriticalLiveEdge() && ok;
