@@ -1,5 +1,7 @@
 #include "ownership_liveness.hpp"
 
+#include "control_flow_graph.hpp"
+
 #include <algorithm>
 #include <unordered_map>
 #include <utility>
@@ -568,51 +570,9 @@ bool OwnershipLiveness::isLiveOnEdge(
 OwnershipLiveness analyzeOwnershipLiveness(const Function &function) {
   OwnershipLiveness result;
   result.borrowOwners_ = collectBorrowOwners(function);
-  std::unordered_map<std::string, const BasicBlock *> blocks;
-  std::unordered_map<const BasicBlock *, std::vector<const BasicBlock *>>
-      successors;
-
-  for (const auto &blockOwner : function.getBlocks()) {
-    if (blockOwner) {
-      blocks.emplace(blockOwner->label, blockOwner.get());
-      successors.emplace(blockOwner.get(), std::vector<const BasicBlock *>{});
-    }
-  }
-
-  std::unordered_map<const BasicBlock *, std::vector<const BasicBlock *>>
-      predecessors;
-  for (const auto &[source, targets] : successors) {
-    for (const auto *target : targets) {
-      predecessors[target].push_back(source);
-    }
-  }
+  const ControlFlowGraph cfg(function);
   const auto localStorage = analyzeLocalStorageProvenance(
-      function, result.borrowOwners_, predecessors);
-  for (const auto &blockOwner : function.getBlocks()) {
-    if (!blockOwner || blockOwner->getInstructions().empty()) {
-      continue;
-    }
-    const auto &terminator = *blockOwner->getInstructions().back();
-    auto addSuccessor = [&](const std::string &label) {
-      const auto target = blocks.find(label);
-      if (target != blocks.end()) {
-        successors[blockOwner.get()].push_back(target->second);
-      }
-    };
-    switch (terminator.getOpCode()) {
-    case OpCode::Br:
-      addSuccessor(static_cast<const BranchInst &>(terminator).getTarget());
-      break;
-    case OpCode::CondBr: {
-      const auto &branch = static_cast<const CondBranchInst &>(terminator);
-      addSuccessor(branch.getTrueLabel());
-      addSuccessor(branch.getFalseLabel());
-      break;
-    }
-    default:
-      break;
-    }
-  }
+      function, result.borrowOwners_, cfg.predecessors());
 
   bool changed = true;
   while (changed) {
@@ -624,7 +584,7 @@ OwnershipLiveness analyzeOwnershipLiveness(const Function &function) {
       }
       const auto &block = **blockIt;
       ValueSet liveOut;
-      for (const auto *successor : successors[&block]) {
+      for (const auto *successor : cfg.successors().at(&block)) {
         ValueSet edgeState = result.entryStates_[successor];
         for (const auto &instruction : successor->getInstructions()) {
           if (!instruction || instruction->getOpCode() != OpCode::Phi) {

@@ -164,6 +164,13 @@ if(BUILD_TESTING)
     target_compile_options(zap-zir-verifier-tests PRIVATE -Wall -Wextra)
     add_test(NAME zir-verifier COMMAND zap-zir-verifier-tests)
 
+    add_executable(zap-ownership-liveness-tests
+        tests/cpp/ownership_liveness_test.cpp
+    )
+    target_link_libraries(zap-ownership-liveness-tests PRIVATE zap_zir_verifier)
+    target_compile_options(zap-ownership-liveness-tests PRIVATE -Wall -Wextra)
+    add_test(NAME ownership-liveness COMMAND zap-ownership-liveness-tests)
+
     add_executable(zap-runtime-instrumentation-tests
         tests/cpp/runtime_instrumentation_test.c
         src/stdlib.c
