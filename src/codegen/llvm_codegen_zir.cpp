@@ -1243,12 +1243,6 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
                        asmInst.getClobbers());
     return;
   }
-  case OpCode::Retain: {
-    const auto &retainInst = static_cast<const RetainInst &>(inst);
-    emitManagedRetain(lowerZIRRValue(retainInst.getValue()),
-                      retainInst.getValue()->getType());
-    return;
-  }
   case OpCode::Destroy: {
     const auto &destroyInst = static_cast<const DestroyInst &>(inst);
 #if defined(ZAP_RUNTIME_INSTRUMENTATION)
@@ -1257,16 +1251,6 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
     emitOwnershipRelease(lowerZIRRValue(destroyInst.getValue()),
                          destroyInst.getValue()->getType(),
                          destroyInst.getValue()->getOwnership());
-    return;
-  }
-  case OpCode::Release: {
-    const auto &releaseInst = static_cast<const ReleaseInst &>(inst);
-#if defined(ZAP_RUNTIME_INSTRUMENTATION)
-    emitRuntimeOwnershipEvent("zap_runtime_ownership_note_drop");
-#endif
-    emitOwnershipRelease(lowerZIRRValue(releaseInst.getValue()),
-                         releaseInst.getValue()->getType(),
-                         releaseInst.getValue()->getOwnership());
     return;
   }
   }

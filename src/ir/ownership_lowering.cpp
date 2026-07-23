@@ -59,9 +59,7 @@ std::shared_ptr<Value> instructionResult(const Instruction &instruction) {
   case OpCode::Br:
   case OpCode::CondBr:
   case OpCode::Ret:
-  case OpCode::Retain:
   case OpCode::Destroy:
-  case OpCode::Release:
   case OpCode::InlineAsm:
     return nullptr;
   }
@@ -116,8 +114,6 @@ bool transfersOwnership(const Instruction &instruction,
   }
   case OpCode::Move:
     return static_cast<const MoveInst &>(instruction).getSource() == value;
-  case OpCode::Release:
-    return static_cast<const ReleaseInst &>(instruction).getValue() == value;
   case OpCode::Destroy:
     return static_cast<const DestroyInst &>(instruction).getValue() == value;
   default:

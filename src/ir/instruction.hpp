@@ -28,12 +28,10 @@ enum class OpCode {
   CondBr,
   Ret,
   Call,
-  Retain,
   Copy,
   Move,
   Borrow,
   Destroy,
-  Release,
   Alloc,
   GetElementPtr,
   Phi,
@@ -361,18 +359,6 @@ public:
   }
 };
 
-class RetainInst : public Instruction {
-  std::shared_ptr<Value> value;
-
-public:
-  RetainInst(std::shared_ptr<Value> v) : value(std::move(v)) {}
-  OpCode getOpCode() const override { return OpCode::Retain; }
-  const std::shared_ptr<Value> &getValue() const { return value; }
-  std::string toString() const override {
-    return "retain " + value->getTypeName() + " " + value->getName();
-  }
-};
-
 class CopyInst : public Instruction {
   std::shared_ptr<Value> result;
   std::shared_ptr<Value> source;
@@ -430,18 +416,6 @@ public:
   const std::shared_ptr<Value> &getValue() const { return value; }
   std::string toString() const override {
     return "destroy " + value->getTypeName() + " " + value->getName();
-  }
-};
-
-class ReleaseInst : public Instruction {
-  std::shared_ptr<Value> value;
-
-public:
-  ReleaseInst(std::shared_ptr<Value> v) : value(std::move(v)) {}
-  OpCode getOpCode() const override { return OpCode::Release; }
-  const std::shared_ptr<Value> &getValue() const { return value; }
-  std::string toString() const override {
-    return "release " + value->getTypeName() + " " + value->getName();
   }
 };
 

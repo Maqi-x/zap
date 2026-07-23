@@ -87,10 +87,6 @@ void addInstructionUses(ValueSet &values, const Instruction &instruction,
     addUse(values, call.getVariadicPack(), provenance);
     return;
   }
-  case OpCode::Retain:
-    addUse(values, static_cast<const RetainInst &>(instruction).getValue(),
-           provenance);
-    return;
   case OpCode::Copy:
     addUse(values, static_cast<const CopyInst &>(instruction).getSource(),
            provenance);
@@ -105,10 +101,6 @@ void addInstructionUses(ValueSet &values, const Instruction &instruction,
     return;
   case OpCode::Destroy:
     addUse(values, static_cast<const DestroyInst &>(instruction).getValue(),
-           provenance);
-    return;
-  case OpCode::Release:
-    addUse(values, static_cast<const ReleaseInst &>(instruction).getValue(),
            provenance);
     return;
   case OpCode::GetElementPtr: {
@@ -200,9 +192,7 @@ std::shared_ptr<Value> instructionResult(const Instruction &instruction) {
   case OpCode::Br:
   case OpCode::CondBr:
   case OpCode::Ret:
-  case OpCode::Retain:
   case OpCode::Destroy:
-  case OpCode::Release:
   case OpCode::InlineAsm:
     return nullptr;
   }

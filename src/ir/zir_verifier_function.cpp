@@ -288,14 +288,11 @@ private:
       const auto &block = *blockOwner;
       for (size_t i = 0; i < block.getInstructions().size(); ++i) {
         const auto &instruction = block.getInstructions()[i];
-        if (!instruction || (instruction->getOpCode() != OpCode::Destroy &&
-                             instruction->getOpCode() != OpCode::Release)) {
+        if (!instruction || instruction->getOpCode() != OpCode::Destroy) {
           continue;
         }
         const auto &value =
-            instruction->getOpCode() == OpCode::Destroy
-                ? static_cast<const DestroyInst &>(*instruction).getValue()
-                : static_cast<const ReleaseInst &>(*instruction).getValue();
+            static_cast<const DestroyInst &>(*instruction).getValue();
         if (liveness.isLiveAfter(block, i, value)) {
           error(VerificationErrorCode::OwnershipViolation, &block, i,
                 "cannot destroy a String owner while one of its borrowed "
@@ -504,16 +501,6 @@ private:
     case OpCode::Call:
       verifyCall(static_cast<const CallInst &>(instruction), block, index);
       return;
-    case OpCode::Retain: {
-      const auto &retain = static_cast<const RetainInst &>(instruction);
-      verifyValue(retain.getValue(), block, index);
-      if (!retain.getValue() ||
-          !containsManagedValues(retain.getValue()->getType())) {
-        error(VerificationErrorCode::InvalidOperand, &block, index,
-              "retain requires a managed value");
-      }
-      return;
-    }
     case OpCode::Copy: {
       const auto &copy = static_cast<const CopyInst &>(instruction);
       verifyValue(copy.getSource(), block, index);
@@ -566,15 +553,6 @@ private:
       if (!ownsManagedValue(destroy.getValue())) {
         error(VerificationErrorCode::InvalidOperand, &block, index,
               "destroy requires an owned managed value");
-      }
-      return;
-    }
-    case OpCode::Release: {
-      const auto &release = static_cast<const ReleaseInst &>(instruction);
-      verifyValue(release.getValue(), block, index);
-      if (!ownsManagedValue(release.getValue())) {
-        error(VerificationErrorCode::InvalidOperand, &block, index,
-              "release requires an owned managed value");
       }
       return;
     }

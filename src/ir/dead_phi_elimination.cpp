@@ -70,9 +70,6 @@ void visitInstructionOperands(const Instruction &instruction,
     }
     return;
   }
-  case OpCode::Retain:
-    visitValue(static_cast<const RetainInst &>(instruction).getValue(), visitor);
-    return;
   case OpCode::Copy:
     visitValue(static_cast<const CopyInst &>(instruction).getSource(), visitor);
     return;
@@ -84,10 +81,6 @@ void visitInstructionOperands(const Instruction &instruction,
     return;
   case OpCode::Destroy:
     visitValue(static_cast<const DestroyInst &>(instruction).getValue(),
-               visitor);
-    return;
-  case OpCode::Release:
-    visitValue(static_cast<const ReleaseInst &>(instruction).getValue(),
                visitor);
     return;
   case OpCode::GetElementPtr: {

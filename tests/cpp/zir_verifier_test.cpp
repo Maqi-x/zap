@@ -37,7 +37,6 @@ using zir::PhiInst;
 using zir::PointerType;
 using zir::PrimitiveType;
 using zir::Register;
-using zir::ReleaseInst;
 using zir::ReturnInst;
 using zir::StoreInst;
 using zir::StoreMode;
@@ -682,7 +681,7 @@ bool testOwnershipFlowTracksEdgesMergesAndLoops() {
   entry->addInstruction(std::make_unique<CondBranchInst>(
       std::make_shared<Constant>("true", boolean), "left", "right"));
   auto left = std::make_unique<BasicBlock>("left");
-  left->addInstruction(std::make_unique<ReleaseInst>(value));
+  left->addInstruction(std::make_unique<DestroyInst>(value));
   left->addInstruction(std::make_unique<BranchInst>("exit"));
   auto right = std::make_unique<BasicBlock>("right");
   right->addInstruction(std::make_unique<BranchInst>("exit"));
@@ -777,7 +776,7 @@ bool testOwnershipFlowRejectsTransferAfterPartialDefinition() {
   auto right = std::make_unique<BasicBlock>("right");
   right->addInstruction(std::make_unique<BranchInst>("merge"));
   auto merge = std::make_unique<BasicBlock>("merge");
-  merge->addInstruction(std::make_unique<ReleaseInst>(node));
+  merge->addInstruction(std::make_unique<DestroyInst>(node));
   merge->addInstruction(std::make_unique<ReturnInst>());
 
   auto *entryBlock = entry.get();
@@ -859,7 +858,7 @@ bool testControlFlowGraphBuildsEdgesAndReachability() {
                 "control-flow graph did not calculate dominators");
 }
 
-bool testReleaseConsumesOwnedValue() {
+bool testDestroyConsumesOwnedValue() {
   Module module("release-ownership");
   auto stringType = zir::makeStringType();
   auto function =
@@ -869,8 +868,8 @@ bool testReleaseConsumesOwnedValue() {
   function->arguments.push_back(value);
 
   auto entry = std::make_unique<BasicBlock>("entry");
-  entry->addInstruction(std::make_unique<ReleaseInst>(value));
-  entry->addInstruction(std::make_unique<ReleaseInst>(value));
+  entry->addInstruction(std::make_unique<DestroyInst>(value));
+  entry->addInstruction(std::make_unique<DestroyInst>(value));
   entry->addInstruction(std::make_unique<ReturnInst>());
   function->addBlock(std::move(entry));
   module.addFunction(std::move(function));
@@ -881,7 +880,7 @@ bool testReleaseConsumesOwnedValue() {
       "double release of an owned value was not diagnosed");
 }
 
-bool testUseAfterReleaseIsRejected() {
+bool testUseAfterDestroyIsRejected() {
   Module module("use-after-release");
   auto classType = std::make_shared<ClassType>("Node");
   auto boolean = primitive(TypeKind::Bool);
@@ -893,7 +892,7 @@ bool testUseAfterReleaseIsRejected() {
 
   auto entry = std::make_unique<BasicBlock>("entry");
   auto comparison = reg("comparison", boolean);
-  entry->addInstruction(std::make_unique<ReleaseInst>(value));
+  entry->addInstruction(std::make_unique<DestroyInst>(value));
   entry->addInstruction(std::make_unique<CmpInst>(
       "eq", comparison, value, std::make_shared<Constant>("null", classType)));
   entry->addInstruction(std::make_unique<ReturnInst>());
@@ -1112,7 +1111,7 @@ bool testOwnershipClosurePlanUsesCriticalLiveEdge() {
   entry->addInstruction(std::make_unique<CondBranchInst>(
       std::make_shared<Constant>("true", boolean), "exit", "closed"));
   auto closed = std::make_unique<BasicBlock>("closed");
-  closed->addInstruction(std::make_unique<ReleaseInst>(value));
+  closed->addInstruction(std::make_unique<DestroyInst>(value));
   closed->addInstruction(std::make_unique<BranchInst>("exit"));
   auto exit = std::make_unique<BasicBlock>("exit");
   exit->addInstruction(std::make_unique<ReturnInst>());
@@ -1357,7 +1356,7 @@ bool testBorrowPreservesOwnedString() {
   auto entry = std::make_unique<BasicBlock>("entry");
   auto view = reg("view", stringViewType);
   entry->addInstruction(std::make_unique<BorrowInst>(view, value));
-  entry->addInstruction(std::make_unique<ReleaseInst>(value));
+  entry->addInstruction(std::make_unique<DestroyInst>(value));
   entry->addInstruction(std::make_unique<ReturnInst>());
   function->addBlock(std::move(entry));
   module.addFunction(std::move(function));
@@ -1388,7 +1387,7 @@ bool testBorrowRequiresStringOwnerAndBorrowedStringView() {
       "borrow accepted a non-String owner or an owned StringView result");
 }
 
-bool testReleaseRejectsLiveBorrowedStringView() {
+bool testDestroyRejectsLiveBorrowedStringView() {
   Module module("borrow-release-lifetime");
   auto stringType = zir::makeStringType();
   auto stringViewType = zir::makeStringViewType();
@@ -1407,7 +1406,7 @@ bool testReleaseRejectsLiveBorrowedStringView() {
   auto entry = std::make_unique<BasicBlock>("entry");
   auto view = reg("view", stringViewType);
   entry->addInstruction(std::make_unique<BorrowInst>(view, text));
-  entry->addInstruction(std::make_unique<ReleaseInst>(text));
+  entry->addInstruction(std::make_unique<DestroyInst>(text));
   entry->addInstruction(std::make_unique<zir::CallInst>(
       nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{view},
       std::vector<bool>{false}, nullptr, false,
@@ -1835,7 +1834,7 @@ bool testOwnershipLoweringClosesSimpleEdgeObligations() {
   auto live = std::make_unique<BasicBlock>("live");
   live->addInstruction(std::make_unique<BranchInst>("exit"));
   auto closed = std::make_unique<BasicBlock>("closed");
-  closed->addInstruction(std::make_unique<ReleaseInst>(value));
+  closed->addInstruction(std::make_unique<DestroyInst>(value));
   closed->addInstruction(std::make_unique<BranchInst>("exit"));
   auto exit = std::make_unique<BasicBlock>("exit");
   exit->addInstruction(std::make_unique<ReturnInst>());
@@ -1873,7 +1872,7 @@ bool testOwnershipLoweringClosesCriticalEdgeObligations() {
   entry->addInstruction(std::make_unique<CondBranchInst>(
       std::make_shared<Constant>("true", boolean), "exit", "closed"));
   auto closed = std::make_unique<BasicBlock>("closed");
-  closed->addInstruction(std::make_unique<ReleaseInst>(value));
+  closed->addInstruction(std::make_unique<DestroyInst>(value));
   closed->addInstruction(std::make_unique<BranchInst>("exit"));
   auto exit = std::make_unique<BasicBlock>("exit");
   auto selected = reg("selected", i32);
@@ -2218,8 +2217,8 @@ int main() {
   ok = testOwnershipFlowTracksEdgesMergesAndLoops() && ok;
   ok = testOwnershipFlowRejectsTransferAfterPartialDefinition() && ok;
   ok = testControlFlowGraphBuildsEdgesAndReachability() && ok;
-  ok = testReleaseConsumesOwnedValue() && ok;
-  ok = testUseAfterReleaseIsRejected() && ok;
+  ok = testDestroyConsumesOwnedValue() && ok;
+  ok = testUseAfterDestroyIsRejected() && ok;
   ok = testUseAfterMoveIsRejected() && ok;
   ok = testCopyCreatesIndependentOwnership() && ok;
   ok = testMoveTransfersOwnershipIntoInitialization() && ok;
@@ -2235,7 +2234,7 @@ int main() {
   ok = testOwnershipExitObligationsTrackLoops() && ok;
   ok = testBorrowPreservesOwnedString() && ok;
   ok = testBorrowRequiresStringOwnerAndBorrowedStringView() && ok;
-  ok = testReleaseRejectsLiveBorrowedStringView() && ok;
+  ok = testDestroyRejectsLiveBorrowedStringView() && ok;
   ok = testOwnershipLivenessTracksBorrowPhiEdges() && ok;
   ok = testOwnershipLivenessTracksBorrowedViewsThroughLocalStorage() && ok;
   ok = testReturnRejectsFunctionLocalStringView() && ok;
