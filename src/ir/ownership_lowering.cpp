@@ -1,8 +1,11 @@
 #include "ownership_lowering.hpp"
 
+#include "control_flow_graph.hpp"
+#include "ownership_flow.hpp"
 #include "ownership_liveness.hpp"
 
 #include <algorithm>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -122,6 +125,66 @@ bool wasOwnershipTransferredBefore(
     }
   }
   return false;
+}
+
+void lowerUnambiguousOwnershipExits(Module &module, Function &function) {
+  std::unordered_map<const Value *, std::shared_ptr<Value>> values;
+  for (const auto &argument : function.getArguments()) {
+    if (argument) {
+      values.emplace(argument.get(), argument);
+    }
+  }
+  for (const auto &blockOwner : function.getBlocks()) {
+    if (!blockOwner) {
+      continue;
+    }
+    for (const auto &instruction : blockOwner->getInstructions()) {
+      if (const auto value =
+              instruction ? instructionResult(*instruction) : nullptr;
+          value) {
+        values.emplace(value.get(), value);
+      }
+    }
+  }
+
+  ControlFlowGraph cfg(function);
+  OwnershipFlowAnalysis analysis(module, function, cfg.predecessors(),
+                                 cfg.successors(), cfg.reachable());
+  std::unordered_map<BasicBlock *,
+                     std::vector<std::pair<size_t, std::shared_ptr<Value>>>>
+      releases;
+  for (const auto &plan : analysis.analyzeOwnershipClosurePlans()) {
+    for (const auto &placement : plan.destroyPlacements) {
+      if (placement.kind != OwnershipDestroyPlacementKind::BeforeReturn ||
+          !placement.destination || !placement.instructionIndex) {
+        continue;
+      }
+      auto *block = function.findBlock(placement.destination->label);
+      const auto value = values.find(plan.value);
+      const auto *returnInstruction =
+          block && *placement.instructionIndex < block->getInstructions().size()
+              ? block->getInstructions()[*placement.instructionIndex].get()
+              : nullptr;
+      if (!block || value == values.end() || !returnInstruction ||
+          returnInstruction->getOpCode() != OpCode::Ret) {
+        continue;
+      }
+      releases[block].emplace_back(*placement.instructionIndex, value->second);
+    }
+  }
+
+  for (auto &[block, blockReleases] : releases) {
+    std::sort(
+        blockReleases.begin(), blockReleases.end(),
+        [](const auto &lhs, const auto &rhs) { return lhs.first < rhs.first; });
+    auto &instructions = block->instructions;
+    for (auto release = blockReleases.rbegin(); release != blockReleases.rend();
+         ++release) {
+      instructions.insert(instructions.begin() +
+                              static_cast<std::ptrdiff_t>(release->first),
+                          std::make_unique<ReleaseInst>(release->second));
+    }
+  }
 }
 
 } // namespace
@@ -264,6 +327,7 @@ void lowerDeadOwnedResults(Module &module) {
     for (auto &edge : edgeBlocks) {
       function->addBlock(std::move(edge));
     }
+    lowerUnambiguousOwnershipExits(module, *function);
   }
 }
 
