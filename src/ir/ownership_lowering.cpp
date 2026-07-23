@@ -94,7 +94,8 @@ bool transfersOwnership(const Instruction &instruction,
   }
   case OpCode::Ret: {
     const auto &ret = static_cast<const ReturnInst &>(instruction);
-    return ret.getValue() == value && isOwned(ret.getValueOwnership());
+    return ret.getValue() == value &&
+           isOwned(ret.getValue()->getOwnership());
   }
   case OpCode::Cast: {
     const auto &cast = static_cast<const CastInst &>(instruction);

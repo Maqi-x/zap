@@ -347,25 +347,6 @@ bool testPhiRequiresOwnershipMatchingIncomingValues() {
       "borrowed phi result with owned incoming values was not diagnosed");
 }
 
-bool testReturnRequiresOwnershipMatchingValue() {
-  Module module("return-ownership");
-  auto stringType = zir::makeStringType();
-  auto function = std::make_unique<Function>("broken", stringType);
-  auto value = std::make_shared<zir::Argument>("value", stringType);
-  value->setOwnership(ValueOwnership::Owned);
-  function->arguments.push_back(value);
-
-  auto entry = std::make_unique<BasicBlock>("entry");
-  entry->addInstruction(
-      std::make_unique<ReturnInst>(value, ValueOwnership::Borrowed));
-  function->addBlock(std::move(entry));
-  module.addFunction(std::move(function));
-
-  auto verification = ZirVerifier().verify(module);
-  return expect(hasError(verification, VerificationErrorCode::InvalidReturn),
-                "borrowed return of an owned value was not diagnosed");
-}
-
 bool testManagedInitializationRequiresOwnershipTransfer() {
   Module module("managed-initialization-ownership");
   auto stringType = zir::makeStringType();
@@ -2182,7 +2163,6 @@ int main() {
   ok = testManagedCallRequiresOwnedResult() && ok;
   ok = testManagedTypeClassification() && ok;
   ok = testPhiRequiresOwnershipMatchingIncomingValues() && ok;
-  ok = testReturnRequiresOwnershipMatchingValue() && ok;
   ok = testManagedInitializationRequiresOwnershipTransfer() && ok;
   ok = testCastRequiresOwnershipMatchingSourceAndTarget() && ok;
   ok = testCallRequiresOwnershipMatchingArguments() && ok;

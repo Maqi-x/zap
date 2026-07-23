@@ -313,7 +313,7 @@ std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
         }
         case OpCode::Ret: {
           const auto &ret = static_cast<const ReturnInst &>(*instruction);
-          if (isOwned(ret.getValueOwnership())) {
+          if (ret.getValue() && isOwned(ret.getValue()->getOwnership())) {
             transition(states, ret.getValue(), block, i, "return", moved);
           }
           break;

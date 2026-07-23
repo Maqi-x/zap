@@ -690,7 +690,8 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
     if (returnInst.getValue()) {
       auto *retValue = lowerZIRRValue(returnInst.getValue());
       auto retType = returnInst.getValue()->getType();
-      if (returnInst.getValueOwnership() == zir::ValueOwnership::Borrowed) {
+      if (returnInst.getValue()->getOwnership() ==
+          zir::ValueOwnership::Borrowed) {
         if (isClassType(retType)) {
           emitRetainIfNeeded(retValue, retType);
         } else if (isOwnedStringType(retType)) {
