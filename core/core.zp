@@ -3,7 +3,7 @@ pub struct StringView {
   len: Int,
 }
 
-pub fun len(s: StringView) Int {
+pub fun len(s: noescape StringView) Int {
   var sv: StringView = s;
   return sv.len;
 }
@@ -18,7 +18,7 @@ pub fun at(s: StringView, i: Int) Char {
   }
 }
 
-pub fun slice(s: StringView, start: Int, len: Int) StringView {
+pub fun slice(s: StringView, start: Int, len: Int) StringView borrows(s) {
   var sv: StringView = s;
   if sv.ptr == null || sv.len <= 0 || len <= 0 || start >= sv.len {
     return StringView { ptr: null, len: 0 };
@@ -59,7 +59,7 @@ pub fun eq(a: StringView, b: StringView) Bool {
   return true;
 }
 
-pub fun view(s: StringView) StringView {
+pub fun view(s: StringView) StringView borrows(s) {
   return s;
 }
 

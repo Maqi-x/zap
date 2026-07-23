@@ -315,6 +315,7 @@ std::unique_ptr<FunDecl> Parser::parseFunDecl(bool isUnsafe) {
 
   if (peek().type != TokenType::LBRACE) {
     funDecl->returnType_ = parseType();
+    funDecl->resultBorrowSource_ = parseResultBorrowSource();
   } else {
     funDecl->returnType_.reset();
   }
@@ -359,6 +360,7 @@ std::unique_ptr<ExtDecl> Parser::parseExtDecl() {
 
   if (peek().type != TokenType::SEMICOLON) {
     extDecl->returnType_ = parseType();
+    extDecl->resultBorrowSource_ = parseResultBorrowSource();
   } else {
     extDecl->returnType_ = _builder.makeType("Void");
     const auto &nextToken = peek();
@@ -374,6 +376,22 @@ std::unique_ptr<ExtDecl> Parser::parseExtDecl() {
                    SourceSpan::merge(funNameToken.span, semiToken.span));
 
   return extDecl;
+}
+
+std::optional<std::string> Parser::parseResultBorrowSource() {
+  if (peek().type != TokenType::ID || peek().value != "borrows") {
+    return std::nullopt;
+  }
+  eat(TokenType::ID);
+  eat(TokenType::LPAREN);
+  std::string source;
+  if (peek().type == TokenType::ID) {
+    source = eat(TokenType::ID).value;
+  } else {
+    source = eat(TokenType::INTEGER).value;
+  }
+  eat(TokenType::RPAREN);
+  return source;
 }
 
 std::unique_ptr<BodyNode> Parser::parseBody() {
@@ -887,6 +905,7 @@ std::unique_ptr<TypeNode> Parser::parseType() {
       } else {
         funPtrType->funPtrReturn = _builder.makeType("Void");
       }
+      funPtrType->funPtrResultBorrowSource = parseResultBorrowSource();
       _builder.setSpan(
           funPtrType.get(),
           SourceSpan::merge(starToken.span, funPtrType->funPtrReturn->span));

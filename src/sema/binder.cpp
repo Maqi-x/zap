@@ -582,7 +582,76 @@ Binder::renderFunctionSignature(const FunctionSymbol &function) const {
     rendered += "...";
   }
   rendered += ")";
+  if (function.resultBorrow.hasSource()) {
+    const size_t sourceIndex = *function.resultBorrow.sourceParameter();
+    rendered += " borrows(";
+    rendered += sourceIndex < function.parameters.size()
+                    ? function.parameters[sourceIndex]->name
+                    : std::to_string(sourceIndex);
+    rendered += ")";
+  }
   return rendered;
+}
+
+zir::ResultBorrowContract Binder::resolveResultBorrowContract(
+    const std::optional<std::string> &source,
+    const std::vector<std::shared_ptr<VariableSymbol>> &parameters,
+    const std::shared_ptr<zir::Type> &returnType, bool returnsRef,
+    SourceSpan span) {
+  if (!source) {
+    return {};
+  }
+  if (returnsRef || !returnType ||
+      returnType->getIntrinsicKind() != zir::IntrinsicTypeKind::StringView) {
+    error(span, "'borrows' requires a by-value StringView result.");
+    return {};
+  }
+
+  std::optional<size_t> sourceIndex;
+  const bool numeric =
+      !source->empty() &&
+      std::all_of(source->begin(), source->end(),
+                  [](unsigned char c) { return std::isdigit(c) != 0; });
+  if (numeric) {
+    try {
+      sourceIndex = static_cast<size_t>(std::stoull(*source));
+    } catch (const std::exception &) {
+      sourceIndex.reset();
+    }
+  } else {
+    for (size_t i = 0; i < parameters.size(); ++i) {
+      if (parameters[i] && parameters[i]->name == *source) {
+        sourceIndex = i;
+        break;
+      }
+    }
+  }
+
+  if (!sourceIndex || *sourceIndex >= parameters.size() ||
+      !parameters[*sourceIndex]) {
+    error(span, "Unknown 'borrows' source parameter '" + *source + "'.");
+    return {};
+  }
+  const auto &parameter = parameters[*sourceIndex];
+  const bool borrowedSelf =
+      parameter->name == "self" && parameter->type &&
+      parameter->type->getKind() == zir::TypeKind::Class;
+  if (parameter->is_noescape) {
+    error(span, "A 'noescape' parameter cannot back the function result.");
+    return {};
+  }
+  if (parameter->is_ref || parameter->is_sink ||
+      parameter->is_variadic_pack ||
+      (!borrowedSelf &&
+       (!parameter->type ||
+        parameter->type->getIntrinsicKind() !=
+            zir::IntrinsicTypeKind::StringView))) {
+    error(span,
+          "'borrows' currently requires a by-value StringView parameter or "
+          "method self.");
+    return {};
+  }
+  return zir::ResultBorrowContract::fromParameter(*sourceIndex);
 }
 
 std::string Binder::mangleFunctionName(const std::string &modulePath,

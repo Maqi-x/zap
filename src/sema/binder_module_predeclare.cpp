@@ -544,6 +544,9 @@ void Binder::predeclareModuleValues(ModuleState &module) {
           funDecl->name_, std::move(params), std::move(retType), "",
           module.info->moduleName, funDecl->visibility_, funDecl->isUnsafe_);
       symbol->returnsRef = funDecl->returnsRef_;
+      symbol->resultBorrow = resolveResultBorrowContract(
+          funDecl->resultBorrowSource_, symbol->parameters, symbol->returnType,
+          symbol->returnsRef, funDecl->span);
       for (const auto &genericParam : funDecl->genericParams_) {
         if (genericParam) {
           symbol->genericParameterNames.push_back(genericParam->typeName);
@@ -744,9 +747,13 @@ void Binder::predeclareModuleValues(ModuleState &module) {
         }
         symbol->isMethod = !methodDecl->isStatic_;
         symbol->isStatic = methodDecl->isStatic_;
+        symbol->returnsRef = methodDecl->returnsRef_;
         symbol->isConstructor = isCtor;
         symbol->isDestructor = isDtor;
         symbol->ownerTypeCodegenName = classType->getCodegenName();
+        symbol->resultBorrow = resolveResultBorrowContract(
+            methodDecl->resultBorrowSource_, symbol->parameters,
+            symbol->returnType, symbol->returnsRef, methodDecl->span);
         if (symbol->isMethod && !symbol->isStatic && !symbol->isConstructor &&
             !symbol->isDestructor) {
           symbol->vtableSlot = findOverriddenVtableSlot(classInfo, *symbol);
@@ -833,6 +840,9 @@ void Binder::predeclareModuleValues(ModuleState &module) {
           module.info->moduleName, extDecl->visibility_, false,
           extDecl->isCVariadic_);
       symbol->isExternal = true;
+      symbol->resultBorrow = resolveResultBorrowContract(
+          extDecl->resultBorrowSource_, symbol->parameters, symbol->returnType,
+          false, extDecl->span);
       validateAndApplyFunctionAttributes(*extDecl, symbol, true);
       if (symbol->hasNoMangle ||
           (symbol->hasExternC && symbol->externAbi == "C")) {

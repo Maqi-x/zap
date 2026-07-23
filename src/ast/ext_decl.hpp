@@ -4,6 +4,8 @@
 #include "type_node.hpp"
 #include "visitor.hpp"
 #include <memory>
+#include <optional>
+#include <string>
 #include <vector>
 
 class ExtDecl : public TopLevel {
@@ -11,6 +13,7 @@ public:
   std::string name_;
   std::vector<std::unique_ptr<ParameterNode>> params_;
   std::unique_ptr<TypeNode> returnType_;
+  std::optional<std::string> resultBorrowSource_;
   bool isCVariadic_ = false;
 
   ExtDecl() noexcept(

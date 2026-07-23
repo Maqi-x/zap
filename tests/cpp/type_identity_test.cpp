@@ -17,6 +17,7 @@ using zir::ParameterOwnership;
 using zir::PointerType;
 using zir::PrimitiveType;
 using zir::RecordType;
+using zir::ResultBorrowContract;
 using zir::Type;
 using zir::TypeInterner;
 using zir::TypeKind;
@@ -90,6 +91,17 @@ bool testStructuralTypes() {
       primitive(TypeKind::Void),
       std::vector<ParameterOwnership>{ParameterOwnership::Borrow},
       std::vector<ParameterEscape>{ParameterEscape::Unspecified});
+  auto borrowedResultFunction = std::make_shared<FunctionPointerType>(
+      std::vector<std::shared_ptr<Type>>{zir::makeStringViewType()},
+      zir::makeStringViewType(),
+      std::vector<ParameterOwnership>{ParameterOwnership::Borrow},
+      std::vector<ParameterEscape>{ParameterEscape::Unspecified},
+      ResultBorrowContract::fromParameter(0));
+  auto unspecifiedResultFunction = std::make_shared<FunctionPointerType>(
+      std::vector<std::shared_ptr<Type>>{zir::makeStringViewType()},
+      zir::makeStringViewType(),
+      std::vector<ParameterOwnership>{ParameterOwnership::Borrow},
+      std::vector<ParameterEscape>{ParameterEscape::Unspecified});
 
   return expect(types.same(lhsPointer, rhsPointer),
                 "equal pointer types have different identities") &&
@@ -106,7 +118,9 @@ bool testStructuralTypes() {
          expect(!types.same(transferringFunction, sinkingFunction),
                 "sink is absent from function parameter type identity") &&
          expect(!types.same(noescapeFunction, unspecifiedEscapeFunction),
-                "escape contract is absent from function type identity");
+                "escape contract is absent from function type identity") &&
+         expect(!types.same(borrowedResultFunction, unspecifiedResultFunction),
+                "result borrow contract is absent from function type identity");
 }
 
 bool testNominalAndQualifiedTypes() {

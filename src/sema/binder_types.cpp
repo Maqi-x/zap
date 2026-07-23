@@ -335,9 +335,46 @@ std::shared_ptr<zir::Type> Binder::mapType(const TypeNode &typeNode) {
         escape.push_back(noescape ? zir::ParameterEscape::NoEscape
                                   : zir::ParameterEscape::Unspecified);
       }
+      zir::ResultBorrowContract resultBorrow;
+      if (typeNode.funPtrResultBorrowSource) {
+        const auto &source = *typeNode.funPtrResultBorrowSource;
+        const bool numeric =
+            !source.empty() &&
+            std::all_of(source.begin(), source.end(),
+                        [](unsigned char c) { return std::isdigit(c) != 0; });
+        size_t sourceIndex = params.size();
+        if (numeric) {
+          try {
+            sourceIndex = static_cast<size_t>(std::stoull(source));
+          } catch (const std::exception &) {
+            sourceIndex = params.size();
+          }
+        }
+        if (!numeric || sourceIndex >= params.size()) {
+          error(typeNode.span,
+                "Function pointer 'borrows' source must be a valid parameter "
+                "index.");
+        } else if (ret->getIntrinsicKind() !=
+                   zir::IntrinsicTypeKind::StringView) {
+          error(typeNode.span,
+                "Function pointer 'borrows' requires a StringView result.");
+        } else if (params[sourceIndex]->getIntrinsicKind() !=
+                   zir::IntrinsicTypeKind::StringView) {
+          error(typeNode.span,
+                "Function pointer 'borrows' currently requires a StringView "
+                "source parameter.");
+        } else if (escape[sourceIndex] == zir::ParameterEscape::NoEscape) {
+          error(typeNode.span,
+                "A noescape function pointer parameter cannot back the "
+                "result.");
+        } else {
+          resultBorrow =
+              zir::ResultBorrowContract::fromParameter(sourceIndex);
+        }
+      }
       return std::make_shared<zir::FunctionPointerType>(
           std::move(params), std::move(ret), std::move(ownership),
-          std::move(escape));
+          std::move(escape), resultBorrow);
     }
 
     std::vector<std::string> parts = typeNode.qualifiers;

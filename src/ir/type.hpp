@@ -332,6 +332,32 @@ enum class ParameterEscape {
   NoEscape,
 };
 
+class ResultBorrowContract {
+  std::optional<size_t> sourceParameter_;
+
+  explicit ResultBorrowContract(std::optional<size_t> sourceParameter)
+      : sourceParameter_(sourceParameter) {}
+
+public:
+  ResultBorrowContract() = default;
+
+  static ResultBorrowContract fromParameter(size_t parameterIndex) {
+    return ResultBorrowContract(parameterIndex);
+  }
+
+  bool hasSource() const { return sourceParameter_.has_value(); }
+  const std::optional<size_t> &sourceParameter() const {
+    return sourceParameter_;
+  }
+
+  bool operator==(const ResultBorrowContract &other) const {
+    return sourceParameter_ == other.sourceParameter_;
+  }
+  bool operator!=(const ResultBorrowContract &other) const {
+    return !(*this == other);
+  }
+};
+
 inline bool transfersOwnership(ParameterOwnership ownership) {
   return ownership == ParameterOwnership::Transfer ||
          ownership == ParameterOwnership::Sink;
@@ -344,14 +370,17 @@ class FunctionPointerType : public Type {
   std::vector<ParameterOwnership> parameterOwnership;
   std::vector<ParameterEscape> parameterEscapes;
   std::shared_ptr<Type> returnType;
+  ResultBorrowContract resultBorrow_;
 
 public:
   FunctionPointerType(std::vector<std::shared_ptr<Type>> p,
                       std::shared_ptr<Type> r,
                       std::vector<ParameterOwnership> ownership = {},
-                      std::vector<ParameterEscape> escape = {})
+                      std::vector<ParameterEscape> escape = {},
+                      ResultBorrowContract resultBorrow = {})
       : params(std::move(p)), parameterOwnership(std::move(ownership)),
-        parameterEscapes(std::move(escape)), returnType(std::move(r)) {
+        parameterEscapes(std::move(escape)), returnType(std::move(r)),
+        resultBorrow_(resultBorrow) {
     if (parameterOwnership.empty()) {
       parameterOwnership.assign(params.size(), ParameterOwnership::Borrow);
     } else if (parameterOwnership.size() != params.size()) {
@@ -363,6 +392,11 @@ public:
     } else if (parameterEscapes.size() != params.size()) {
       throw std::invalid_argument(
           "function pointer parameter escape count mismatch");
+    }
+    if (resultBorrow_.hasSource() &&
+        *resultBorrow_.sourceParameter() >= params.size()) {
+      throw std::invalid_argument(
+          "function pointer result borrow source is out of range");
     }
   }
   TypeKind getKind() const override { return TypeKind::FunctionPointer; }
@@ -389,7 +423,12 @@ public:
       }
       s += params[i]->toString();
     }
-    return s + ") " + returnType->toString();
+    s += ") " + returnType->toString();
+    if (resultBorrow_.hasSource()) {
+      s += " borrows(" +
+           std::to_string(*resultBorrow_.sourceParameter()) + ")";
+    }
+    return s;
   }
   const std::vector<std::shared_ptr<Type>> &getParams() const { return params; }
   const std::vector<ParameterOwnership> &getParameterOwnership() const {
@@ -399,6 +438,7 @@ public:
     return parameterEscapes;
   }
   const std::shared_ptr<Type> &getReturnType() const { return returnType; }
+  const ResultBorrowContract &getResultBorrow() const { return resultBorrow_; }
 };
 
 inline bool containsManagedValues(const std::shared_ptr<Type> &type) {

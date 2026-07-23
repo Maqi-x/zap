@@ -134,6 +134,7 @@ std::shared_ptr<FunctionSymbol> Binder::ensureGenericFunctionInstantiation(
   instantiated->isDestructor = baseFunction->isDestructor;
   instantiated->vtableSlot = -1;
   instantiated->ownerTypeCodegenName = baseFunction->ownerTypeCodegenName;
+  instantiated->resultBorrow = baseFunction->resultBorrow;
   instantiated->isGenericInstantiation = true;
   instantiated->genericArguments.clear();
   for (const auto &[name, type] : genericBindings) {

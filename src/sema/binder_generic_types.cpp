@@ -369,10 +369,15 @@ std::shared_ptr<TypeSymbol> Binder::instantiateGenericTypeSymbol(
       }
       methodSymbol->isMethod = !methodDecl->isStatic_;
       methodSymbol->isStatic = methodDecl->isStatic_;
+      methodSymbol->returnsRef = methodDecl->returnsRef_;
       methodSymbol->isConstructor = isCtor;
       methodSymbol->isDestructor = isDtor;
       methodSymbol->ownerTypeCodegenName =
           instantiatedClassType->getCodegenName();
+      methodSymbol->resultBorrow = resolveResultBorrowContract(
+          methodDecl->resultBorrowSource_, methodSymbol->parameters,
+          methodSymbol->returnType, methodSymbol->returnsRef,
+          methodDecl->span);
       if (methodSymbol->isMethod && !methodSymbol->isStatic &&
           !methodSymbol->isConstructor && !methodSymbol->isDestructor) {
         methodSymbol->vtableSlot =

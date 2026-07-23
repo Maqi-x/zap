@@ -41,6 +41,15 @@ bool addOwnersFromValue(OwnerMap &owners, const Value *destination,
          addOwners(owners, destination, sourceOwners->second);
 }
 
+bool addBorrowSourcesFromValue(OwnerMap &owners, const Value *destination,
+                               const std::shared_ptr<Value> &source) {
+  bool changed = false;
+  if (tracksOwnership(source)) {
+    changed = addOwners(owners, destination, {source.get()});
+  }
+  return addOwnersFromValue(owners, destination, source) || changed;
+}
+
 OwnerSet collectLocalStorage(const Function &function) {
   OwnerSet localStorage;
   bool changed = true;
@@ -77,14 +86,19 @@ OwnerSet collectLocalStorage(const Function &function) {
 
 OwnerMap collectValueOwners(
     const Function &function, const OwnerSet &localStorage,
-    std::unordered_map<const Value *, std::shared_ptr<Value>> &derivedFrom) {
-  OwnerMap owners;
-  for (const auto &argument : function.getArguments()) {
-    if (argument &&
+    std::unordered_map<const Value *, std::shared_ptr<Value>> &derivedFrom,
+    OwnerMap owners = {}) {
+  const auto resultSource = function.resultBorrow.sourceParameter();
+  for (size_t i = 0; i < function.getArguments().size(); ++i) {
+    const auto &argument = function.getArguments()[i];
+    const bool noescapeView =
+        argument &&
         argument->getParameterEscape() == ParameterEscape::NoEscape &&
         argument->getType() &&
         argument->getType()->getIntrinsicKind() ==
-            IntrinsicTypeKind::StringView) {
+            IntrinsicTypeKind::StringView;
+    if (argument &&
+        (noescapeView || (resultSource && *resultSource == i))) {
       owners[argument.get()].insert(argument.get());
     }
   }
@@ -102,9 +116,9 @@ OwnerMap collectValueOwners(
         switch (instruction->getOpCode()) {
         case OpCode::Borrow: {
           const auto &borrow = static_cast<const BorrowInst &>(*instruction);
-          if (borrow.getResult() && tracksOwnership(borrow.getOwner())) {
-            changed = addOwners(owners, borrow.getResult().get(),
-                                {borrow.getOwner().get()}) ||
+          if (borrow.getResult()) {
+            changed = addBorrowSourcesFromValue(
+                          owners, borrow.getResult().get(), borrow.getOwner()) ||
                       changed;
           }
           break;
@@ -140,6 +154,16 @@ OwnerMap collectValueOwners(
           }
           break;
         }
+        case OpCode::GetElementPtr: {
+          const auto &gep =
+              static_cast<const GetElementPtrInst &>(*instruction);
+          if (gep.getResult()) {
+            changed = addOwnersFromValue(owners, gep.getResult().get(),
+                                         gep.getPointer()) ||
+                      changed;
+          }
+          break;
+        }
         case OpCode::Cast: {
           const auto &cast = static_cast<const CastInst &>(*instruction);
           if (cast.getResult() && cast.getSource() &&
@@ -150,6 +174,21 @@ OwnerMap collectValueOwners(
             derivedFrom[cast.getResult().get()] = cast.getSource();
             changed = addOwnersFromValue(owners, cast.getResult().get(),
                                          cast.getSource()) ||
+                      changed;
+          }
+          break;
+        }
+        case OpCode::Call: {
+          const auto &call = static_cast<const CallInst &>(*instruction);
+          if (!call.getResult() || !call.getResultBorrow().hasSource()) {
+            break;
+          }
+          const size_t sourceIndex =
+              *call.getResultBorrow().sourceParameter();
+          if (sourceIndex < call.getArguments().size()) {
+            changed = addBorrowSourcesFromValue(
+                          owners, call.getResult().get(),
+                          call.getArguments()[sourceIndex]) ||
                       changed;
           }
           break;
@@ -245,6 +284,9 @@ StorageStates analyzeStorageOwners(const Function &function,
         }
         OwnerSet owners;
         if (store.getSource()) {
+          if (tracksOwnership(store.getSource())) {
+            owners.insert(store.getSource().get());
+          }
           const auto ownerIt = valueOwners.find(store.getSource().get());
           if (ownerIt != valueOwners.end()) {
             owners = ownerIt->second;
@@ -396,6 +438,28 @@ BorrowProvenance analyzeBorrowProvenance(const Function &function,
     }
   }
   collectEntryLoads(function, result.localStorage_, result.entryLoads_);
+  result.exitStorage_ = analyzeStorageOwners(
+      function, cfg, result.localStorage_, result.owners_, result.loadOwners_);
+  for (const auto &blockOwner : function.getBlocks()) {
+    if (!blockOwner) {
+      continue;
+    }
+    for (const auto &instruction : blockOwner->getInstructions()) {
+      if (!instruction || instruction->getOpCode() != OpCode::Borrow) {
+        continue;
+      }
+      const auto &borrow = static_cast<const BorrowInst &>(*instruction);
+      const auto loadedOwners = result.loadOwners_.find(borrow.getOwner().get());
+      if (borrow.getResult() && loadedOwners != result.loadOwners_.end()) {
+        addOwners(result.owners_, borrow.getResult().get(),
+                  loadedOwners->second);
+      }
+    }
+  }
+  result.owners_ =
+      collectValueOwners(function, result.localStorage_, result.derivedFrom_,
+                         std::move(result.owners_));
+  result.loadOwners_.clear();
   result.exitStorage_ = analyzeStorageOwners(
       function, cfg, result.localStorage_, result.owners_, result.loadOwners_);
   return result;

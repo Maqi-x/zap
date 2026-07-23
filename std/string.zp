@@ -103,7 +103,7 @@ pub class TextBuf {
     return self.data;
   }
 
-  pub fun view() StringView {
+  pub fun view() StringView borrows(self) {
     return view(self.data);
   }
 }

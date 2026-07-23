@@ -261,6 +261,7 @@ void BoundIRGenerator::visit(sema::BoundFunctionDeclaration &node) {
       symbol->linkName, symbol->returnType, symbol->ownerTypeCodegenName,
       symbol->isDestructor, symbol->vtableSlot, symbol->isCVariadic);
   func->returnsRef = symbol->returnsRef;
+  func->resultBorrow = symbol->resultBorrow;
   currentFunction_ = func.get();
 
   auto entryBlock = std::make_unique<BasicBlock>("entry");
@@ -324,6 +325,7 @@ void BoundIRGenerator::visit(sema::BoundExternalFunctionDeclaration &node) {
       symbol->linkName, symbol->returnType, symbol->ownerTypeCodegenName,
       symbol->isDestructor, symbol->vtableSlot, symbol->isCVariadic);
   func->returnsRef = symbol->returnsRef;
+  func->resultBorrow = symbol->resultBorrow;
 
   for (size_t parameterIndex = 0; parameterIndex < symbol->parameters.size();
        ++parameterIndex) {
@@ -826,7 +828,8 @@ void BoundIRGenerator::visit(sema::BoundFunctionCall &node) {
       node.symbol->returnsRef,
       ownsResult ? CallInst::ResultOwnership::Owned
                  : CallInst::ResultOwnership::Borrowed,
-      std::move(argumentModes), std::move(argumentEscapes)));
+      std::move(argumentModes), std::move(argumentEscapes),
+      node.symbol->resultBorrow));
 
   // If ref-returning function is used as value (not address), load it
   if (node.symbol->returnsRef && !evaluateAsAddress_) {
@@ -878,7 +881,8 @@ void BoundIRGenerator::visit(sema::BoundIndirectCall &node) {
       reg, calleeVal, std::move(args), false,
       ownsResult ? CallInst::ResultOwnership::Owned
                  : CallInst::ResultOwnership::Borrowed,
-      std::move(argumentModes), std::move(argumentEscapes)));
+      std::move(argumentModes), std::move(argumentEscapes),
+      functionType->getResultBorrow()));
   valueStack_.push(reg);
 }
 

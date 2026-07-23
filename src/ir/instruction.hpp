@@ -245,6 +245,7 @@ private:
   std::vector<bool> argIsRef;
   std::vector<ArgumentMode> argumentModes_;
   std::vector<ParameterEscape> argumentEscapes_;
+  ResultBorrowContract resultBorrow_;
   std::shared_ptr<Value> variadicPack;
   bool returnsRef_ = false;
   ResultOwnership resultOwnership_ = ResultOwnership::Borrowed;
@@ -256,11 +257,13 @@ public:
            std::shared_ptr<Value> pack = nullptr, bool returnsRef = false,
            ResultOwnership resultOwnership = ResultOwnership::Borrowed,
            std::vector<ArgumentMode> argumentModes = {},
-           std::vector<ParameterEscape> argumentEscapes = {})
+           std::vector<ParameterEscape> argumentEscapes = {},
+           ResultBorrowContract resultBorrow = {})
       : result(std::move(res)), funcName(std::move(name)),
         args(std::move(arguments)), argIsRef(std::move(argumentIsRef)),
         argumentModes_(std::move(argumentModes)),
         argumentEscapes_(std::move(argumentEscapes)),
+        resultBorrow_(resultBorrow),
         variadicPack(std::move(pack)), returnsRef_(returnsRef),
         resultOwnership_(resultOwnership) {
     if (argumentModes_.empty()) {
@@ -276,10 +279,12 @@ public:
            bool returnsRef = false,
            ResultOwnership resultOwnership = ResultOwnership::Borrowed,
            std::vector<ArgumentMode> argumentModes = {},
-           std::vector<ParameterEscape> argumentEscapes = {})
+           std::vector<ParameterEscape> argumentEscapes = {},
+           ResultBorrowContract resultBorrow = {})
       : result(std::move(res)), calleeValue(std::move(callee)),
         args(std::move(arguments)), argumentModes_(std::move(argumentModes)),
-        argumentEscapes_(std::move(argumentEscapes)), returnsRef_(returnsRef),
+        argumentEscapes_(std::move(argumentEscapes)),
+        resultBorrow_(resultBorrow), returnsRef_(returnsRef),
         resultOwnership_(resultOwnership) {
     if (argumentModes_.empty()) {
       argumentModes_.assign(args.size(), ArgumentMode::Borrow);
@@ -305,6 +310,7 @@ public:
   const std::vector<ParameterEscape> &getArgumentEscapes() const {
     return argumentEscapes_;
   }
+  const ResultBorrowContract &getResultBorrow() const { return resultBorrow_; }
   const std::shared_ptr<Value> &getVariadicPack() const { return variadicPack; }
   std::string toString() const override {
     std::string s = result ? result->getName() + " = call " : "call ";
@@ -324,6 +330,10 @@ public:
            (i < args.size() - 1 ? ", " : "");
     }
     s += ")";
+    if (resultBorrow_.hasSource()) {
+      s += " borrows(" +
+           std::to_string(*resultBorrow_.sourceParameter()) + ")";
+    }
     if (variadicPack) {
       s += " spread " + variadicPack->getTypeName() + " " +
            variadicPack->getName();

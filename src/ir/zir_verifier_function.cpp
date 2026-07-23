@@ -1,12 +1,13 @@
 #include "zir_verifier_internal.hpp"
 
-#include "borrow_provenance.hpp"
+#include "borrow_verifier.hpp"
 #include "control_flow_graph.hpp"
 #include "ownership_flow.hpp"
 #include "ownership_liveness.hpp"
 #include "string_type.hpp"
 
 #include <algorithm>
+#include <iterator>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -19,35 +20,6 @@ using verifier_detail::isAssignable;
 using verifier_detail::isStringType;
 using verifier_detail::isTerminator;
 using verifier_detail::typeName;
-
-std::string formatOwners(const BorrowProvenance::OwnerSet &owners) {
-  std::vector<std::string> names;
-  names.reserve(owners.size());
-  for (const auto *owner : owners) {
-    if (owner) {
-      names.push_back(owner->getName());
-    }
-  }
-  std::sort(names.begin(), names.end());
-  std::string result;
-  for (size_t i = 0; i < names.size(); ++i) {
-    if (i != 0) {
-      result += ", ";
-    }
-    result += names[i];
-  }
-  return result;
-}
-
-bool containsNoEscapeParameter(
-    const BorrowProvenance::OwnerSet &borrowSources) {
-  return std::any_of(
-      borrowSources.begin(), borrowSources.end(), [](const Value *source) {
-        const auto *argument = dynamic_cast<const Argument *>(source);
-        return argument &&
-               argument->getParameterEscape() == ParameterEscape::NoEscape;
-      });
-}
 
 class FunctionVerifier {
 public:
@@ -68,7 +40,11 @@ public:
     collectBlocks();
     collectDefinitionsAndEdges();
     verifyInstructions();
-    verifyBorrowEscapes();
+    auto borrowErrors =
+        verifier_detail::verifyBorrowContracts(function_, cfg_);
+    errors_.insert(errors_.end(),
+                   std::make_move_iterator(borrowErrors.begin()),
+                   std::make_move_iterator(borrowErrors.end()));
     verifyOwnershipTransfers();
   }
 
@@ -85,60 +61,6 @@ private:
   std::unordered_map<const Value *, DefinitionSite> definitions_;
   std::unordered_map<std::string, const Value *> valueNames_;
   ControlFlowGraph cfg_;
-
-  void verifyBorrowEscapes() {
-    const auto provenance = analyzeBorrowProvenance(function_, cfg_);
-    for (const auto &blockOwner : function_.getBlocks()) {
-      if (!blockOwner) {
-        continue;
-      }
-      const auto &block = *blockOwner;
-      for (size_t i = 0; i < block.getInstructions().size(); ++i) {
-        const auto &instruction = block.getInstructions()[i];
-        if (!instruction) {
-          continue;
-        }
-        if (instruction->getOpCode() == OpCode::Ret) {
-          const auto &ret = static_cast<const ReturnInst &>(*instruction);
-          const auto owners = provenance.ownersAtDefinition(ret.getValue());
-          if (!owners.empty()) {
-            error(VerificationErrorCode::InvalidReturn, &block, i,
-                  "cannot return " + ret.getValue()->getName() +
-                      " backed by non-escaping borrow source " +
-                      formatOwners(owners));
-          }
-        } else if (instruction->getOpCode() == OpCode::Store) {
-          const auto &store = static_cast<const StoreInst &>(*instruction);
-          const auto owners = provenance.ownersAtDefinition(store.getSource());
-          if (!owners.empty() &&
-              !provenance.isLocalStorage(store.getDestination())) {
-            error(VerificationErrorCode::InvalidOperand, &block, i,
-                  "cannot store " + store.getSource()->getName() +
-                      " backed by non-escaping borrow source " +
-                      formatOwners(owners) + " outside local storage");
-          }
-        } else if (instruction->getOpCode() == OpCode::Call) {
-          const auto &call = static_cast<const CallInst &>(*instruction);
-          const auto checkedArguments = std::min(
-              call.getArguments().size(), call.getArgumentEscapes().size());
-          for (size_t argumentIndex = 0; argumentIndex < checkedArguments;
-               ++argumentIndex) {
-            const auto sources = provenance.ownersAtDefinition(
-                call.getArguments()[argumentIndex]);
-            if (containsNoEscapeParameter(sources) &&
-                call.getArgumentEscapes()[argumentIndex] !=
-                    ParameterEscape::NoEscape) {
-              error(VerificationErrorCode::InvalidCall, &block, i,
-                    "cannot pass " +
-                        call.getArguments()[argumentIndex]->getName() +
-                        " backed by noescape source " + formatOwners(sources) +
-                        " to a parameter without noescape");
-            }
-          }
-        }
-      }
-    }
-  }
 
   void error(VerificationErrorCode code, const BasicBlock *block,
              std::optional<size_t> instructionIndex, std::string message) {
@@ -765,6 +687,7 @@ private:
     std::vector<std::shared_ptr<Type>> parameterTypes;
     std::vector<ParameterOwnership> parameterOwnership;
     std::vector<ParameterEscape> parameterEscapes;
+    ResultBorrowContract resultBorrow;
     std::shared_ptr<Type> returnType;
     bool variadic = false;
     if (call.isIndirect()) {
@@ -781,6 +704,7 @@ private:
       parameterTypes = functionType->getParams();
       parameterOwnership = functionType->getParameterOwnership();
       parameterEscapes = functionType->getParameterEscapes();
+      resultBorrow = functionType->getResultBorrow();
       returnType = functionType->getReturnType();
     } else {
       const auto *callee = module_.findFunction(call.getFunctionName());
@@ -797,6 +721,7 @@ private:
         }
       }
       returnType = callee->getReturnType();
+      resultBorrow = callee->resultBorrow;
       variadic = callee->isCVariadic ||
                  (!callee->getArguments().empty() &&
                   callee->getArguments().back()->isVariadicPack());
@@ -846,6 +771,16 @@ private:
       error(VerificationErrorCode::InvalidCall, &block, index,
             "call argument escape metadata has the wrong size");
       return;
+    }
+    if (call.getResultBorrow() != resultBorrow) {
+      error(VerificationErrorCode::InvalidCall, &block, index,
+            "call result borrow metadata does not match the callee contract");
+    }
+    if (call.getResultBorrow().hasSource() &&
+        *call.getResultBorrow().sourceParameter() >=
+            call.getArguments().size()) {
+      error(VerificationErrorCode::InvalidCall, &block, index,
+            "call result borrow source argument is out of range");
     }
     for (size_t i = 0; i < call.getArguments().size(); ++i) {
       const auto &argument = call.getArguments()[i];

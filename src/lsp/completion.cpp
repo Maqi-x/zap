@@ -470,9 +470,9 @@ JsonObject::List makeCompletionItems(const std::string &uri,
       "fun",    "return", "if",       "else", "iftype", "while",  "var",
       "const",  "import", "pub",      "priv", "prot",   "struct", "record",
       "class",  "enum",   "alias",    "ext",  "global", "break",  "continue",
-      "ref",   "sink",   "noescape", "as",    "new",   "self",   "where",
-      "unsafe", "weak",  "fail",     "or",    "for",   "match",  "module",
-      "impl",  "static"};
+      "ref",     "sink",   "noescape", "borrows", "as",     "new",
+      "self",    "where",  "unsafe",   "weak",    "fail",   "or",
+      "for",     "match",  "module",   "impl",    "static"};
   for (const char *keyword : keywords) {
     if (seen.insert(keyword).second) {
       items.push_back(makeCompletionItem(

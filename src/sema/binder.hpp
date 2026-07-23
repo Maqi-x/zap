@@ -231,6 +231,11 @@ private:
   std::string renderTypeForUser(const std::shared_ptr<zir::Type> &type) const;
   std::string functionSignatureKey(const FunctionSymbol &function) const;
   std::string renderFunctionSignature(const FunctionSymbol &function) const;
+  zir::ResultBorrowContract resolveResultBorrowContract(
+      const std::optional<std::string> &source,
+      const std::vector<std::shared_ptr<VariableSymbol>> &parameters,
+      const std::shared_ptr<zir::Type> &returnType, bool returnsRef,
+      SourceSpan span);
   std::shared_ptr<FunctionSymbol>
   findFunctionBySignature(const std::shared_ptr<Symbol> &symbol,
                           const FunctionSymbol &prototype) const;

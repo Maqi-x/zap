@@ -27,6 +27,7 @@ using zir::PointerType;
 using zir::PrimitiveType;
 using zir::Register;
 using zir::ReturnInst;
+using zir::ResultBorrowContract;
 using zir::StoreInst;
 using zir::StoreMode;
 using zir::Type;
@@ -477,7 +478,7 @@ bool testVerifierRejectsNoEscapeForwardingToUnspecifiedParameter() {
 
   const auto verification = ZirVerifier().verify(module);
   return expect(hasError(verification, VerificationErrorCode::InvalidCall,
-                         "without noescape"),
+                         "unspecified escape"),
                 "verifier allowed noescape forwarding to an unspecified "
                 "parameter");
 }
@@ -542,6 +543,165 @@ bool testVerifierRejectsMismatchedCallEscapeMetadata() {
                 "verifier accepted call metadata that omitted noescape");
 }
 
+std::unique_ptr<Function>
+makeBorrowingViewFunction(const std::string &name) {
+  auto function =
+      std::make_unique<Function>(name, zir::makeStringViewType());
+  function->arguments.push_back(
+      std::make_shared<zir::Argument>("source", zir::makeStringViewType()));
+  function->resultBorrow = ResultBorrowContract::fromParameter(0);
+  return function;
+}
+
+bool testVerifierTracksBorrowedCallResultToLocalOwner() {
+  const auto stringViewType = zir::makeStringViewType();
+  Module module("borrowed-call-local-owner");
+  module.addExternalFunction(makeBorrowingViewFunction("tail"));
+
+  auto function =
+      std::make_unique<Function>("broken", stringViewType);
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto owner = reg("owner", zir::makeStringType());
+  owner->setOwnership(ValueOwnership::OwnedStrong);
+  auto source = reg("source", stringViewType);
+  auto result = reg("result", stringViewType);
+  entry->addInstruction(std::make_unique<CallInst>(
+      owner, "make", std::vector<std::shared_ptr<zir::Value>>{},
+      std::vector<bool>{}, nullptr, false, CallInst::ResultOwnership::Owned));
+  entry->addInstruction(std::make_unique<BorrowInst>(source, owner));
+  entry->addInstruction(std::make_unique<CallInst>(
+      result, "tail", std::vector<std::shared_ptr<zir::Value>>{source},
+      std::vector<bool>{false}, nullptr, false,
+      CallInst::ResultOwnership::Borrowed,
+      std::vector<CallInst::ArgumentMode>{CallInst::ArgumentMode::Borrow},
+      std::vector<ParameterEscape>{ParameterEscape::Unspecified},
+      ResultBorrowContract::fromParameter(0)));
+  entry->addInstruction(std::make_unique<ReturnInst>(result));
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  const auto verification = ZirVerifier().verify(module);
+  return expect(
+      hasError(verification, VerificationErrorCode::InvalidReturn, "%owner"),
+      "verifier lost the local owner behind a borrowed call result");
+}
+
+bool testBorrowedCallResultExtendsTemporaryOwnerLiveness() {
+  const auto stringViewType = zir::makeStringViewType();
+  auto function =
+      std::make_unique<Function>("temporary", primitive(TypeKind::Void));
+  auto entry = std::make_unique<BasicBlock>("entry");
+  auto owner = reg("owner", zir::makeStringType());
+  owner->setOwnership(ValueOwnership::OwnedStrong);
+  auto source = reg("source", stringViewType);
+  auto result = reg("result", stringViewType);
+  entry->addInstruction(std::make_unique<CallInst>(
+      owner, "make", std::vector<std::shared_ptr<zir::Value>>{},
+      std::vector<bool>{}, nullptr, false, CallInst::ResultOwnership::Owned));
+  entry->addInstruction(std::make_unique<BorrowInst>(source, owner));
+  entry->addInstruction(std::make_unique<CallInst>(
+      result, "tail", std::vector<std::shared_ptr<zir::Value>>{source},
+      std::vector<bool>{false}, nullptr, false,
+      CallInst::ResultOwnership::Borrowed,
+      std::vector<CallInst::ArgumentMode>{CallInst::ArgumentMode::Borrow},
+      std::vector<ParameterEscape>{ParameterEscape::Unspecified},
+      ResultBorrowContract::fromParameter(0)));
+  entry->addInstruction(std::make_unique<CallInst>(
+      nullptr, "consume",
+      std::vector<std::shared_ptr<zir::Value>>{result}));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  const auto *entryBlock = entry.get();
+  function->addBlock(std::move(entry));
+
+  const auto liveness = zir::analyzeOwnershipLiveness(*function);
+  return expect(
+      liveness.isLiveAfter(*entryBlock, 2, owner) &&
+          !liveness.isLiveAfter(*entryBlock, 3, owner) &&
+          liveness.isLastUse(*entryBlock, 3, owner),
+      "borrowed call result did not extend its temporary owner to the "
+      "result's last use");
+}
+
+bool testVerifierAllowsForwardedBorrowedCallResult() {
+  const auto stringViewType = zir::makeStringViewType();
+  Module module("borrowed-call-forwarding");
+  module.addExternalFunction(makeBorrowingViewFunction("tail"));
+
+  auto function = makeBorrowingViewFunction("forward");
+  const auto source = function->arguments.front();
+  auto result = reg("result", stringViewType);
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CallInst>(
+      result, "tail", std::vector<std::shared_ptr<zir::Value>>{source},
+      std::vector<bool>{false}, nullptr, false,
+      CallInst::ResultOwnership::Borrowed,
+      std::vector<CallInst::ArgumentMode>{CallInst::ArgumentMode::Borrow},
+      std::vector<ParameterEscape>{ParameterEscape::Unspecified},
+      ResultBorrowContract::fromParameter(0)));
+  entry->addInstruction(std::make_unique<ReturnInst>(result));
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  const auto verification = ZirVerifier().verify(module);
+  return expect(verification.ok(),
+                "verifier rejected a forwarded borrowed call result:\n" +
+                    verification.format());
+}
+
+bool testVerifierRejectsReturnedNoEscapeCallResult() {
+  const auto stringViewType = zir::makeStringViewType();
+  Module module("borrowed-call-noescape");
+  module.addExternalFunction(makeBorrowingViewFunction("tail"));
+
+  auto function =
+      std::make_unique<Function>("broken", stringViewType);
+  auto source = std::make_shared<zir::Argument>(
+      "source", stringViewType, false, false, nullptr,
+      zir::ParameterOwnership::Borrow, ParameterEscape::NoEscape);
+  function->arguments.push_back(source);
+  auto result = reg("result", stringViewType);
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CallInst>(
+      result, "tail", std::vector<std::shared_ptr<zir::Value>>{source},
+      std::vector<bool>{false}, nullptr, false,
+      CallInst::ResultOwnership::Borrowed,
+      std::vector<CallInst::ArgumentMode>{CallInst::ArgumentMode::Borrow},
+      std::vector<ParameterEscape>{ParameterEscape::Unspecified},
+      ResultBorrowContract::fromParameter(0)));
+  entry->addInstruction(std::make_unique<ReturnInst>(result));
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  const auto verification = ZirVerifier().verify(module);
+  return expect(
+      hasError(verification, VerificationErrorCode::InvalidReturn, "%source"),
+      "verifier allowed a borrowed call result to escape its noescape source");
+}
+
+bool testVerifierRejectsMismatchedResultBorrowMetadata() {
+  const auto stringViewType = zir::makeStringViewType();
+  Module module("borrowed-call-metadata");
+  module.addExternalFunction(makeBorrowingViewFunction("tail"));
+
+  auto function =
+      std::make_unique<Function>("broken", primitive(TypeKind::Void));
+  auto source = std::make_shared<zir::Argument>("source", stringViewType);
+  function->arguments.push_back(source);
+  auto result = reg("result", stringViewType);
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CallInst>(
+      result, "tail", std::vector<std::shared_ptr<zir::Value>>{source}));
+  entry->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  module.addFunction(std::move(function));
+
+  const auto verification = ZirVerifier().verify(module);
+  return expect(
+      hasError(verification, VerificationErrorCode::InvalidCall,
+               "result borrow metadata"),
+      "verifier accepted a call that omitted its result borrow contract");
+}
+
 } // namespace
 
 int main() {
@@ -557,5 +717,10 @@ int main() {
   ok = testVerifierRejectsNoEscapeForwardingToUnspecifiedParameter() && ok;
   ok = testVerifierAllowsNoEscapeForwarding() && ok;
   ok = testVerifierRejectsMismatchedCallEscapeMetadata() && ok;
+  ok = testVerifierTracksBorrowedCallResultToLocalOwner() && ok;
+  ok = testBorrowedCallResultExtendsTemporaryOwnerLiveness() && ok;
+  ok = testVerifierAllowsForwardedBorrowedCallResult() && ok;
+  ok = testVerifierRejectsReturnedNoEscapeCallResult() && ok;
+  ok = testVerifierRejectsMismatchedResultBorrowMetadata() && ok;
   return ok ? 0 : 1;
 }

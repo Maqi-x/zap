@@ -15,6 +15,7 @@ public:
   bool isDestructor = false;
   bool isCVariadic = false;
   bool returnsRef = false;
+  ResultBorrowContract resultBorrow;
   int vtableSlot = -1;
   std::vector<std::shared_ptr<Argument>> arguments;
   std::vector<std::unique_ptr<BasicBlock>> blocks;
@@ -76,6 +77,10 @@ public:
     res += ") " + returnType->toString();
     if (returnsRef)
       res += "*";
+    if (resultBorrow.hasSource()) {
+      res += " borrows(" +
+             std::to_string(*resultBorrow.sourceParameter()) + ")";
+    }
     res += " {\n";
     for (const auto &block : blocks) {
       res += block->toString();

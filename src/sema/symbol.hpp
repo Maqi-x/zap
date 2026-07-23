@@ -76,6 +76,7 @@ public:
   bool isDestructor = false;
   bool isExternal = false;
   bool returnsRef = false;
+  zir::ResultBorrowContract resultBorrow;
   int vtableSlot = -1;
   std::string ownerTypeCodegenName;
 

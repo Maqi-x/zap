@@ -126,6 +126,9 @@ std::optional<LspSignature> signatureForNode(const Node *node) {
       label += params[i];
     }
     label += ") " + renderType(fun->returnType_.get());
+    if (fun->resultBorrowSource_) {
+      label += " borrows(" + *fun->resultBorrowSource_ + ")";
+    }
     label += renderConstraints(fun->genericConstraints_);
     return LspSignature{std::move(label), std::move(params)};
   }
@@ -145,6 +148,9 @@ std::optional<LspSignature> signatureForNode(const Node *node) {
       label += params[i];
     }
     label += ") " + renderType(ext->returnType_.get());
+    if (ext->resultBorrowSource_) {
+      label += " borrows(" + *ext->resultBorrowSource_ + ")";
+    }
     return LspSignature{std::move(label), std::move(params)};
   }
   return std::nullopt;
