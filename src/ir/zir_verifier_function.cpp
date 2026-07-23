@@ -350,13 +350,9 @@ private:
       } else {
         expectAssignable(store.getSource()->getType(), pointer->getBaseType(),
                          block, index, "stored value type");
-        if (store.getSourceOwnership() != store.getSource()->getOwnership()) {
-          error(VerificationErrorCode::InvalidOperand, &block, index,
-                "store ownership does not match its source value");
-        }
         if (store.getMode() == StoreMode::Initialize &&
             containsManagedValues(store.getSource()->getType()) &&
-            !isOwned(store.getSourceOwnership())) {
+            !isOwned(store.getSource()->getOwnership())) {
           error(VerificationErrorCode::InvalidOperand, &block, index,
                 "managed initialization must transfer ownership");
         }

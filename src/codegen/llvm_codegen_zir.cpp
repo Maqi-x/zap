@@ -412,11 +412,11 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
             storeInst.getDestination().get());
       } else {
         emitStoreWithArc(dst, src, valueType,
-                         storeInst.getSourceOwnership(), skipReleaseOld);
+                         storeInst.getSource()->getOwnership(), skipReleaseOld);
       }
     } else if (valueType && isOwnedStringType(valueType)) {
       const bool valueIsOwned =
-          zir::isOwned(storeInst.getSourceOwnership());
+          zir::isOwned(storeInst.getSource()->getOwnership());
       emitStoreWithStringArc(dst, src, valueType, valueIsOwned, skipReleaseOld);
     } else if (valueType && containsManagedValues(valueType)) {
       if (!skipReleaseOld) {
@@ -425,7 +425,7 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         emitManagedRelease(oldValue, valueType);
       }
       const bool valueIsOwned =
-          zir::isOwned(storeInst.getSourceOwnership());
+          zir::isOwned(storeInst.getSource()->getOwnership());
       if (!valueIsOwned) {
         emitManagedRetain(src, valueType);
       }

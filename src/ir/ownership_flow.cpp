@@ -305,7 +305,8 @@ std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
         }
         case OpCode::Store: {
           const auto &store = static_cast<const StoreInst &>(*instruction);
-          if (isOwned(store.getSourceOwnership())) {
+          if (store.getSource() &&
+              isOwned(store.getSource()->getOwnership())) {
             transition(states, store.getSource(), block, i, "store", moved);
           }
           break;

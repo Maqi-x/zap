@@ -90,7 +90,7 @@ bool transfersOwnership(const Instruction &instruction,
   case OpCode::Store: {
     const auto &store = static_cast<const StoreInst &>(instruction);
     return store.getSource() == value &&
-           isOwned(store.getSourceOwnership());
+           isOwned(store.getSource()->getOwnership());
   }
   case OpCode::Ret: {
     const auto &ret = static_cast<const ReturnInst &>(instruction);

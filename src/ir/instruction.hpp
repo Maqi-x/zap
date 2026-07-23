@@ -121,21 +121,14 @@ enum class StoreMode {
 class StoreInst : public Instruction {
   std::shared_ptr<Value> src, dest;
   StoreMode mode_;
-  ValueOwnership sourceOwnership_;
 
 public:
   StoreInst(std::shared_ptr<Value> s, std::shared_ptr<Value> d, StoreMode mode)
-      : StoreInst(s, d, mode,
-                  s ? s->getOwnership() : ValueOwnership::Borrowed) {}
-  StoreInst(std::shared_ptr<Value> s, std::shared_ptr<Value> d, StoreMode mode,
-            ValueOwnership sourceOwnership)
-      : src(std::move(s)), dest(std::move(d)), mode_(mode),
-        sourceOwnership_(sourceOwnership) {}
+      : src(std::move(s)), dest(std::move(d)), mode_(mode) {}
   OpCode getOpCode() const override { return OpCode::Store; }
   const std::shared_ptr<Value> &getSource() const { return src; }
   const std::shared_ptr<Value> &getDestination() const { return dest; }
   StoreMode getMode() const { return mode_; }
-  ValueOwnership getSourceOwnership() const { return sourceOwnership_; }
   std::string toString() const override {
     const char *modeName = "invalid";
     switch (mode_) {
