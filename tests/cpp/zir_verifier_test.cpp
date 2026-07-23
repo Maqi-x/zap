@@ -1546,7 +1546,46 @@ bool testOwnershipLoweringClosesUnambiguousOwnedArgumentAtReturn() {
                 "return-closure lowering left an ownership obligation");
 }
 
-bool testOwnershipLoweringDoesNotCloseEdgeOnlyObligations() {
+bool testOwnershipLoweringClosesSimpleEdgeObligations() {
+  Module module("ownership-simple-edge-closure");
+  auto classType = std::make_shared<ClassType>("Node");
+  auto boolean = primitive(TypeKind::Bool);
+  auto function =
+      std::make_unique<Function>("valid", primitive(TypeKind::Void));
+  auto value = std::make_shared<zir::Argument>("value", classType);
+  value->setOwnership(ValueOwnership::Owned);
+  function->arguments.push_back(value);
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CondBranchInst>(
+      std::make_shared<Constant>("true", boolean), "live", "closed"));
+  auto live = std::make_unique<BasicBlock>("live");
+  live->addInstruction(std::make_unique<BranchInst>("exit"));
+  auto closed = std::make_unique<BasicBlock>("closed");
+  closed->addInstruction(std::make_unique<ReleaseInst>(value));
+  closed->addInstruction(std::make_unique<BranchInst>("exit"));
+  auto exit = std::make_unique<BasicBlock>("exit");
+  exit->addInstruction(std::make_unique<ReturnInst>());
+  function->addBlock(std::move(entry));
+  function->addBlock(std::move(live));
+  function->addBlock(std::move(closed));
+  function->addBlock(std::move(exit));
+  module.addFunction(std::move(function));
+
+  zir::lowerDeadOwnedResults(module);
+  const auto &blocks = module.getFunctions().front()->getBlocks();
+  const auto &liveInstructions = blocks[1]->getInstructions();
+  return expect(blocks.size() == 4 && liveInstructions.size() == 2 &&
+                    liveInstructions.front()->getOpCode() == OpCode::Release &&
+                    liveInstructions.back()->getOpCode() == OpCode::Br,
+                "ownership lowering did not close a simple live CFG edge") &&
+         expect(ZirVerifier().verify(module).ok(),
+                "simple edge closure produced invalid ZIR") &&
+         expect(ZirVerifier().verifyOwnershipObligations(module).ok(),
+                "simple edge closure left an ownership obligation");
+}
+
+bool testOwnershipLoweringDoesNotCloseCriticalEdgeObligations() {
   Module module("ownership-edge-only-closure");
   auto classType = std::make_shared<ClassType>("Node");
   auto boolean = primitive(TypeKind::Bool);
@@ -1574,9 +1613,9 @@ bool testOwnershipLoweringDoesNotCloseEdgeOnlyObligations() {
   const auto &entryInstructions = blocks.front()->getInstructions();
   return expect(blocks.size() == 3 && entryInstructions.size() == 1 &&
                     entryInstructions.front()->getOpCode() == OpCode::CondBr,
-                "ownership lowering changed an edge-only closure plan") &&
+                "ownership lowering changed a critical-edge closure plan") &&
          expect(!ZirVerifier().verifyOwnershipObligations(module).ok(),
-                "edge-only ownership obligation was unexpectedly closed");
+                "critical-edge ownership obligation was unexpectedly closed");
 }
 
 bool testOwnershipLoweringReleasesAtLastLocalUse() {
@@ -1836,7 +1875,8 @@ int main() {
   ok = testStoreRejectsEscapingFunctionLocalStringView() && ok;
   ok = testOwnershipLoweringReleasesDeadOwnedResults() && ok;
   ok = testOwnershipLoweringClosesUnambiguousOwnedArgumentAtReturn() && ok;
-  ok = testOwnershipLoweringDoesNotCloseEdgeOnlyObligations() && ok;
+  ok = testOwnershipLoweringClosesSimpleEdgeObligations() && ok;
+  ok = testOwnershipLoweringDoesNotCloseCriticalEdgeObligations() && ok;
   ok = testOwnershipLoweringReleasesAtLastLocalUse() && ok;
   ok = testOwnershipLoweringReleasesOwnerAfterBorrowUse() && ok;
   ok = testCallBorrowAllowsOwnedValueToBeReleasedAfterward() && ok;

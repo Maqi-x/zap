@@ -127,7 +127,7 @@ bool wasOwnershipTransferredBefore(
   return false;
 }
 
-void lowerUnambiguousOwnershipExits(Module &module, Function &function) {
+void lowerUnambiguousOwnershipClosures(Module &module, Function &function) {
   std::unordered_map<const Value *, std::shared_ptr<Value>> values;
   for (const auto &argument : function.getArguments()) {
     if (argument) {
@@ -155,21 +155,49 @@ void lowerUnambiguousOwnershipExits(Module &module, Function &function) {
       releases;
   for (const auto &plan : analysis.analyzeOwnershipClosurePlans()) {
     for (const auto &placement : plan.destroyPlacements) {
-      if (placement.kind != OwnershipDestroyPlacementKind::BeforeReturn ||
-          !placement.destination || !placement.instructionIndex) {
-        continue;
-      }
-      auto *block = function.findBlock(placement.destination->label);
       const auto value = values.find(plan.value);
-      const auto *returnInstruction =
-          block && *placement.instructionIndex < block->getInstructions().size()
-              ? block->getInstructions()[*placement.instructionIndex].get()
-              : nullptr;
-      if (!block || value == values.end() || !returnInstruction ||
-          returnInstruction->getOpCode() != OpCode::Ret) {
+      if (value == values.end()) {
         continue;
       }
-      releases[block].emplace_back(*placement.instructionIndex, value->second);
+
+      BasicBlock *block = nullptr;
+      size_t insertionIndex = 0;
+      if (placement.kind == OwnershipDestroyPlacementKind::BeforeReturn) {
+        if (!placement.destination || !placement.instructionIndex) {
+          continue;
+        }
+        block = function.findBlock(placement.destination->label);
+        insertionIndex = *placement.instructionIndex;
+        const auto *returnInstruction =
+            block && insertionIndex < block->getInstructions().size()
+                ? block->getInstructions()[insertionIndex].get()
+                : nullptr;
+        if (!returnInstruction ||
+            returnInstruction->getOpCode() != OpCode::Ret) {
+          continue;
+        }
+      } else if (placement.kind == OwnershipDestroyPlacementKind::OnEdge) {
+        if (!placement.source || !placement.destination) {
+          continue;
+        }
+        block = function.findBlock(placement.source->label);
+        const auto successors =
+            block ? cfg.successors().find(block) : cfg.successors().end();
+        if (!block || successors == cfg.successors().end() ||
+            successors->second.size() != 1 ||
+            successors->second.front() != placement.destination ||
+            block->getInstructions().empty()) {
+          continue;
+        }
+        insertionIndex = block->getInstructions().size() - 1;
+        const auto *terminator = block->getInstructions().back().get();
+        if (!terminator || terminator->getOpCode() != OpCode::Br) {
+          continue;
+        }
+      } else {
+        continue;
+      }
+      releases[block].emplace_back(insertionIndex, value->second);
     }
   }
 
@@ -327,7 +355,7 @@ void lowerDeadOwnedResults(Module &module) {
     for (auto &edge : edgeBlocks) {
       function->addBlock(std::move(edge));
     }
-    lowerUnambiguousOwnershipExits(module, *function);
+    lowerUnambiguousOwnershipClosures(module, *function);
   }
 }
 
