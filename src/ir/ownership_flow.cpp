@@ -142,6 +142,13 @@ OwnershipFlowState
 OwnershipFlowAnalysis::stateOnEdge(const BasicBlock &source,
                                    const BasicBlock &destination,
                                    const std::shared_ptr<Value> &value) const {
+  return stateOnEdge(source, destination, value.get());
+}
+
+OwnershipFlowState
+OwnershipFlowAnalysis::stateOnEdge(const BasicBlock &source,
+                                   const BasicBlock &destination,
+                                   const Value *value) const {
   const auto sourceStates = edgeStates_.find(&source);
   if (!value || sourceStates == edgeStates_.end()) {
     return OwnershipFlowState::Unavailable;
@@ -150,7 +157,7 @@ OwnershipFlowAnalysis::stateOnEdge(const BasicBlock &source,
   if (destinationStates == sourceStates->second.end()) {
     return OwnershipFlowState::Unavailable;
   }
-  const auto state = destinationStates->second.find(value.get());
+  const auto state = destinationStates->second.find(value);
   return state == destinationStates->second.end()
              ? OwnershipFlowState::Unavailable
              : static_cast<OwnershipFlowState>(state->second);
@@ -422,13 +429,57 @@ OwnershipFlowAnalysis::analyzeOwnershipClosurePlans() {
 
   std::vector<OwnershipClosurePlan> plans;
   for (const auto *value : ownedValues) {
-    OwnershipClosurePlan plan{value, definitions[value], {}};
+    OwnershipClosurePlan plan{value, definitions[value], {}, {}};
     for (const auto &obligation : obligations) {
       if (obligation.value == value) {
         plan.liveExits.push_back(obligation);
       }
     }
     if (!plan.liveExits.empty()) {
+      for (const auto &exit : plan.liveExits) {
+        const auto predecessors = predecessors_.find(exit.block);
+        const bool definedBeforeReturn =
+            plan.definition.block == exit.block &&
+            plan.definition.instructionIndex &&
+            *plan.definition.instructionIndex < exit.instructionIndex;
+        if (definedBeforeReturn || predecessors == predecessors_.end() ||
+            predecessors->second.empty()) {
+          plan.destroyPlacements.push_back(
+              {OwnershipDestroyPlacementKind::BeforeReturn, nullptr, exit.block,
+               exit.instructionIndex, false});
+          continue;
+        }
+
+        std::vector<const BasicBlock *> livePredecessors;
+        bool hasAmbiguousLivePredecessor = false;
+        for (const auto *predecessor : predecessors->second) {
+          const auto state = static_cast<unsigned char>(
+              stateOnEdge(*predecessor, *exit.block, value));
+          if (state == live) {
+            livePredecessors.push_back(predecessor);
+          } else if ((state & live) != 0) {
+            hasAmbiguousLivePredecessor = true;
+          }
+        }
+        if (hasAmbiguousLivePredecessor || livePredecessors.empty()) {
+          continue;
+        }
+        if (livePredecessors.size() == predecessors->second.size()) {
+          plan.destroyPlacements.push_back(
+              {OwnershipDestroyPlacementKind::BeforeReturn, nullptr, exit.block,
+               exit.instructionIndex, false});
+          continue;
+        }
+        for (const auto *predecessor : livePredecessors) {
+          const auto successors = successors_.find(predecessor);
+          const bool requiresEdgeSplit = successors != successors_.end() &&
+                                         successors->second.size() > 1 &&
+                                         predecessors->second.size() > 1;
+          plan.destroyPlacements.push_back(
+              {OwnershipDestroyPlacementKind::OnEdge, predecessor, exit.block,
+               std::nullopt, requiresEdgeSplit});
+        }
+      }
       plans.push_back(std::move(plan));
     }
   }

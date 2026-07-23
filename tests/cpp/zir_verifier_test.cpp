@@ -27,6 +27,7 @@ using zir::FunctionReference;
 using zir::LoadInst;
 using zir::Module;
 using zir::OpCode;
+using zir::OwnershipDestroyPlacementKind;
 using zir::OwnershipFlowAnalysis;
 using zir::OwnershipFlowState;
 using zir::PhiInst;
@@ -870,14 +871,66 @@ bool testOwnershipClosurePlanConnectsDefinitionAndExit() {
   OwnershipFlowAnalysis analysis(module, *function, predecessors, successors,
                                  {entryBlock});
   const auto plans = analysis.analyzeOwnershipClosurePlans();
-  return expect(plans.size() == 1 && plans.front().value == value.get() &&
-                    plans.front().definition.block == entryBlock &&
-                    plans.front().definition.instructionIndex == 0 &&
-                    plans.front().liveExits.size() == 1 &&
-                    plans.front().liveExits.front().block == entryBlock &&
-                    plans.front().liveExits.front().instructionIndex == 1,
-                "closure plan did not connect an owned definition to its "
-                "live exit");
+  return expect(
+      plans.size() == 1 && plans.front().value == value.get() &&
+          plans.front().definition.block == entryBlock &&
+          plans.front().definition.instructionIndex == 0 &&
+          plans.front().liveExits.size() == 1 &&
+          plans.front().liveExits.front().block == entryBlock &&
+          plans.front().liveExits.front().instructionIndex == 1 &&
+          plans.front().destroyPlacements.size() == 1 &&
+          plans.front().destroyPlacements.front().kind ==
+              OwnershipDestroyPlacementKind::BeforeReturn &&
+          plans.front().destroyPlacements.front().destination == entryBlock &&
+          plans.front().destroyPlacements.front().instructionIndex == 1,
+      "closure plan did not connect an owned definition to its "
+      "live exit");
+}
+
+bool testOwnershipClosurePlanUsesCriticalLiveEdge() {
+  Module module("ownership-closure-critical-edge");
+  auto classType = std::make_shared<ClassType>("Node");
+  auto boolean = primitive(TypeKind::Bool);
+  auto function =
+      std::make_unique<Function>("valid", primitive(TypeKind::Void));
+  auto value = std::make_shared<zir::Argument>("value", classType);
+  value->setOwnership(ValueOwnership::Owned);
+  function->arguments.push_back(value);
+
+  auto entry = std::make_unique<BasicBlock>("entry");
+  entry->addInstruction(std::make_unique<CondBranchInst>(
+      std::make_shared<Constant>("true", boolean), "exit", "closed"));
+  auto closed = std::make_unique<BasicBlock>("closed");
+  closed->addInstruction(std::make_unique<ReleaseInst>(value));
+  closed->addInstruction(std::make_unique<BranchInst>("exit"));
+  auto exit = std::make_unique<BasicBlock>("exit");
+  exit->addInstruction(std::make_unique<ReturnInst>());
+  auto *entryBlock = entry.get();
+  auto *closedBlock = closed.get();
+  auto *exitBlock = exit.get();
+  function->addBlock(std::move(entry));
+  function->addBlock(std::move(closed));
+  function->addBlock(std::move(exit));
+
+  OwnershipFlowAnalysis::BlockEdges predecessors{
+      {entryBlock, {}},
+      {closedBlock, {entryBlock}},
+      {exitBlock, {entryBlock, closedBlock}}};
+  OwnershipFlowAnalysis::BlockEdges successors{
+      {entryBlock, {exitBlock, closedBlock}},
+      {closedBlock, {exitBlock}},
+      {exitBlock, {}}};
+  OwnershipFlowAnalysis analysis(module, *function, predecessors, successors,
+                                 {entryBlock, closedBlock, exitBlock});
+  const auto plans = analysis.analyzeOwnershipClosurePlans();
+  return expect(
+      plans.size() == 1 && plans.front().destroyPlacements.size() == 1 &&
+          plans.front().destroyPlacements.front().kind ==
+              OwnershipDestroyPlacementKind::OnEdge &&
+          plans.front().destroyPlacements.front().source == entryBlock &&
+          plans.front().destroyPlacements.front().destination == exitBlock &&
+          plans.front().destroyPlacements.front().requiresEdgeSplit,
+      "closure plan did not isolate the live critical edge");
 }
 
 bool testOwnershipExitObligationsAllowMovedReturn() {
@@ -963,11 +1016,18 @@ bool testOwnershipExitObligationsTrackPartialDefinitions() {
   const auto expectedState = static_cast<OwnershipFlowState>(
       static_cast<unsigned char>(OwnershipFlowState::Unavailable) |
       static_cast<unsigned char>(OwnershipFlowState::Live));
-  return expect(obligations.size() == 1 &&
-                    obligations.front().value == value.get() &&
-                    obligations.front().state == expectedState,
-                "partial definition did not preserve its live exit "
-                "obligation");
+  const auto plans = analysis.analyzeOwnershipClosurePlans();
+  return expect(
+      obligations.size() == 1 && obligations.front().value == value.get() &&
+          obligations.front().state == expectedState && plans.size() == 1 &&
+          plans.front().destroyPlacements.size() == 1 &&
+          plans.front().destroyPlacements.front().kind ==
+              OwnershipDestroyPlacementKind::OnEdge &&
+          plans.front().destroyPlacements.front().source == definesBlock &&
+          plans.front().destroyPlacements.front().destination == exitBlock &&
+          !plans.front().destroyPlacements.front().requiresEdgeSplit,
+      "partial definition did not preserve its live exit obligation or "
+      "identify its live edge");
 }
 
 bool testOwnershipExitObligationsAllowPhiTransfer() {
@@ -1052,10 +1112,16 @@ bool testOwnershipExitObligationsTrackLoops() {
   OwnershipFlowAnalysis analysis(module, *function, predecessors, successors,
                                  {entryBlock, loopBlock, exitBlock});
   const auto obligations = analysis.analyzeExitObligations();
-  return expect(obligations.size() == 1 &&
-                    obligations.front().value == value.get() &&
-                    obligations.front().state == OwnershipFlowState::Live,
-                "loop exit did not preserve its live ownership obligation");
+  const auto plans = analysis.analyzeOwnershipClosurePlans();
+  return expect(
+      obligations.size() == 1 && obligations.front().value == value.get() &&
+          obligations.front().state == OwnershipFlowState::Live &&
+          plans.size() == 1 && plans.front().destroyPlacements.size() == 1 &&
+          plans.front().destroyPlacements.front().kind ==
+              OwnershipDestroyPlacementKind::BeforeReturn &&
+          plans.front().destroyPlacements.front().destination == exitBlock,
+      "loop exit did not preserve its live obligation or identify its "
+      "destroy placement");
 }
 
 bool testBorrowPreservesOwnedString() {
@@ -1692,6 +1758,7 @@ int main() {
   ok = testUseAfterReleaseIsRejected() && ok;
   ok = testOwnershipExitObligationsReportLiveValues() && ok;
   ok = testOwnershipClosurePlanConnectsDefinitionAndExit() && ok;
+  ok = testOwnershipClosurePlanUsesCriticalLiveEdge() && ok;
   ok = testOwnershipExitObligationsAllowMovedReturn() && ok;
   ok = testOwnershipObligationVerifierReportsLiveValues() && ok;
   ok = testOwnershipExitObligationsTrackPartialDefinitions() && ok;

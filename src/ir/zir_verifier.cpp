@@ -8,6 +8,22 @@
 
 namespace zir {
 
+namespace {
+
+std::string formatDestroyPlacement(const OwnershipDestroyPlacement &placement) {
+  if (placement.kind == OwnershipDestroyPlacementKind::BeforeReturn) {
+    return "suggested destroy before return";
+  }
+  std::string result = "suggested destroy on edge %" + placement.source->label +
+                       " -> %" + placement.destination->label;
+  if (placement.requiresEdgeSplit) {
+    result += " (split critical edge)";
+  }
+  return result;
+}
+
+} // namespace
+
 std::string VerificationResult::format() const {
   std::ostringstream output;
   for (size_t i = 0; i < errors_.size(); ++i) {
@@ -93,12 +109,23 @@ ZirVerifier::verifyOwnershipObligations(const Module &module) const {
         }
       }
       for (const auto &obligation : plan.liveExits) {
+        std::string placement = "no safe destroy placement determined";
+        for (const auto &candidate : plan.destroyPlacements) {
+          if (candidate.destination != obligation.block ||
+              (candidate.kind == OwnershipDestroyPlacementKind::BeforeReturn &&
+               candidate.instructionIndex != obligation.instructionIndex)) {
+            continue;
+          }
+          placement = formatDestroyPlacement(candidate);
+          break;
+        }
         result.errors_.push_back(
             {VerificationErrorCode::OwnershipViolation, function->name,
              obligation.block ? obligation.block->label : std::string{},
              obligation.instructionIndex,
              "owned value may remain live at function exit: " +
-                 plan.value->getName() + " (defined in " + definition + ")"});
+                 plan.value->getName() + " (defined in " + definition + "; " +
+                 placement + ")"});
       }
     }
   }

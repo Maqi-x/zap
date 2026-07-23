@@ -42,10 +42,24 @@ struct OwnershipDefinitionSite {
   std::optional<size_t> instructionIndex;
 };
 
+enum class OwnershipDestroyPlacementKind {
+  BeforeReturn,
+  OnEdge,
+};
+
+struct OwnershipDestroyPlacement {
+  OwnershipDestroyPlacementKind kind;
+  const BasicBlock *source;
+  const BasicBlock *destination;
+  std::optional<size_t> instructionIndex;
+  bool requiresEdgeSplit;
+};
+
 struct OwnershipClosurePlan {
   const Value *value;
   OwnershipDefinitionSite definition;
   std::vector<OwnershipExitObligation> liveExits;
+  std::vector<OwnershipDestroyPlacement> destroyPlacements;
 };
 
 class OwnershipFlowAnalysis {
@@ -64,6 +78,9 @@ public:
   OwnershipFlowState stateOnEdge(const BasicBlock &source,
                                  const BasicBlock &destination,
                                  const std::shared_ptr<Value> &value) const;
+  OwnershipFlowState stateOnEdge(const BasicBlock &source,
+                                 const BasicBlock &destination,
+                                 const Value *value) const;
 
 private:
   using OwnershipStates = std::unordered_map<const Value *, unsigned char>;
