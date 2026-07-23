@@ -55,6 +55,7 @@ std::shared_ptr<Value> instructionResult(const Instruction &instruction) {
   case OpCode::CondBr:
   case OpCode::Ret:
   case OpCode::Retain:
+  case OpCode::Destroy:
   case OpCode::Release:
   case OpCode::InlineAsm:
     return nullptr;
@@ -67,7 +68,7 @@ bool ownsManagedValue(const std::shared_ptr<Value> &value) {
          containsManagedValues(value->getType());
 }
 
-size_t releaseInsertionIndex(const BasicBlock &block, size_t resultIndex) {
+size_t destroyInsertionIndex(const BasicBlock &block, size_t resultIndex) {
   if (block.getInstructions()[resultIndex]->getOpCode() != OpCode::Phi) {
     return resultIndex + 1;
   }
@@ -111,6 +112,8 @@ bool transfersOwnership(const Instruction &instruction,
   }
   case OpCode::Release:
     return static_cast<const ReleaseInst &>(instruction).getValue() == value;
+  case OpCode::Destroy:
+    return static_cast<const DestroyInst &>(instruction).getValue() == value;
   default:
     return false;
   }
@@ -133,12 +136,12 @@ struct PendingEdgeClosure {
   std::vector<std::shared_ptr<Value>> values;
 };
 
-bool splitEdgeWithReleases(
+bool splitEdgeWithDestroys(
     BasicBlock &source, BasicBlock &destination,
-    const std::vector<std::shared_ptr<Value>> &releases,
-    const char *labelPrefix, std::unordered_set<std::string> &labels,
-    size_t &edgeIndex, std::vector<std::unique_ptr<BasicBlock>> &edgeBlocks) {
-  if (releases.empty() || source.getInstructions().empty()) {
+    const std::vector<std::shared_ptr<Value>> &values, const char *labelPrefix,
+    std::unordered_set<std::string> &labels, size_t &edgeIndex,
+    std::vector<std::unique_ptr<BasicBlock>> &edgeBlocks) {
+  if (values.empty() || source.getInstructions().empty()) {
     return false;
   }
   const auto &terminator = source.getInstructions().back();
@@ -165,8 +168,8 @@ bool splitEdgeWithReleases(
     edgeLabel = std::string(labelPrefix) + std::to_string(edgeIndex++);
   } while (!labels.insert(edgeLabel).second);
   auto edge = std::make_unique<BasicBlock>(edgeLabel);
-  for (const auto &value : releases) {
-    edge->addInstruction(std::make_unique<ReleaseInst>(value));
+  for (const auto &value : values) {
+    edge->addInstruction(std::make_unique<DestroyInst>(value));
   }
   edge->addInstruction(std::make_unique<BranchInst>(destination.label));
   if (terminator->getOpCode() == OpCode::Br) {
@@ -210,7 +213,7 @@ void lowerUnambiguousOwnershipClosures(Module &module, Function &function) {
                                  cfg.successors(), cfg.reachable());
   std::unordered_map<BasicBlock *,
                      std::vector<std::pair<size_t, std::shared_ptr<Value>>>>
-      releases;
+      destroys;
   std::vector<PendingEdgeClosure> criticalEdgeClosures;
   for (const auto &plan : analysis.analyzeOwnershipClosurePlans()) {
     for (const auto &placement : plan.destroyPlacements) {
@@ -281,20 +284,20 @@ void lowerUnambiguousOwnershipClosures(Module &module, Function &function) {
       } else {
         continue;
       }
-      releases[block].emplace_back(insertionIndex, value->second);
+      destroys[block].emplace_back(insertionIndex, value->second);
     }
   }
 
-  for (auto &[block, blockReleases] : releases) {
+  for (auto &[block, blockDestroys] : destroys) {
     std::sort(
-        blockReleases.begin(), blockReleases.end(),
+        blockDestroys.begin(), blockDestroys.end(),
         [](const auto &lhs, const auto &rhs) { return lhs.first < rhs.first; });
     auto &instructions = block->instructions;
-    for (auto release = blockReleases.rbegin(); release != blockReleases.rend();
-         ++release) {
+    for (auto destroy = blockDestroys.rbegin(); destroy != blockDestroys.rend();
+         ++destroy) {
       instructions.insert(instructions.begin() +
-                              static_cast<std::ptrdiff_t>(release->first),
-                          std::make_unique<ReleaseInst>(release->second));
+                              static_cast<std::ptrdiff_t>(destroy->first),
+                          std::make_unique<DestroyInst>(destroy->second));
     }
   }
 
@@ -307,7 +310,7 @@ void lowerUnambiguousOwnershipClosures(Module &module, Function &function) {
   size_t edgeIndex = 0;
   std::vector<std::unique_ptr<BasicBlock>> edgeBlocks;
   for (const auto &closure : criticalEdgeClosures) {
-    splitEdgeWithReleases(*closure.source, *closure.destination, closure.values,
+    splitEdgeWithDestroys(*closure.source, *closure.destination, closure.values,
                           "ownership.close.", labels, edgeIndex, edgeBlocks);
   }
   for (auto &edge : edgeBlocks) {
@@ -328,7 +331,7 @@ void lowerDeadOwnedResults(Module &module) {
         continue;
       }
       auto &instructions = blockOwner->instructions;
-      std::vector<std::pair<size_t, std::shared_ptr<Value>>> releases;
+      std::vector<std::pair<size_t, std::shared_ptr<Value>>> destroys;
       std::vector<std::shared_ptr<Value>> ownedResults;
       std::unordered_set<const Value *> seenResults;
       for (size_t i = 0; i < instructions.size(); ++i) {
@@ -343,7 +346,7 @@ void lowerDeadOwnedResults(Module &module) {
           ownedResults.push_back(result);
         }
         if (!liveness.isLiveAfter(*blockOwner, i, result)) {
-          releases.emplace_back(releaseInsertionIndex(*blockOwner, i), result);
+          destroys.emplace_back(destroyInsertionIndex(*blockOwner, i), result);
         }
       }
       for (size_t i = 0; i < instructions.size(); ++i) {
@@ -354,19 +357,19 @@ void lowerDeadOwnedResults(Module &module) {
           if (liveness.isLastUse(*blockOwner, i, value) &&
               !transfersOwnership(*instructions[i], value) &&
               !wasOwnershipTransferredBefore(instructions, i, value)) {
-            releases.emplace_back(releaseInsertionIndex(*blockOwner, i), value);
+            destroys.emplace_back(destroyInsertionIndex(*blockOwner, i), value);
           }
         }
       }
-      std::sort(releases.begin(), releases.end(),
+      std::sort(destroys.begin(), destroys.end(),
                 [](const auto &lhs, const auto &rhs) {
                   return lhs.first < rhs.first;
                 });
-      for (auto release = releases.rbegin(); release != releases.rend();
-           ++release) {
+      for (auto destroy = destroys.rbegin(); destroy != destroys.rend();
+           ++destroy) {
         instructions.insert(instructions.begin() +
-                                static_cast<std::ptrdiff_t>(release->first),
-                            std::make_unique<ReleaseInst>(release->second));
+                                static_cast<std::ptrdiff_t>(destroy->first),
+                            std::make_unique<DestroyInst>(destroy->second));
       }
     }
 
@@ -404,7 +407,7 @@ void lowerDeadOwnedResults(Module &module) {
         if (!destination) {
           continue;
         }
-        std::vector<std::shared_ptr<Value>> releases;
+        std::vector<std::shared_ptr<Value>> destroys;
         for (const auto &instruction : source.getInstructions()) {
           if (!instruction) {
             continue;
@@ -422,14 +425,14 @@ void lowerDeadOwnedResults(Module &module) {
             }
           }
           if (!transferred) {
-            releases.push_back(value);
+            destroys.push_back(value);
           }
         }
-        if (releases.empty()) {
+        if (destroys.empty()) {
           continue;
         }
-        splitEdgeWithReleases(source, *destination, releases,
-                              "ownership.release.", labels, edgeIndex,
+        splitEdgeWithDestroys(source, *destination, destroys,
+                              "ownership.destroy.", labels, edgeIndex,
                               edgeBlocks);
       }
     }

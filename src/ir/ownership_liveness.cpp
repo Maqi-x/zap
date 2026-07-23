@@ -106,6 +106,10 @@ void addInstructionUses(ValueSet &values, const Instruction &instruction,
     addUse(values, static_cast<const BorrowInst &>(instruction).getOwner(),
            borrowOwners);
     return;
+  case OpCode::Destroy:
+    addUse(values, static_cast<const DestroyInst &>(instruction).getValue(),
+           borrowOwners);
+    return;
   case OpCode::Release:
     addUse(values, static_cast<const ReleaseInst &>(instruction).getValue(),
            borrowOwners);
@@ -450,6 +454,7 @@ std::shared_ptr<Value> instructionResult(const Instruction &instruction) {
   case OpCode::CondBr:
   case OpCode::Ret:
   case OpCode::Retain:
+  case OpCode::Destroy:
   case OpCode::Release:
   case OpCode::InlineAsm:
     return nullptr;

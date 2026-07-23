@@ -300,13 +300,17 @@ private:
       const auto &block = *blockOwner;
       for (size_t i = 0; i < block.getInstructions().size(); ++i) {
         const auto &instruction = block.getInstructions()[i];
-        if (!instruction || instruction->getOpCode() != OpCode::Release) {
+        if (!instruction || (instruction->getOpCode() != OpCode::Destroy &&
+                             instruction->getOpCode() != OpCode::Release)) {
           continue;
         }
-        const auto &release = static_cast<const ReleaseInst &>(*instruction);
-        if (liveness.isLiveAfter(block, i, release.getValue())) {
+        const auto &value =
+            instruction->getOpCode() == OpCode::Destroy
+                ? static_cast<const DestroyInst &>(*instruction).getValue()
+                : static_cast<const ReleaseInst &>(*instruction).getValue();
+        if (liveness.isLiveAfter(block, i, value)) {
           error(VerificationErrorCode::OwnershipViolation, &block, i,
-                "cannot release a String owner while one of its borrowed "
+                "cannot destroy a String owner while one of its borrowed "
                 "StringViews is still live");
         }
       }
@@ -528,6 +532,15 @@ private:
         error(
             VerificationErrorCode::InvalidOperand, &block, index,
             "borrow requires a String owner and a borrowed StringView result");
+      }
+      return;
+    }
+    case OpCode::Destroy: {
+      const auto &destroy = static_cast<const DestroyInst &>(instruction);
+      verifyValue(destroy.getValue(), block, index);
+      if (!ownsManagedValue(destroy.getValue())) {
+        error(VerificationErrorCode::InvalidOperand, &block, index,
+              "destroy requires an owned managed value");
       }
       return;
     }

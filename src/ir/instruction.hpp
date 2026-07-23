@@ -30,6 +30,7 @@ enum class OpCode {
   Call,
   Retain,
   Borrow,
+  Destroy,
   Release,
   Alloc,
   GetElementPtr,
@@ -348,6 +349,18 @@ public:
   std::string toString() const override {
     return result->getName() + " = borrow " + result->getTypeName() + " " +
            owner->getTypeName() + " " + owner->getName();
+  }
+};
+
+class DestroyInst : public Instruction {
+  std::shared_ptr<Value> value;
+
+public:
+  explicit DestroyInst(std::shared_ptr<Value> v) : value(std::move(v)) {}
+  OpCode getOpCode() const override { return OpCode::Destroy; }
+  const std::shared_ptr<Value> &getValue() const { return value; }
+  std::string toString() const override {
+    return "destroy " + value->getTypeName() + " " + value->getName();
   }
 };
 

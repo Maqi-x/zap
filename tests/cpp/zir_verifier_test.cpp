@@ -1513,8 +1513,9 @@ bool testOwnershipLoweringReleasesDeadOwnedResults() {
   const auto &instructions =
       module.getFunctions().front()->getBlocks().front()->getInstructions();
   return expect(instructions.size() == 3 &&
-                    instructions[1]->getOpCode() == OpCode::Release,
-                "ownership lowering did not release a dead owned result") &&
+                    instructions[1]->getOpCode() == OpCode::Destroy &&
+                    instructions[1]->toString().rfind("destroy ", 0) == 0,
+                "ownership lowering did not destroy a dead owned result") &&
          expect(ZirVerifier().verify(module).ok(),
                 "ownership-lowered ZIR was rejected by the verifier");
 }
@@ -1536,7 +1537,7 @@ bool testOwnershipLoweringClosesUnambiguousOwnedArgumentAtReturn() {
   const auto &instructions =
       module.getFunctions().front()->getBlocks().front()->getInstructions();
   return expect(instructions.size() == 2 &&
-                    instructions.front()->getOpCode() == OpCode::Release &&
+                    instructions.front()->getOpCode() == OpCode::Destroy &&
                     instructions.back()->getOpCode() == OpCode::Ret,
                 "ownership lowering did not close an owned argument before "
                 "return") &&
@@ -1576,7 +1577,7 @@ bool testOwnershipLoweringClosesSimpleEdgeObligations() {
   const auto &blocks = module.getFunctions().front()->getBlocks();
   const auto &liveInstructions = blocks[1]->getInstructions();
   return expect(blocks.size() == 4 && liveInstructions.size() == 2 &&
-                    liveInstructions.front()->getOpCode() == OpCode::Release &&
+                    liveInstructions.front()->getOpCode() == OpCode::Destroy &&
                     liveInstructions.back()->getOpCode() == OpCode::Br,
                 "ownership lowering did not close a simple live CFG edge") &&
          expect(ZirVerifier().verify(module).ok(),
@@ -1625,7 +1626,7 @@ bool testOwnershipLoweringClosesCriticalEdgeObligations() {
       static_cast<const PhiInst &>(*exitBlock->getInstructions().front());
   return expect(edge && edge->getInstructions().size() == 2 &&
                     edge->getInstructions().front()->getOpCode() ==
-                        OpCode::Release &&
+                        OpCode::Destroy &&
                     edge->getInstructions().back()->getOpCode() == OpCode::Br &&
                     phi.getIncoming().front().first == edge->label,
                 "ownership lowering did not split the critical edge and "
@@ -1657,8 +1658,8 @@ bool testOwnershipLoweringReleasesAtLastLocalUse() {
   const auto &instructions =
       module.getFunctions().front()->getBlocks().front()->getInstructions();
   return expect(instructions.size() == 4 &&
-                    instructions[2]->getOpCode() == OpCode::Release,
-                "ownership lowering did not release at the local last use") &&
+                    instructions[2]->getOpCode() == OpCode::Destroy,
+                "ownership lowering did not destroy at the local last use") &&
          expect(ZirVerifier().verify(module).ok(),
                 "last-use-lowered ZIR was rejected by the verifier");
 }
@@ -1696,8 +1697,8 @@ bool testOwnershipLoweringReleasesOwnerAfterBorrowUse() {
   const auto &instructions =
       module.getFunctions().front()->getBlocks().front()->getInstructions();
   return expect(instructions.size() == 5 &&
-                    instructions[3]->getOpCode() == OpCode::Release,
-                "ownership lowering released a String owner before its "
+                    instructions[3]->getOpCode() == OpCode::Destroy,
+                "ownership lowering destroyed a String owner before its "
                 "borrowed view's last use") &&
          expect(ZirVerifier().verify(module).ok(),
                 "borrow-lowered ZIR was rejected by the verifier");
@@ -1734,8 +1735,8 @@ bool testCallBorrowAllowsOwnedValueToBeReleasedAfterward() {
   const auto &instructions =
       module.getFunctions().front()->getBlocks().front()->getInstructions();
   return expect(instructions.size() == 4 &&
-                    instructions[2]->getOpCode() == OpCode::Release,
-                "borrowed call did not preserve a later release") &&
+                    instructions[2]->getOpCode() == OpCode::Destroy,
+                "borrowed call did not preserve a later destroy") &&
          expect(ZirVerifier().verify(module).ok(),
                 "borrowed call of an owned value was rejected");
 }
@@ -1777,7 +1778,7 @@ bool testOwnershipLoweringReleasesOnDeadCfgEdge() {
   return expect(blocks.size() == 4 && releaseBlock &&
                     releaseBlock->getInstructions().size() == 2 &&
                     releaseBlock->getInstructions().front()->getOpCode() ==
-                        OpCode::Release,
+                        OpCode::Destroy,
                 "ownership lowering did not split the dead CFG edge") &&
          expect(ZirVerifier().verify(module).ok(),
                 "edge-lowered ZIR was rejected by the verifier");

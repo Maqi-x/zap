@@ -1267,6 +1267,12 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
                       retainInst.getValue()->getType());
     return;
   }
+  case OpCode::Destroy: {
+    const auto &destroyInst = static_cast<const DestroyInst &>(inst);
+    emitManagedRelease(lowerZIRRValue(destroyInst.getValue()),
+                       destroyInst.getValue()->getType());
+    return;
+  }
   case OpCode::Release: {
     const auto &releaseInst = static_cast<const ReleaseInst &>(inst);
     emitManagedRelease(lowerZIRRValue(releaseInst.getValue()),

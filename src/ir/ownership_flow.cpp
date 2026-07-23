@@ -64,6 +64,7 @@ std::shared_ptr<Value> instructionResult(const Instruction &instruction) {
   case OpCode::CondBr:
   case OpCode::Ret:
   case OpCode::Retain:
+  case OpCode::Destroy:
   case OpCode::Release:
   case OpCode::InlineAsm:
     return nullptr;
@@ -329,6 +330,11 @@ std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
           requireLive(states,
                       static_cast<const BorrowInst &>(*instruction).getOwner(),
                       block, i, "borrow");
+          break;
+        case OpCode::Destroy:
+          transition(states,
+                     static_cast<const DestroyInst &>(*instruction).getValue(),
+                     block, i, "destroy", destroyed);
           break;
         case OpCode::Release:
           transition(states,
