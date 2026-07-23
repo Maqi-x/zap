@@ -84,7 +84,7 @@ size_t destroyInsertionIndex(const BasicBlock &block, size_t resultIndex) {
   return index;
 }
 
-bool transfersOwnership(const Instruction &instruction,
+bool transfersOwnership(const Module &module, const Instruction &instruction,
                         const std::shared_ptr<Value> &value) {
   switch (instruction.getOpCode()) {
   case OpCode::Store: {
@@ -106,8 +106,7 @@ bool transfersOwnership(const Instruction &instruction,
     const auto &call = static_cast<const CallInst &>(instruction);
     for (size_t i = 0; i < call.getArguments().size(); ++i) {
       if (call.getArguments()[i] == value &&
-          i < call.getArgumentModes().size() &&
-          call.getArgumentModes()[i] == CallInst::ArgumentMode::Transfer) {
+          callTransfersOwnership(module, call, i)) {
         return true;
       }
     }
@@ -123,10 +122,12 @@ bool transfersOwnership(const Instruction &instruction,
 }
 
 bool wasOwnershipTransferredBefore(
+    const Module &module,
     const std::vector<std::unique_ptr<Instruction>> &instructions,
     size_t instructionIndex, const std::shared_ptr<Value> &value) {
   for (size_t i = 0; i < instructionIndex; ++i) {
-    if (instructions[i] && transfersOwnership(*instructions[i], value)) {
+    if (instructions[i] &&
+        transfersOwnership(module, *instructions[i], value)) {
       return true;
     }
   }
@@ -354,8 +355,8 @@ void lowerDeadOwnedResults(Module &module) {
         }
         for (const auto &value : ownedResults) {
           if (liveness.isLastUse(*blockOwner, i, value) &&
-              !transfersOwnership(*instructions[i], value) &&
-              !wasOwnershipTransferredBefore(instructions, i, value)) {
+              !transfersOwnership(module, *instructions[i], value) &&
+              !wasOwnershipTransferredBefore(module, instructions, i, value)) {
             destroys.emplace_back(destroyInsertionIndex(*blockOwner, i), value);
           }
         }
@@ -418,7 +419,7 @@ void lowerDeadOwnedResults(Module &module) {
           }
           bool transferred = false;
           for (const auto &use : source.getInstructions()) {
-            if (use && transfersOwnership(*use, value)) {
+            if (use && transfersOwnership(module, *use, value)) {
               transferred = true;
               break;
             }

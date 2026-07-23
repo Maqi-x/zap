@@ -403,14 +403,14 @@ bool testCallRequiresOwnershipMatchingArguments() {
   auto entry = std::make_unique<BasicBlock>("entry");
   auto calleeType = std::make_shared<FunctionPointerType>(
       std::vector<std::shared_ptr<Type>>{stringType},
-      primitive(TypeKind::Void));
+      primitive(TypeKind::Void),
+      std::vector<zir::ParameterOwnership>{
+          zir::ParameterOwnership::Transfer});
   auto callee = std::make_shared<FunctionReference>("callee", calleeType);
   argument->setOwnership(ValueOwnership::Borrowed);
   entry->addInstruction(std::make_unique<zir::CallInst>(
       nullptr, callee, std::vector<std::shared_ptr<zir::Value>>{argument},
-      false,
-      std::vector<zir::CallInst::ArgumentMode>{
-          zir::CallInst::ArgumentMode::Transfer}));
+      false));
   entry->addInstruction(std::make_unique<ReturnInst>());
   function->addBlock(std::move(entry));
   module.addFunction(std::move(function));
@@ -447,18 +447,15 @@ bool testCallConsumesExplicitManagedCopy() {
   callerEntry->addInstruction(std::make_unique<CopyInst>(copied, source));
   auto call = std::make_unique<zir::CallInst>(
       nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{copied},
-      std::vector<bool>{false}, nullptr, false,
-      std::vector<zir::CallInst::ArgumentMode>{
-          zir::CallInst::ArgumentMode::Transfer});
+      std::vector<bool>{false}, nullptr, false);
   const auto callText = call->toString();
   callerEntry->addInstruction(std::move(call));
   callerEntry->addInstruction(std::make_unique<ReturnInst>());
   caller->addBlock(std::move(callerEntry));
   module.addFunction(std::move(caller));
 
-  return expect(callText.find("transfer %String %copied") !=
-                    std::string::npos,
-                "call did not render its transfer contract") &&
+  return expect(callText.find("transfer ") == std::string::npos,
+                "call retained ownership metadata") &&
          expect(ZirVerifier().verify(module).ok(),
                 "call rejected an explicit managed copy transfer") &&
          expect(ZirVerifier().verifyOwnershipObligations(module).ok(),
@@ -1366,8 +1363,6 @@ bool testDestroyRejectsLiveBorrowedStringView() {
   entry->addInstruction(std::make_unique<zir::CallInst>(
       nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{view},
       std::vector<bool>{false}, nullptr, false,
-      std::vector<zir::CallInst::ArgumentMode>{
-          zir::CallInst::ArgumentMode::Borrow},
       std::vector<zir::ParameterEscape>{zir::ParameterEscape::NoEscape}));
   entry->addInstruction(std::make_unique<ReturnInst>());
   function->addBlock(std::move(entry));
@@ -1912,8 +1907,6 @@ bool testOwnershipLoweringReleasesOwnerAfterBorrowUse() {
   entry->addInstruction(std::make_unique<zir::CallInst>(
       nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{view},
       std::vector<bool>{false}, nullptr, false,
-      std::vector<zir::CallInst::ArgumentMode>{
-          zir::CallInst::ArgumentMode::Borrow},
       std::vector<zir::ParameterEscape>{zir::ParameterEscape::NoEscape}));
   entry->addInstruction(std::make_unique<ReturnInst>());
   function->addBlock(std::move(entry));

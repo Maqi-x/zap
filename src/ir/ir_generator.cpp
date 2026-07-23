@@ -790,7 +790,6 @@ void BoundIRGenerator::visit(sema::BoundTernaryExpression &node) {
 
 void BoundIRGenerator::visit(sema::BoundFunctionCall &node) {
   std::vector<std::shared_ptr<Value>> args;
-  std::vector<CallInst::ArgumentMode> argumentModes;
   std::vector<ParameterEscape> argumentEscapes;
   for (size_t i = 0; i < node.arguments.size(); ++i) {
     bool oldEvaluateAsAddress = evaluateAsAddress_;
@@ -801,8 +800,7 @@ void BoundIRGenerator::visit(sema::BoundFunctionCall &node) {
     auto argument = valueStack_.top();
     valueStack_.pop();
     const auto parameterOwnership = parameterOwnershipFor(*node.symbol, i);
-    argumentModes.push_back(
-        prepareCallArgument(argument, parameterOwnership));
+    prepareCallArgument(argument, parameterOwnership);
     argumentEscapes.push_back(parameterEscapeFor(*node.symbol, i));
     args.push_back(std::move(argument));
   }
@@ -825,8 +823,7 @@ void BoundIRGenerator::visit(sema::BoundFunctionCall &node) {
                                                    : ValueOwnership::Borrowed);
   currentBlock_->addInstruction(std::make_unique<CallInst>(
       reg, node.symbol->linkName, args, node.argumentIsRef, variadicPack,
-      node.symbol->returnsRef, std::move(argumentModes),
-      std::move(argumentEscapes),
+      node.symbol->returnsRef, std::move(argumentEscapes),
       node.symbol->resultBorrow));
 
   // If ref-returning function is used as value (not address), load it
@@ -851,7 +848,6 @@ void BoundIRGenerator::visit(sema::BoundIndirectCall &node) {
   valueStack_.pop();
 
   std::vector<std::shared_ptr<Value>> args;
-  std::vector<CallInst::ArgumentMode> argumentModes;
   std::vector<ParameterEscape> argumentEscapes;
   const auto functionType =
       std::static_pointer_cast<FunctionPointerType>(calleeVal->getType());
@@ -864,8 +860,7 @@ void BoundIRGenerator::visit(sema::BoundIndirectCall &node) {
         i < functionType->getParameterOwnership().size()
             ? functionType->getParameterOwnership()[i]
             : ParameterOwnership::Borrow;
-    argumentModes.push_back(
-        prepareCallArgument(argument, parameterOwnership));
+    prepareCallArgument(argument, parameterOwnership);
     argumentEscapes.push_back(i < functionType->getParameterEscapes().size()
                                   ? functionType->getParameterEscapes()[i]
                                   : ParameterEscape::Unspecified);
@@ -876,8 +871,7 @@ void BoundIRGenerator::visit(sema::BoundIndirectCall &node) {
   auto reg = createRegister(node.type, ownsResult ? ownedForType(node.type)
                                                   : ValueOwnership::Borrowed);
   currentBlock_->addInstruction(std::make_unique<CallInst>(
-      reg, calleeVal, std::move(args), false, std::move(argumentModes),
-      std::move(argumentEscapes),
+      reg, calleeVal, std::move(args), false, std::move(argumentEscapes),
       functionType->getResultBorrow()));
   valueStack_.push(reg);
 }
@@ -911,12 +905,11 @@ void BoundIRGenerator::emitInitializationStore(
       std::move(value), std::move(destination), StoreMode::Initialize));
 }
 
-CallInst::ArgumentMode BoundIRGenerator::prepareCallArgument(
-    std::shared_ptr<Value> &value,
-    ParameterOwnership parameterOwnership) {
+void BoundIRGenerator::prepareCallArgument(
+    std::shared_ptr<Value> &value, ParameterOwnership parameterOwnership) {
   if (!transfersOwnership(parameterOwnership) || !value ||
       !containsManagedValues(value->getType())) {
-    return CallInst::ArgumentMode::Borrow;
+    return;
   }
 
   const bool moveOwnedValue =
@@ -931,7 +924,6 @@ CallInst::ArgumentMode BoundIRGenerator::prepareCallArgument(
     currentBlock_->addInstruction(std::make_unique<CopyInst>(prepared, value));
   }
   value = std::move(prepared);
-  return CallInst::ArgumentMode::Transfer;
 }
 
 void BoundIRGenerator::emitReturn(std::shared_ptr<Value> value) {
@@ -2041,8 +2033,6 @@ void BoundIRGenerator::visit(sema::BoundNewExpression &node) {
     std::vector<std::shared_ptr<Value>> args;
     args.push_back(result);
     std::vector<bool> argumentIsRef{false};
-    std::vector<CallInst::ArgumentMode> argumentModes{
-        CallInst::ArgumentMode::Borrow};
     for (size_t i = 0; i < node.arguments.size(); ++i) {
       bool oldEvaluateAsAddress = evaluateAsAddress_;
       if (i < node.argumentIsRef.size() && node.argumentIsRef[i]) {
@@ -2055,8 +2045,7 @@ void BoundIRGenerator::visit(sema::BoundNewExpression &node) {
       const size_t parameterIndex = i + 1;
       const auto parameterOwnership =
           parameterOwnershipFor(*node.constructor, parameterIndex);
-      argumentModes.push_back(
-          prepareCallArgument(argument, parameterOwnership));
+      prepareCallArgument(argument, parameterOwnership);
       args.push_back(std::move(argument));
       argumentIsRef.push_back(i < node.argumentIsRef.size() &&
                               node.argumentIsRef[i]);
@@ -2064,8 +2053,7 @@ void BoundIRGenerator::visit(sema::BoundNewExpression &node) {
 
     currentBlock_->addInstruction(std::make_unique<CallInst>(
         nullptr, node.constructor->linkName, std::move(args),
-        std::move(argumentIsRef), nullptr, false,
-        std::move(argumentModes)));
+        std::move(argumentIsRef), nullptr, false));
   }
 
   valueStack_.push(result);

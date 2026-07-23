@@ -24,6 +24,9 @@ enum class OwnershipFlowState : unsigned char {
 
 std::string formatOwnershipFlowState(OwnershipFlowState state);
 
+bool callTransfersOwnership(const Module &module, const CallInst &call,
+                            size_t argumentIndex);
+
 struct OwnershipTransferViolation {
   const BasicBlock *block;
   size_t instructionIndex;

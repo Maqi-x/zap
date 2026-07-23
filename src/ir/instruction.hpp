@@ -217,19 +217,12 @@ public:
 };
 
 class CallInst : public Instruction {
-public:
-  enum class ArgumentMode {
-    Borrow,
-    Transfer,
-  };
-
 private:
   std::shared_ptr<Value> result;
   std::string funcName;
   std::shared_ptr<Value> calleeValue; // non-null for indirect calls
   std::vector<std::shared_ptr<Value>> args;
   std::vector<bool> argIsRef;
-  std::vector<ArgumentMode> argumentModes_;
   std::vector<ParameterEscape> argumentEscapes_;
   ResultBorrowContract resultBorrow_;
   std::shared_ptr<Value> variadicPack;
@@ -240,18 +233,13 @@ public:
            std::vector<std::shared_ptr<Value>> arguments,
            std::vector<bool> argumentIsRef = {},
            std::shared_ptr<Value> pack = nullptr, bool returnsRef = false,
-           std::vector<ArgumentMode> argumentModes = {},
            std::vector<ParameterEscape> argumentEscapes = {},
            ResultBorrowContract resultBorrow = {})
       : result(std::move(res)), funcName(std::move(name)),
         args(std::move(arguments)), argIsRef(std::move(argumentIsRef)),
-        argumentModes_(std::move(argumentModes)),
         argumentEscapes_(std::move(argumentEscapes)),
         resultBorrow_(resultBorrow),
         variadicPack(std::move(pack)), returnsRef_(returnsRef) {
-    if (argumentModes_.empty()) {
-      argumentModes_.assign(args.size(), ArgumentMode::Borrow);
-    }
     if (argumentEscapes_.empty()) {
       argumentEscapes_.assign(args.size(), ParameterEscape::Unspecified);
     }
@@ -260,16 +248,12 @@ public:
   CallInst(std::shared_ptr<Value> res, std::shared_ptr<Value> callee,
            std::vector<std::shared_ptr<Value>> arguments,
            bool returnsRef = false,
-           std::vector<ArgumentMode> argumentModes = {},
            std::vector<ParameterEscape> argumentEscapes = {},
            ResultBorrowContract resultBorrow = {})
       : result(std::move(res)), calleeValue(std::move(callee)),
-        args(std::move(arguments)), argumentModes_(std::move(argumentModes)),
+        args(std::move(arguments)),
         argumentEscapes_(std::move(argumentEscapes)),
         resultBorrow_(resultBorrow), returnsRef_(returnsRef) {
-    if (argumentModes_.empty()) {
-      argumentModes_.assign(args.size(), ArgumentMode::Borrow);
-    }
     if (argumentEscapes_.empty()) {
       argumentEscapes_.assign(args.size(), ParameterEscape::Unspecified);
     }
@@ -284,9 +268,6 @@ public:
     return args;
   }
   const std::vector<bool> &getArgumentIsRef() const { return argIsRef; }
-  const std::vector<ArgumentMode> &getArgumentModes() const {
-    return argumentModes_;
-  }
   const std::vector<ParameterEscape> &getArgumentEscapes() const {
     return argumentEscapes_;
   }
@@ -297,11 +278,6 @@ public:
     s += calleeValue ? calleeValue->getName() : "@" + funcName;
     s += "(";
     for (size_t i = 0; i < args.size(); ++i) {
-      if (containsManagedValues(args[i]->getType()) &&
-          i < argumentModes_.size()) {
-        s += argumentModes_[i] == ArgumentMode::Transfer ? "transfer "
-                                                         : "borrow ";
-      }
       if (i < argumentEscapes_.size() &&
           argumentEscapes_[i] == ParameterEscape::NoEscape) {
         s += "noescape ";

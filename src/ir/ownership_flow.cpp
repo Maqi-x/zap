@@ -116,21 +116,40 @@ bool transfersThroughCast(const CastInst &cast) {
          cast.getResult() && isOwned(cast.getResult()->getOwnership());
 }
 
-bool transfersThroughCallArgument(const Module &module, const CallInst &call,
-                                  size_t argumentIndex) {
+} // namespace
+
+bool callTransfersOwnership(const Module &module, const CallInst &call,
+                            size_t argumentIndex) {
   if (argumentIndex >= call.getArguments().size() ||
-      argumentIndex >= call.getArgumentModes().size() ||
       !ownsManagedValue(call.getArguments()[argumentIndex]) ||
-      call.getArgumentModes()[argumentIndex] !=
-          CallInst::ArgumentMode::Transfer ||
       (argumentIndex < call.getArgumentIsRef().size() &&
        call.getArgumentIsRef()[argumentIndex])) {
     return false;
   }
-  return !isBorrowedMethodSelf(module, call, argumentIndex);
-}
 
-} // namespace
+  ParameterOwnership ownership = ParameterOwnership::Borrow;
+  if (call.isIndirect()) {
+    const auto functionType = call.getCalleeValue()
+                                  ? std::dynamic_pointer_cast<FunctionPointerType>(
+                                        call.getCalleeValue()->getType())
+                                  : nullptr;
+    if (!functionType ||
+        argumentIndex >= functionType->getParameterOwnership().size()) {
+      return false;
+    }
+    ownership = functionType->getParameterOwnership()[argumentIndex];
+  } else {
+    const auto *callee = module.findFunction(call.getFunctionName());
+    if (!callee || argumentIndex >= callee->getArguments().size() ||
+        !callee->getArguments()[argumentIndex]) {
+      return false;
+    }
+    ownership = callee->getArguments()[argumentIndex]->getParameterOwnership();
+  }
+
+  return transfersOwnership(ownership) &&
+         !isBorrowedMethodSelf(module, call, argumentIndex);
+}
 
 std::string formatOwnershipFlowState(OwnershipFlowState state) {
   const auto bits = static_cast<unsigned char>(state);
@@ -331,7 +350,7 @@ std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
           const auto &call = static_cast<const CallInst &>(*instruction);
           for (size_t argumentIndex = 0;
                argumentIndex < call.getArguments().size(); ++argumentIndex) {
-            if (transfersThroughCallArgument(module_, call, argumentIndex)) {
+            if (callTransfersOwnership(module_, call, argumentIndex)) {
               transition(states, call.getArguments()[argumentIndex], block, i,
                          "call", moved);
             } else {

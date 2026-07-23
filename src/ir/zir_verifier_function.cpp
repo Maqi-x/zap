@@ -732,11 +732,6 @@ private:
       error(VerificationErrorCode::InvalidCall, &block, index,
             "call ref-argument metadata has the wrong size");
     }
-    if (call.getArgumentModes().size() != call.getArguments().size()) {
-      error(VerificationErrorCode::InvalidCall, &block, index,
-            "call argument mode metadata has the wrong size");
-      return;
-    }
     if (call.getArgumentEscapes().size() != call.getArguments().size()) {
       error(VerificationErrorCode::InvalidCall, &block, index,
             "call argument escape metadata has the wrong size");
@@ -754,16 +749,9 @@ private:
     }
     for (size_t i = 0; i < call.getArguments().size(); ++i) {
       const auto &argument = call.getArguments()[i];
-      const auto expectedMode =
+      const bool transfers =
           i < parameterOwnership.size() &&
-                  transfersOwnership(parameterOwnership[i])
-              ? CallInst::ArgumentMode::Transfer
-              : CallInst::ArgumentMode::Borrow;
-      if (call.getArgumentModes()[i] != expectedMode) {
-        error(VerificationErrorCode::InvalidCall, &block, index,
-              "call argument ownership does not match parameter contract: " +
-                  std::to_string(i));
-      }
+          transfersOwnership(parameterOwnership[i]);
       const auto expectedEscape = i < parameterEscapes.size()
                                       ? parameterEscapes[i]
                                       : ParameterEscape::Unspecified;
@@ -772,18 +760,16 @@ private:
               "call argument escape does not match parameter contract: " +
                   std::to_string(i));
       }
-      if (call.getArgumentModes()[i] == CallInst::ArgumentMode::Transfer &&
-          !ownsManagedValue(argument)) {
+      if (transfers && !ownsManagedValue(argument)) {
         error(VerificationErrorCode::InvalidCall, &block, index,
               "call transfer argument must be owned: " + std::to_string(i));
       }
       if (i < call.getArgumentIsRef().size() && call.getArgumentIsRef()[i] &&
-          call.getArgumentModes()[i] != CallInst::ArgumentMode::Borrow) {
+          transfers) {
         error(VerificationErrorCode::InvalidCall, &block, index,
               "ref call argument cannot transfer ownership");
       }
-      if (call.getArgumentModes()[i] == CallInst::ArgumentMode::Transfer &&
-          isBorrowedMethodSelf(call, i)) {
+      if (transfers && isBorrowedMethodSelf(call, i)) {
         error(VerificationErrorCode::InvalidCall, &block, index,
               "method self argument cannot transfer ownership");
       }

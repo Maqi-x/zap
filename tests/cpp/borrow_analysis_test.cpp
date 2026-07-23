@@ -546,7 +546,6 @@ bool testVerifierAllowsLocalBorrowForwardingToNoEscapeParameter() {
   entry->addInstruction(std::make_unique<CallInst>(
       nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{view},
       std::vector<bool>{false}, nullptr, false,
-      std::vector<CallInst::ArgumentMode>{CallInst::ArgumentMode::Borrow},
       std::vector<ParameterEscape>{ParameterEscape::NoEscape}));
   entry->addInstruction(std::make_unique<zir::DestroyInst>(owner));
   entry->addInstruction(std::make_unique<ReturnInst>());
@@ -579,7 +578,6 @@ bool testVerifierAllowsNoEscapeForwarding() {
   entry->addInstruction(std::make_unique<CallInst>(
       nullptr, "consume", std::vector<std::shared_ptr<zir::Value>>{view},
       std::vector<bool>{false}, nullptr, false,
-      std::vector<CallInst::ArgumentMode>{CallInst::ArgumentMode::Borrow},
       std::vector<ParameterEscape>{ParameterEscape::NoEscape}));
   entry->addInstruction(std::make_unique<ReturnInst>());
   function->addBlock(std::move(entry));
@@ -647,7 +645,6 @@ bool testVerifierTracksBorrowedCallResultToLocalOwner() {
   entry->addInstruction(std::make_unique<CallInst>(
       result, "tail", std::vector<std::shared_ptr<zir::Value>>{source},
       std::vector<bool>{false}, nullptr, false,
-      std::vector<CallInst::ArgumentMode>{CallInst::ArgumentMode::Borrow},
       std::vector<ParameterEscape>{ParameterEscape::Unspecified},
       ResultBorrowContract::fromParameter(0)));
   entry->addInstruction(std::make_unique<ReturnInst>(result));
@@ -676,7 +673,6 @@ bool testBorrowedCallResultExtendsTemporaryOwnerLiveness() {
   entry->addInstruction(std::make_unique<CallInst>(
       result, "tail", std::vector<std::shared_ptr<zir::Value>>{source},
       std::vector<bool>{false}, nullptr, false,
-      std::vector<CallInst::ArgumentMode>{CallInst::ArgumentMode::Borrow},
       std::vector<ParameterEscape>{ParameterEscape::Unspecified},
       ResultBorrowContract::fromParameter(0)));
   entry->addInstruction(std::make_unique<CallInst>(
@@ -707,7 +703,6 @@ bool testVerifierAllowsForwardedBorrowedCallResult() {
   entry->addInstruction(std::make_unique<CallInst>(
       result, "tail", std::vector<std::shared_ptr<zir::Value>>{source},
       std::vector<bool>{false}, nullptr, false,
-      std::vector<CallInst::ArgumentMode>{CallInst::ArgumentMode::Borrow},
       std::vector<ParameterEscape>{ParameterEscape::Unspecified},
       ResultBorrowContract::fromParameter(0)));
   entry->addInstruction(std::make_unique<ReturnInst>(result));
@@ -736,7 +731,6 @@ bool testVerifierRejectsReturnedNoEscapeCallResult() {
   entry->addInstruction(std::make_unique<CallInst>(
       result, "tail", std::vector<std::shared_ptr<zir::Value>>{source},
       std::vector<bool>{false}, nullptr, false,
-      std::vector<CallInst::ArgumentMode>{CallInst::ArgumentMode::Borrow},
       std::vector<ParameterEscape>{ParameterEscape::Unspecified},
       ResultBorrowContract::fromParameter(0)));
   entry->addInstruction(std::make_unique<ReturnInst>(result));
