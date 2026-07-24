@@ -31,6 +31,7 @@ class Workspace {
   std::shared_ptr<const SemanticSnapshot>
   buildSnapshot(const SourceSnapshot &document, bool allowEntryErrors);
   void invalidateSnapshots(const std::string &uri);
+  void invalidateSnapshotsForPath(const std::filesystem::path &path);
 
 public:
   Workspace();

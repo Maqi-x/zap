@@ -32,6 +32,7 @@ bool FrontendSession::loadModule(
     FrontendProject &project, std::unordered_map<std::string, bool> &visiting) {
   const auto canonicalPath = std::filesystem::weakly_canonical(modulePath);
   const auto moduleId = canonicalPath.string();
+  project.visitedModuleIds.insert(moduleId);
   if (project.modules.count(moduleId) != 0) {
     return true;
   }

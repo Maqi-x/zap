@@ -13,6 +13,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace zap::frontend {
@@ -28,6 +29,7 @@ struct FrontendSessionConfig {
 struct FrontendProject {
   std::string entryModuleId;
   std::map<std::string, std::unique_ptr<sema::ModuleInfo>> modules;
+  std::unordered_set<std::string> visitedModuleIds;
   std::vector<Diagnostic> diagnostics;
   std::vector<std::string> errors;
   sema::SemanticInfo semanticInfo;

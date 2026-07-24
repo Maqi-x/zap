@@ -37,18 +37,29 @@ const SourceSnapshot *Workspace::document(const std::string &uri) const {
 void Workspace::open(const std::string &uri, std::filesystem::path path,
                      std::string text, int64_t version) {
   sourceManager_.open(uri, std::move(path), std::move(text), version);
-  invalidateSnapshots(uri);
+  if (const auto *document = this->document(uri)) {
+    invalidateSnapshotsForPath(document->path);
+  }
 }
 
 void Workspace::update(const std::string &uri, std::string text,
                        int64_t version) {
   sourceManager_.update(uri, std::move(text), version);
-  invalidateSnapshots(uri);
+  if (const auto *document = this->document(uri)) {
+    invalidateSnapshotsForPath(document->path);
+  }
 }
 
 void Workspace::close(const std::string &uri) {
+  const auto *document = this->document(uri);
+  const auto path = document ? std::optional<std::filesystem::path>(document->path)
+                             : std::nullopt;
   sourceManager_.close(uri);
-  invalidateSnapshots(uri);
+  if (path) {
+    invalidateSnapshotsForPath(*path);
+  } else {
+    invalidateSnapshots(uri);
+  }
 }
 
 bool Workspace::contains(const std::string &uri) const {
@@ -90,6 +101,21 @@ void Workspace::invalidateSnapshots(const std::string &uri) {
   tolerantSnapshots_.erase(uri);
 }
 
+void Workspace::invalidateSnapshotsForPath(const std::filesystem::path &path) {
+  const auto canonical = std::filesystem::weakly_canonical(path).string();
+  auto invalidate = [&canonical](auto &snapshots) {
+    for (auto it = snapshots.begin(); it != snapshots.end();) {
+      if (it->second->project.dependencyModuleIds.count(canonical) != 0) {
+        it = snapshots.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  };
+  invalidate(strictSnapshots_);
+  invalidate(tolerantSnapshots_);
+}
+
 std::shared_ptr<const SemanticSnapshot>
 Workspace::buildSnapshot(const SourceSnapshot &document,
                          bool allowEntryErrors) {
@@ -105,6 +131,7 @@ Workspace::buildSnapshot(const SourceSnapshot &document,
                       : std::nullopt;
       });
   auto project = session.load(document.path);
+  snapshot->project.dependencyModuleIds = std::move(project.visitedModuleIds);
   if (!project.loaded) {
     appendDiagnostics(snapshot->project.analysis, project.diagnostics,
                       sourceManager_.uriForPath(document.path));

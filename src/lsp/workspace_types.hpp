@@ -9,6 +9,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace zap::lsp {
@@ -21,6 +22,7 @@ struct AnalysisResult {
 struct ProjectState {
   std::map<std::string, std::unique_ptr<sema::ModuleInfo>> moduleMap;
   std::unordered_map<std::string, std::string> uriByModuleId;
+  std::unordered_set<std::string> dependencyModuleIds;
   sema::SemanticInfo semanticInfo;
   AnalysisResult analysis;
 };
