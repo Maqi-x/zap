@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 // Shared ARC object header ABI used by runtime (C) and codegen (C++).
-#define ZAP_ARC_ABI_VERSION 2
+#define ZAP_ARC_ABI_VERSION 3
 #define ZAP_ARC_STRONG_COUNT_INDEX 0
 #define ZAP_ARC_WEAK_COUNT_INDEX 1
 #define ZAP_ARC_ALIVE_INDEX 2
@@ -20,6 +20,7 @@
 // Flag bits packed into the gc_mark byte (index 3).
 #define ZAP_ARC_GC_GARBAGE 0x1
 #define ZAP_ARC_GC_BUFFERED 0x2
+#define ZAP_ARC_GC_FINALIZING 0x4
 
 typedef void (*zap_arc_trace_visitor_t)(void *context, void *child);
 typedef void (*zap_arc_trace_fn_t)(void *object,
@@ -36,6 +37,8 @@ typedef struct zap_arc_header_t {
   uint8_t alive;
   uint8_t gc_mark;
   void (*release_fn)(void *);
+  // Finalizes the object and drops its fields; storage is deallocated
+  // separately.
   void (*destroy_fn)(void *);
   const zap_arc_metadata_t *metadata;
   void **vtable;
@@ -65,6 +68,7 @@ extern "C" {
 
 void zap_arc_add_possible_root(void *object);
 void zap_arc_remove_possible_root(void *object);
+void zap_arc_deallocate(void *object);
 void zap_arc_cycle_collect(void);
 void zap_arc_collect_at_safepoint(void);
 void *zap_runtime_alloc(size_t size);

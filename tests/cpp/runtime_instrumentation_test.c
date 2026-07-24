@@ -10,19 +10,15 @@ typedef struct test_object_t {
 } test_object_t;
 
 static int destroy_count = 0;
+static int preserved_strong_counts = 1;
 
 static void test_destroy(void *object) {
   test_object_t *test_object = (test_object_t *)object;
+  if (test_object->header.strong_count != 1) {
+    preserved_strong_counts = 0;
+  }
   test_object->header.alive = 0;
   ++destroy_count;
-}
-
-static void test_release(void *object) {
-  test_object_t *test_object = (test_object_t *)object;
-  --test_object->header.strong_count;
-  if (test_object->header.strong_count == 0) {
-    test_object->header.destroy_fn(object);
-  }
 }
 
 static void trace_child(void *object, zap_arc_trace_visitor_t visitor,
@@ -39,13 +35,15 @@ static int expect(int condition, const char *message) {
   return condition;
 }
 
-static test_object_t make_test_object(const zap_arc_metadata_t *metadata) {
-  test_object_t object = {0};
-  object.header.strong_count = 1;
-  object.header.alive = 1;
-  object.header.release_fn = test_release;
-  object.header.destroy_fn = test_destroy;
-  object.header.metadata = metadata;
+static test_object_t *make_test_object(const zap_arc_metadata_t *metadata) {
+  test_object_t *object = (test_object_t *)calloc(1, sizeof(test_object_t));
+  if (!object) {
+    return NULL;
+  }
+  object->header.strong_count = 1;
+  object->header.alive = 1;
+  object->header.destroy_fn = test_destroy;
+  object->header.metadata = metadata;
   return object;
 }
 
@@ -75,15 +73,23 @@ static int test_direct_events_and_allocation(void) {
 
 static int test_cycle_collection_events(void) {
   static const zap_arc_metadata_t metadata = {trace_child};
-  test_object_t first = make_test_object(&metadata);
-  test_object_t second = make_test_object(&metadata);
-  first.child = &second;
-  second.child = &first;
+  test_object_t *first = make_test_object(&metadata);
+  test_object_t *second = make_test_object(&metadata);
+  if (!expect(first != NULL && second != NULL,
+              "failed to allocate cycle test objects")) {
+    free(first);
+    free(second);
+    return 0;
+  }
+  first->child = second;
+  second->child = first;
+  first->header.weak_count = 1;
 
   destroy_count = 0;
+  preserved_strong_counts = 1;
   zap_runtime_ownership_reset_counters();
-  zap_arc_add_possible_root(&first);
-  zap_arc_add_possible_root(&second);
+  zap_arc_add_possible_root(first);
+  zap_arc_add_possible_root(second);
 
   zap_runtime_ownership_counters_t counters = {0};
   zap_runtime_ownership_snapshot_counters(&counters);
@@ -96,13 +102,23 @@ static int test_cycle_collection_events(void) {
 
   zap_arc_collect_at_safepoint();
   zap_runtime_ownership_snapshot_counters(&counters);
-  return expect(counters.collection_runs == 1,
-                "collection did not run at the safe point") &&
-         expect(counters.visited_objects == 2,
-                "visited-object counter is incorrect") &&
-         expect(counters.reclaimed_objects == 2,
-                "reclaimed-object counter is incorrect") &&
-         expect(destroy_count == 2, "cycle objects were not destroyed");
+  int passed = expect(counters.collection_runs == 1,
+                      "collection did not run at the safe point") &&
+               expect(counters.visited_objects == 2,
+                      "visited-object counter is incorrect") &&
+               expect(counters.reclaimed_objects == 2,
+                      "reclaimed-object counter is incorrect") &&
+               expect(destroy_count == 2,
+                      "cycle objects were not destroyed") &&
+               expect(preserved_strong_counts,
+                      "collector rewrote a cycle object's strong count") &&
+               expect(first->header.alive == 0,
+                      "weakly referenced cycle object is still alive") &&
+               expect(first->header.strong_count == 1,
+                      "weak tombstone did not preserve its strong count");
+  first->header.weak_count = 0;
+  zap_arc_deallocate(first);
+  return passed;
 }
 
 int main(void) {

@@ -40,6 +40,7 @@ public:
 
 private:
   llvm::Function *getOrCreateRefcountFailureFunction(const char *name);
+  llvm::Function *getOrCreateArcDeallocateFunction();
   void emitRefcountFailure(const char *name);
   void ensureNestedClassArcSupport(const std::shared_ptr<zir::Type> &type);
   llvm::Function *emitClassTraceFunction(

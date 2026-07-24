@@ -28,6 +28,22 @@ ClassArcEmitter::getOrCreateRefcountFailureFunction(const char *name) {
   return failureFn;
 }
 
+llvm::Function *ClassArcEmitter::getOrCreateArcDeallocateFunction() {
+  auto existing = codegen_.functionMap_.find("zap_arc_deallocate");
+  if (existing != codegen_.functionMap_.end()) {
+    return existing->second;
+  }
+
+  auto *rawPtrTy = llvm::PointerType::getUnqual(codegen_.ctx_);
+  auto *deallocateType = llvm::FunctionType::get(
+      llvm::Type::getVoidTy(codegen_.ctx_), {rawPtrTy}, false);
+  auto *deallocateFn =
+      llvm::Function::Create(deallocateType, llvm::Function::ExternalLinkage,
+                             "zap_arc_deallocate", *codegen_.module_);
+  codegen_.functionMap_["zap_arc_deallocate"] = deallocateFn;
+  return deallocateFn;
+}
+
 void ClassArcEmitter::emitRefcountFailure(const char *name) {
   codegen_.builder_.CreateCall(getOrCreateRefcountFailureFunction(name));
   codegen_.builder_.CreateUnreachable();
@@ -401,8 +417,8 @@ void ClassArcEmitter::emitReleaseWeakIfNeeded(
       codegen_.ctx_, "arc.weak.release.do", codegen_.currentFn_);
   auto *underflowBB = llvm::BasicBlock::Create(
       codegen_.ctx_, "arc.weak.release.underflow", codegen_.currentFn_);
-  auto *checkFreeBB = llvm::BasicBlock::Create(
-      codegen_.ctx_, "arc.weak.release.checkfree", codegen_.currentFn_);
+  auto *checkDeadBB = llvm::BasicBlock::Create(
+      codegen_.ctx_, "arc.weak.release.checkdead", codegen_.currentFn_);
   auto *freeBB = llvm::BasicBlock::Create(
       codegen_.ctx_, "arc.weak.release.free", codegen_.currentFn_);
   auto *contBB = llvm::BasicBlock::Create(
@@ -441,42 +457,37 @@ void ClassArcEmitter::emitReleaseWeakIfNeeded(
   auto *isWeakZero = codegen_.builder_.CreateICmpEQ(
       nextWeak,
       llvm::ConstantInt::get(llvm::Type::getInt64Ty(codegen_.ctx_), 0));
-  codegen_.builder_.CreateCondBr(isWeakZero, checkFreeBB, contBB);
+  codegen_.builder_.CreateCondBr(isWeakZero, checkDeadBB, contBB);
 
-  codegen_.builder_.SetInsertPoint(checkFreeBB);
-  auto *strongAddr = codegen_.builder_.CreateStructGEP(
-      objectTy, typedPtr, kClassStrongCountIndex,
-      "arc.weak.release.strong.addr");
-  auto *strongCount =
-      codegen_.builder_.CreateLoad(llvm::Type::getInt64Ty(codegen_.ctx_),
-                                   strongAddr, "arc.weak.release.strong");
-  auto *isStrongZero = codegen_.builder_.CreateICmpEQ(
-      strongCount,
-      llvm::ConstantInt::get(llvm::Type::getInt64Ty(codegen_.ctx_), 0));
-  codegen_.builder_.CreateCondBr(isStrongZero, freeBB, contBB);
+  codegen_.builder_.SetInsertPoint(checkDeadBB);
+  auto *aliveAddr = codegen_.builder_.CreateStructGEP(
+      objectTy, typedPtr, kClassAliveIndex, "arc.weak.release.alive.addr");
+  auto *alive = codegen_.builder_.CreateLoad(
+      llvm::Type::getInt8Ty(codegen_.ctx_), aliveAddr,
+      "arc.weak.release.alive");
+  auto *isDead = codegen_.builder_.CreateICmpEQ(
+      alive,
+      llvm::ConstantInt::get(llvm::Type::getInt8Ty(codegen_.ctx_), 0));
+  auto *gcMarkAddr = codegen_.builder_.CreateStructGEP(
+      objectTy, typedPtr, kClassGcMarkIndex, "arc.weak.release.gcmark.addr");
+  auto *gcMark = codegen_.builder_.CreateLoad(
+      llvm::Type::getInt8Ty(codegen_.ctx_), gcMarkAddr,
+      "arc.weak.release.gcmark");
+  auto *protectedBits = codegen_.builder_.CreateAnd(
+      gcMark, llvm::ConstantInt::get(llvm::Type::getInt8Ty(codegen_.ctx_),
+                                     kClassGcGarbageMask |
+                                         kClassGcFinalizingMask));
+  auto *isNotFinalizing = codegen_.builder_.CreateICmpEQ(
+      protectedBits,
+      llvm::ConstantInt::get(llvm::Type::getInt8Ty(codegen_.ctx_), 0));
+  auto *canDeallocate = codegen_.builder_.CreateAnd(isDead, isNotFinalizing);
+  codegen_.builder_.CreateCondBr(canDeallocate, freeBB, contBB);
 
   codegen_.builder_.SetInsertPoint(freeBB);
   auto *rawObject = codegen_.builder_.CreateBitCast(
       typedPtr,
       llvm::PointerType::getUnqual(codegen_.ctx_));
-  if (codegen_.functionMap_.count("zap_arc_remove_possible_root") == 0) {
-    auto *removeTy = llvm::FunctionType::get(
-        llvm::Type::getVoidTy(codegen_.ctx_), {rawObject->getType()}, false);
-    auto *removeFn = llvm::Function::Create(
-        removeTy, llvm::Function::ExternalLinkage,
-        "zap_arc_remove_possible_root", *codegen_.module_);
-    codegen_.functionMap_["zap_arc_remove_possible_root"] = removeFn;
-  }
-  codegen_.builder_.CreateCall(
-      codegen_.functionMap_.at("zap_arc_remove_possible_root"), {rawObject});
-  if (codegen_.functionMap_.count("free") == 0) {
-    auto *freeTy = llvm::FunctionType::get(llvm::Type::getVoidTy(codegen_.ctx_),
-                                           {rawObject->getType()}, false);
-    auto *freeFn = llvm::Function::Create(
-        freeTy, llvm::Function::ExternalLinkage, "free", *codegen_.module_);
-    codegen_.functionMap_["free"] = freeFn;
-  }
-  codegen_.builder_.CreateCall(codegen_.functionMap_.at("free"), {rawObject});
+  codegen_.builder_.CreateCall(getOrCreateArcDeallocateFunction(), {rawObject});
   codegen_.builder_.CreateBr(contBB);
 
   codegen_.builder_.SetInsertPoint(contBB);
@@ -719,8 +730,6 @@ void ClassArcEmitter::ensureClassArcSupport(
       llvm::BasicBlock::Create(codegen_.ctx_, "entry", destroyHelper);
   auto *destroyReturnBB =
       llvm::BasicBlock::Create(codegen_.ctx_, "arc.ret", destroyHelper);
-  auto *destroyFreeBB =
-      llvm::BasicBlock::Create(codegen_.ctx_, "arc.free", destroyHelper);
   codegen_.builder_.SetInsertPoint(destroyEntry);
 
   auto *destroyRawObject = &*destroyHelper->arg_begin();
@@ -743,6 +752,14 @@ void ClassArcEmitter::ensureClassArcSupport(
   codegen_.builder_.CreateStore(
       llvm::ConstantInt::get(llvm::Type::getInt8Ty(codegen_.ctx_), 0),
       aliveAddr);
+  auto *gcMarkAddr = codegen_.builder_.CreateStructGEP(
+      objectTy, destroyTypedObject, kClassGcMarkIndex, "gcmark.addr");
+  auto *gcMark = codegen_.builder_.CreateLoad(
+      llvm::Type::getInt8Ty(codegen_.ctx_), gcMarkAddr, "gcmark");
+  auto *finalizingMark = codegen_.builder_.CreateOr(
+      gcMark, llvm::ConstantInt::get(llvm::Type::getInt8Ty(codegen_.ctx_),
+                                     kClassGcFinalizingMask));
+  codegen_.builder_.CreateStore(finalizingMark, gcMarkAddr);
   auto dtorIt =
       codegen_.classDestructorFns_.find(classType->getCodegenName());
   if (dtorIt != codegen_.classDestructorFns_.end()) {
@@ -764,36 +781,13 @@ void ClassArcEmitter::ensureClassArcSupport(
     codegen_.emitManagedRelease(fieldValue, field.type);
   }
 
-  auto *weakAddr = codegen_.builder_.CreateStructGEP(
-      objectTy, destroyTypedObject, kClassWeakCountIndex, "weakcount.addr");
-  auto *weakCount = codegen_.builder_.CreateLoad(
-      llvm::Type::getInt64Ty(codegen_.ctx_), weakAddr, "weakcount");
-  auto *isWeakZero = codegen_.builder_.CreateICmpEQ(
-      weakCount,
-      llvm::ConstantInt::get(llvm::Type::getInt64Ty(codegen_.ctx_), 0));
-  codegen_.builder_.CreateCondBr(isWeakZero, destroyFreeBB, destroyReturnBB);
-
-  codegen_.builder_.SetInsertPoint(destroyFreeBB);
-  if (codegen_.functionMap_.count("zap_arc_remove_possible_root") == 0) {
-    auto *removeTy = llvm::FunctionType::get(
-        llvm::Type::getVoidTy(codegen_.ctx_), {rawPtrTy}, false);
-    auto *removeFn = llvm::Function::Create(
-        removeTy, llvm::Function::ExternalLinkage,
-        "zap_arc_remove_possible_root", *codegen_.module_);
-    codegen_.functionMap_["zap_arc_remove_possible_root"] = removeFn;
-  }
-  codegen_.builder_.CreateCall(
-      codegen_.functionMap_.at("zap_arc_remove_possible_root"),
-      {destroyRawObject});
-  if (codegen_.functionMap_.count("free") == 0) {
-    auto *freeTy = llvm::FunctionType::get(llvm::Type::getVoidTy(codegen_.ctx_),
-                                           {rawPtrTy}, false);
-    auto *freeFn = llvm::Function::Create(
-        freeTy, llvm::Function::ExternalLinkage, "free", *codegen_.module_);
-    codegen_.functionMap_["free"] = freeFn;
-  }
-  codegen_.builder_.CreateCall(codegen_.functionMap_.at("free"),
-                               {destroyRawObject});
+  auto *markAfterDrop = codegen_.builder_.CreateLoad(
+      llvm::Type::getInt8Ty(codegen_.ctx_), gcMarkAddr, "gcmark.after.drop");
+  auto *finalizedMark = codegen_.builder_.CreateAnd(
+      markAfterDrop,
+      llvm::ConstantInt::get(llvm::Type::getInt8Ty(codegen_.ctx_),
+                             static_cast<uint8_t>(~kClassGcFinalizingMask)));
+  codegen_.builder_.CreateStore(finalizedMark, gcMarkAddr);
   codegen_.builder_.CreateBr(destroyReturnBB);
 
   codegen_.builder_.SetInsertPoint(destroyReturnBB);
@@ -810,6 +804,8 @@ void ClassArcEmitter::ensureClassArcSupport(
                                                 releaseHelper);
   auto *destroyBB =
       llvm::BasicBlock::Create(codegen_.ctx_, "arc.destroy", releaseHelper);
+  auto *deallocateBB =
+      llvm::BasicBlock::Create(codegen_.ctx_, "arc.deallocate", releaseHelper);
   bool canBeCyclic =
       codegen_.cyclicClasses_.count(classType->getCodegenName()) != 0;
   auto *cycleBB =
@@ -858,6 +854,16 @@ void ClassArcEmitter::ensureClassArcSupport(
                                  canBeCyclic ? cycleBB : returnBB);
 
   codegen_.builder_.SetInsertPoint(destroyBB);
+  if (codegen_.functionMap_.count("zap_arc_remove_possible_root") == 0) {
+    auto *removeTy = llvm::FunctionType::get(
+        llvm::Type::getVoidTy(codegen_.ctx_), {rawPtrTy}, false);
+    auto *removeFn = llvm::Function::Create(
+        removeTy, llvm::Function::ExternalLinkage,
+        "zap_arc_remove_possible_root", *codegen_.module_);
+    codegen_.functionMap_["zap_arc_remove_possible_root"] = removeFn;
+  }
+  codegen_.builder_.CreateCall(
+      codegen_.functionMap_.at("zap_arc_remove_possible_root"), {rawObject});
   auto *destroyAddr = codegen_.builder_.CreateStructGEP(
       objectTy, typedObject, kClassDestroyFnIndex, "destroy.addr");
   auto *destroyFn = codegen_.builder_.CreateLoad(
@@ -866,6 +872,17 @@ void ClassArcEmitter::ensureClassArcSupport(
   auto *destroyTy = llvm::FunctionType::get(
       llvm::Type::getVoidTy(codegen_.ctx_), {rawPtrTy}, false);
   codegen_.builder_.CreateCall(destroyTy, destroyFn, {rawObject});
+  auto *weakAddr = codegen_.builder_.CreateStructGEP(
+      objectTy, typedObject, kClassWeakCountIndex, "weakcount.addr");
+  auto *weakCount = codegen_.builder_.CreateLoad(
+      llvm::Type::getInt64Ty(codegen_.ctx_), weakAddr, "weakcount");
+  auto *isWeakZero = codegen_.builder_.CreateICmpEQ(
+      weakCount,
+      llvm::ConstantInt::get(llvm::Type::getInt64Ty(codegen_.ctx_), 0));
+  codegen_.builder_.CreateCondBr(isWeakZero, deallocateBB, returnBB);
+
+  codegen_.builder_.SetInsertPoint(deallocateBB);
+  codegen_.builder_.CreateCall(getOrCreateArcDeallocateFunction(), {rawObject});
   codegen_.builder_.CreateBr(returnBB);
 
   if (canBeCyclic) {

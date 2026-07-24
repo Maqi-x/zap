@@ -21,5 +21,6 @@ static_assert(kClassHeaderFieldCount == kClassFieldStartIndex,
 // Flag bits packed into the gc_mark byte (see arc_layout.h).
 constexpr unsigned kClassGcGarbageMask = ZAP_ARC_GC_GARBAGE;
 constexpr unsigned kClassGcBufferedMask = ZAP_ARC_GC_BUFFERED;
+constexpr unsigned kClassGcFinalizingMask = ZAP_ARC_GC_FINALIZING;
 
 } // namespace codegen

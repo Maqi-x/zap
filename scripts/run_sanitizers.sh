@@ -25,6 +25,7 @@ python3 run_tests.py --zapc "$build_dir/zapc" -j 1 \
   tests/string_view_owned_semantics_test.zp \
   tests/class_arc_test.zp \
   tests/class_arc_strong_test.zp \
+  tests/class_cycle_weak_tombstone_test.zp \
   tests/class_record_cycle_detect_test.zp \
   tests/class_weak_lock_test.zp \
   tests/failable_class_return_test.zp \

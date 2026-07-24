@@ -211,6 +211,14 @@ void zap_arc_remove_possible_root(void *object) {
   }
 }
 
+void zap_arc_deallocate(void *object) {
+  if (!object) {
+    return;
+  }
+  zap_arc_remove_possible_root(object);
+  free(object);
+}
+
 typedef struct {
   void **keys;
   uint32_t *vals;
@@ -499,16 +507,24 @@ void zap_arc_cycle_collect(void) {
       continue;
     }
     header->gc_mark = ZAP_ARC_GC_GARBAGE;
-    header->strong_count = 1;
+    header->alive = 0;
 #if defined(ZAP_RUNTIME_INSTRUMENTATION)
     ++zap_runtime_ownership_counters.reclaimed_objects;
 #endif
   }
   for (size_t i = 0; i < ws_count; ++i) {
     zap_arc_header_t *header = (zap_arc_header_t *)zap_arc_ws[i];
-    if (header->alive && (header->gc_mark & ZAP_ARC_GC_GARBAGE) &&
-        header->release_fn) {
-      header->release_fn(zap_arc_ws[i]);
+    if ((header->gc_mark & ZAP_ARC_GC_GARBAGE) && header->destroy_fn) {
+      header->destroy_fn(zap_arc_ws[i]);
+    }
+  }
+  for (size_t i = 0; i < ws_count; ++i) {
+    zap_arc_header_t *header = (zap_arc_header_t *)zap_arc_ws[i];
+    if ((header->gc_mark & ZAP_ARC_GC_GARBAGE) &&
+        header->weak_count == 0) {
+      zap_arc_deallocate(zap_arc_ws[i]);
+    } else if (header->gc_mark & ZAP_ARC_GC_GARBAGE) {
+      header->gc_mark &= (uint8_t)~ZAP_ARC_GC_GARBAGE;
     }
   }
 
