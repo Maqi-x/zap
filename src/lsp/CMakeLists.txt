@@ -10,8 +10,6 @@ set(LSP_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/source_manager.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/symbol_index.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/workspace.cpp"
-  "${CMAKE_SOURCE_DIR}/src/lexer/lexer.cpp"
-  "${CMAKE_SOURCE_DIR}/src/parser/parser.cpp"
   "${CMAKE_SOURCE_DIR}/src/sema/binder.cpp"
   "${CMAKE_SOURCE_DIR}/src/sema/binder_calls.cpp"
   "${CMAKE_SOURCE_DIR}/src/sema/binder_conversions.cpp"
@@ -31,6 +29,7 @@ target_link_libraries(zap-lsp PRIVATE zap_type_system)
 target_link_libraries(zap-lsp PRIVATE zap_sema_conversions)
 target_link_libraries(zap-lsp PRIVATE zap_type_layout)
 target_link_libraries(zap-lsp PRIVATE zap_frontend)
+target_link_libraries(zap-lsp PRIVATE zap_syntax)
 
 target_include_directories(zap-lsp PRIVATE "${CMAKE_SOURCE_DIR}/src")
 target_compile_options(zap-lsp PRIVATE -Wall -Wextra)

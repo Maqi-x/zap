@@ -33,8 +33,6 @@ message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 # Source files
 set(SOURCES
     src/main.cpp
-    src/lexer/lexer.cpp
-    src/parser/parser.cpp
     src/ir/ir_generator.cpp
     src/sema/binder.cpp
     src/sema/binder_calls.cpp
@@ -78,6 +76,13 @@ target_link_libraries(zap_type_layout PUBLIC zap_type_system)
 add_library(zap_frontend STATIC src/frontend/module_loader.cpp)
 target_include_directories(zap_frontend PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_options(zap_frontend PRIVATE -Wall -Wextra)
+
+add_library(zap_syntax STATIC
+    src/lexer/lexer.cpp
+    src/parser/parser.cpp
+)
+target_include_directories(zap_syntax PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_options(zap_syntax PRIVATE -Wall -Wextra)
 
 add_library(zap_zir_verifier STATIC
     src/ir/borrow_provenance.cpp
@@ -138,6 +143,7 @@ target_link_libraries(zapc PRIVATE zap_type_system)
 target_link_libraries(zapc PRIVATE zap_sema_conversions)
 target_link_libraries(zapc PRIVATE zap_type_layout)
 target_link_libraries(zapc PRIVATE zap_frontend)
+target_link_libraries(zapc PRIVATE zap_syntax)
 target_link_libraries(zapc PRIVATE zap_zir_verifier)
 target_compile_definitions(zapc PRIVATE ${LLVM_DEFINITIONS})
 target_compile_definitions(zapc PRIVATE ZAPC_STDLIB_PATH="${CMAKE_BINARY_DIR}/stdlib.o")
