@@ -874,6 +874,27 @@ std::optional<HoverInfo> hoverForNode(const Node *node) {
   return std::nullopt;
 }
 
+std::optional<HoverInfo> semanticHoverFor(const sema::SemanticInfo &semanticInfo,
+                                          const Node *node) {
+  auto symbol = semanticInfo.symbolFor(node);
+  if (!symbol) {
+    return std::nullopt;
+  }
+  auto type = semanticInfo.typeFor(node);
+  if (!type) {
+    type = symbol->type;
+  }
+  if (!type) {
+    return std::nullopt;
+  }
+  const char *kind = "var";
+  if (auto variable = std::dynamic_pointer_cast<sema::VariableSymbol>(symbol)) {
+    kind = variable->is_const ? "const" : "var";
+  }
+  return HoverInfo{"zap", std::string(kind) + " " + symbol->name + ": " +
+                               type->toString()};
+}
+
 std::optional<HoverInfo> findTopLevelHover(const sema::ModuleInfo &module,
                                            std::string_view name,
                                            bool publicOnly = false) {
@@ -997,6 +1018,13 @@ std::optional<HoverInfo> resolveHover(const std::string &source,
   auto name = identifierAt(source, offset);
   if (!name) {
     return std::nullopt;
+  }
+
+  auto visible = findVisibleSymbolInfo(*module.root, offset, *name);
+  if (visible.node) {
+    if (auto hover = semanticHoverFor(project.semanticInfo, visible.node)) {
+      return hover;
+    }
   }
 
   std::set<std::string> visited;
