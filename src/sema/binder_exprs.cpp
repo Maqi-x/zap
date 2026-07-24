@@ -449,6 +449,7 @@ void Binder::visit(FailableHandleExpr &node) {
   }
   if (semanticInfo_) {
     semanticInfo_->recordSymbol(&node, errorSymbol);
+    semanticInfo_->recordDeclaration(&node, errorSymbol);
     semanticInfo_->recordType(&node, errorType);
   }
 

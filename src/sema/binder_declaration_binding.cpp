@@ -119,7 +119,8 @@ void Binder::visit(FunDecl &node) {
       error(node.span, "Parameter '" + param->name + "' already declared.");
     }
     if (semanticInfo_ && i < node.params_.size() && node.params_[i]) {
-      semanticInfo_->recordSymbol(node.params_[i].get(), param);
+    semanticInfo_->recordSymbol(node.params_[i].get(), param);
+    semanticInfo_->recordDeclaration(node.params_[i].get(), param);
       semanticInfo_->recordType(node.params_[i].get(), param->type);
     }
   }
@@ -334,6 +335,7 @@ void Binder::visit(VarDecl &node) {
   symbol->is_ref = isRef;
   if (semanticInfo_) {
     semanticInfo_->recordSymbol(&node, symbol);
+    semanticInfo_->recordDeclaration(&node, symbol);
     semanticInfo_->recordType(&node, symbol->type);
   }
 
@@ -418,6 +420,7 @@ void Binder::visit(ConstDecl &node) {
   }
   if (semanticInfo_) {
     semanticInfo_->recordSymbol(&node, symbol);
+    semanticInfo_->recordDeclaration(&node, symbol);
     semanticInfo_->recordType(&node, symbol->type);
   }
 

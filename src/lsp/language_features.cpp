@@ -1238,6 +1238,16 @@ std::optional<LspSymbol> resolveDefinition(const Workspace &workspace,
     return std::nullopt;
   }
 
+  auto visible = findVisibleSymbolInfo(*module.root, offset, *name);
+  if (visible.node) {
+    auto symbol = project.semanticInfo.symbolFor(visible.node);
+    auto declaration = project.semanticInfo.declarationFor(symbol);
+    if (symbol && declaration) {
+      return *makeSymbol(uri, symbol->name, declaration->span, 6,
+                         symbol->visibility);
+    }
+  }
+
   auto locals = collectLocalSymbols(*module.root, offset, uri);
   for (auto it = locals.rbegin(); it != locals.rend(); ++it) {
     if (it->name == *name) {

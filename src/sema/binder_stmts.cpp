@@ -487,6 +487,7 @@ void Binder::visit(ForInNode &node) {
   }
   if (semanticInfo_) {
     semanticInfo_->recordSymbol(&node, itemSymbol);
+    semanticInfo_->recordDeclaration(&node, itemSymbol);
     semanticInfo_->recordType(&node, itemSymbol->type);
   }
 

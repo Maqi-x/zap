@@ -10,12 +10,27 @@ namespace sema {
 
 struct SemanticInfo {
   std::unordered_map<const Node *, std::shared_ptr<Symbol>> symbolsByNode;
+  std::unordered_map<const Symbol *, const Node *> declarationsBySymbol;
   std::unordered_map<const Node *, std::shared_ptr<zir::Type>> typesByNode;
 
   void recordSymbol(const Node *node, std::shared_ptr<Symbol> symbol) {
     if (node && symbol) {
       symbolsByNode[node] = std::move(symbol);
     }
+  }
+
+  void recordDeclaration(const Node *node, const std::shared_ptr<Symbol> &symbol) {
+    if (node && symbol) {
+      declarationsBySymbol[symbol.get()] = node;
+    }
+  }
+
+  const Node *declarationFor(const std::shared_ptr<Symbol> &symbol) const {
+    if (!symbol) {
+      return nullptr;
+    }
+    auto it = declarationsBySymbol.find(symbol.get());
+    return it == declarationsBySymbol.end() ? nullptr : it->second;
   }
 
   void recordType(const Node *node, std::shared_ptr<zir::Type> type) {
