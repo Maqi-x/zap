@@ -193,6 +193,8 @@ void LLVMCodeGen::emitOwnershipRelease(
 }
 
 void LLVMCodeGen::emitArcCollectionSafePoint() {
+  // ZIR lowering calls this only after local releases on a non-destructor
+  // return, so collection cannot reenter through an active destructor.
   auto *rawPtrTy = llvm::PointerType::getUnqual(ctx_);
   auto contextIt = functionMap_.find("zap_arc_default_context");
   if (contextIt == functionMap_.end()) {

@@ -278,7 +278,9 @@ void zap_arc_remove_possible_root(zap_arc_runtime_context_t *context,
   header->gc_mark &= (uint8_t)~ZAP_ARC_GC_BUFFERED;
   for (size_t i = 0; i < context->root_count; ++i) {
     if (context->roots[i] == object) {
-      context->roots[i] = NULL;
+      --context->root_count;
+      context->roots[i] = context->roots[context->root_count];
+      context->roots[context->root_count] = NULL;
       break;
     }
   }

@@ -81,6 +81,7 @@ void zap_arc_remove_possible_root(zap_arc_runtime_context_t *context,
                                   void *object);
 void zap_arc_deallocate(zap_arc_runtime_context_t *context, void *object);
 void zap_arc_cycle_collect(zap_arc_runtime_context_t *context);
+// Runs scheduled collection at a non-destructor function-return safe point.
 void zap_arc_collect_at_safepoint(zap_arc_runtime_context_t *context);
 void *zap_runtime_alloc(size_t size);
 void zap_arc_strong_refcount_overflow(void);

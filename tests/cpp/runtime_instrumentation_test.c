@@ -203,6 +203,38 @@ static int test_scratch_allocation_oom_fails(void) {
                 "scratch-allocation OOM did not abort");
 }
 
+static int test_removed_root_frees_collection_budget(void) {
+  static const zap_arc_metadata_t metadata = {trace_child};
+  zap_arc_runtime_context_t *context = zap_arc_context_create();
+  test_object_t *removed = make_test_object(&metadata);
+  test_object_t *remaining = make_test_object(&metadata);
+  if (!expect(context && removed && remaining,
+              "failed to allocate root-removal test objects")) {
+    zap_arc_context_destroy(context);
+    free(removed);
+    free(remaining);
+    return 0;
+  }
+
+  zap_runtime_ownership_reset_counters();
+  zap_arc_add_possible_root(context, removed);
+  zap_arc_remove_possible_root(context, removed);
+  zap_arc_add_possible_root(context, remaining);
+  zap_arc_collect_at_safepoint(context);
+
+  zap_runtime_ownership_counters_t counters = {0};
+  zap_runtime_ownership_snapshot_counters(&counters);
+  int passed =
+      expect(counters.collection_runs == 0,
+             "removed root still consumed the collection threshold") &&
+      expect(remaining->header.gc_mark & ZAP_ARC_GC_BUFFERED,
+             "remaining root was unexpectedly removed from the buffer");
+  zap_arc_context_destroy(context);
+  free(removed);
+  free(remaining);
+  return passed;
+}
+
 static int test_context_isolation(void) {
   static const zap_arc_metadata_t metadata = {trace_child};
   zap_arc_runtime_context_t *first_context = zap_arc_context_create();
@@ -284,7 +316,9 @@ static int test_context_isolation(void) {
 int main(void) {
   return test_direct_events_and_allocation() && test_cycle_collection_events() &&
                  test_retain_dead_object_fails() &&
-                 test_scratch_allocation_oom_fails() && test_context_isolation()
+                 test_scratch_allocation_oom_fails() &&
+                 test_removed_root_frees_collection_budget() &&
+                 test_context_isolation()
              ? 0
              : 1;
 }
