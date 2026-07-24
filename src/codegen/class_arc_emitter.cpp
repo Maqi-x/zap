@@ -880,16 +880,6 @@ void ClassArcEmitter::ensureClassArcSupport(
     }
     codegen_.builder_.CreateCall(
         codegen_.functionMap_.at("zap_arc_add_possible_root"), {rawObject});
-    if (codegen_.functionMap_.count("zap_arc_cycle_collect") == 0) {
-      auto *collectTy = llvm::FunctionType::get(
-          llvm::Type::getVoidTy(codegen_.ctx_), {}, false);
-      auto *collectFn =
-          llvm::Function::Create(collectTy, llvm::Function::ExternalLinkage,
-                                 "zap_arc_cycle_collect", *codegen_.module_);
-      codegen_.functionMap_["zap_arc_cycle_collect"] = collectFn;
-    }
-    codegen_.builder_.CreateCall(
-        codegen_.functionMap_.at("zap_arc_cycle_collect"));
     codegen_.builder_.CreateBr(returnBB);
   }
 

@@ -31,6 +31,7 @@ static void **zap_arc_roots = NULL;
 static size_t zap_arc_root_count = 0;
 static size_t zap_arc_root_capacity = 0;
 static int zap_arc_collecting = 0;
+static int zap_arc_collection_pending = 0;
 static int zap_net_last_error = 0;
 static long zap_fs_last_error_code = 0;
 
@@ -177,9 +178,20 @@ void zap_arc_add_possible_root(void *object) {
 
   header->gc_mark |= ZAP_ARC_GC_BUFFERED;
   zap_arc_roots[zap_arc_root_count++] = object;
+  if (zap_arc_root_count >= ZAP_ARC_COLLECTION_ROOT_THRESHOLD) {
+    zap_arc_collection_pending = 1;
+  }
 #if defined(ZAP_RUNTIME_INSTRUMENTATION)
   ++zap_runtime_ownership_counters.candidate_roots;
 #endif
+}
+
+void zap_arc_collect_at_safepoint(void) {
+  if (!zap_arc_collection_pending || zap_arc_collecting) {
+    return;
+  }
+  zap_arc_collection_pending = 0;
+  zap_arc_cycle_collect();
 }
 
 void zap_arc_remove_possible_root(void *object) {
@@ -407,6 +419,7 @@ void zap_arc_cycle_collect(void) {
     roots[root_count++] = object;
   }
   zap_arc_root_count = 0;
+  zap_arc_collection_pending = 0;
   if (root_count == 0) {
     zap_arc_collecting = 0;
     return;

@@ -15,6 +15,7 @@
 #define ZAP_ARC_VTABLE_INDEX 7
 #define ZAP_ARC_FIELD_START_INDEX 8
 #define ZAP_ARC_HEADER_FIELD_COUNT ZAP_ARC_FIELD_START_INDEX
+#define ZAP_ARC_COLLECTION_ROOT_THRESHOLD 2
 
 // Flag bits packed into the gc_mark byte (index 3).
 #define ZAP_ARC_GC_GARBAGE 0x1
@@ -65,6 +66,7 @@ extern "C" {
 void zap_arc_add_possible_root(void *object);
 void zap_arc_remove_possible_root(void *object);
 void zap_arc_cycle_collect(void);
+void zap_arc_collect_at_safepoint(void);
 void *zap_runtime_alloc(size_t size);
 void zap_arc_strong_refcount_overflow(void);
 void zap_arc_weak_refcount_overflow(void);

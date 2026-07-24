@@ -84,14 +84,20 @@ static int test_cycle_collection_events(void) {
   zap_runtime_ownership_reset_counters();
   zap_arc_add_possible_root(&first);
   zap_arc_add_possible_root(&second);
-  zap_arc_cycle_collect();
 
   zap_runtime_ownership_counters_t counters = {0};
   zap_runtime_ownership_snapshot_counters(&counters);
-  return expect(counters.candidate_roots == 2,
-                "candidate-root counter is incorrect") &&
-         expect(counters.collection_runs == 1,
-                "collection-run counter is incorrect") &&
+  if (!expect(counters.candidate_roots == 2,
+              "candidate-root counter is incorrect") ||
+      !expect(counters.collection_runs == 0,
+              "collection ran before a safe point")) {
+    return 0;
+  }
+
+  zap_arc_collect_at_safepoint();
+  zap_runtime_ownership_snapshot_counters(&counters);
+  return expect(counters.collection_runs == 1,
+                "collection did not run at the safe point") &&
          expect(counters.visited_objects == 2,
                 "visited-object counter is incorrect") &&
          expect(counters.reclaimed_objects == 2,

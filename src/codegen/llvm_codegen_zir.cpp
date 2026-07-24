@@ -701,9 +701,15 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         }
       }
       emitZIRFunctionReleases();
+      if (!currentZIRFunction_->isDestructor) {
+        emitArcCollectionSafePoint();
+      }
       builder_.CreateRet(retValue);
     } else {
       emitZIRFunctionReleases();
+      if (!currentZIRFunction_->isDestructor) {
+        emitArcCollectionSafePoint();
+      }
       builder_.CreateRetVoid();
     }
     return;

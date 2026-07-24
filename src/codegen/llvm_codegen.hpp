@@ -128,6 +128,7 @@ private:
   void emitOwnershipRelease(llvm::Value *value,
                             const std::shared_ptr<zir::Type> &type,
                             zir::ValueOwnership ownership);
+  void emitArcCollectionSafePoint();
 #if defined(ZAP_RUNTIME_INSTRUMENTATION)
   void emitRuntimeOwnershipEvent(const char *name);
 #endif

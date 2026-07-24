@@ -192,6 +192,20 @@ void LLVMCodeGen::emitOwnershipRelease(
   emitManagedRelease(value, type);
 }
 
+void LLVMCodeGen::emitArcCollectionSafePoint() {
+  auto it = functionMap_.find("zap_arc_collect_at_safepoint");
+  if (it == functionMap_.end()) {
+    auto *safePointTy =
+        llvm::FunctionType::get(llvm::Type::getVoidTy(ctx_), {}, false);
+    auto *safePointFn = llvm::Function::Create(
+        safePointTy, llvm::Function::ExternalLinkage,
+        "zap_arc_collect_at_safepoint", *module_);
+    it = functionMap_.emplace("zap_arc_collect_at_safepoint", safePointFn)
+             .first;
+  }
+  builder_.CreateCall(it->second);
+}
+
 void LLVMCodeGen::emitRetainIfNeeded(llvm::Value *value,
                                      const std::shared_ptr<zir::Type> &type) {
   if (isOwnedStringType(type)) {
