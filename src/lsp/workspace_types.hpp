@@ -25,6 +25,11 @@ struct ProjectState {
   AnalysisResult analysis;
 };
 
+struct SemanticSnapshot {
+  int64_t documentVersion = 0;
+  ProjectState project;
+};
+
 struct LspSignature {
   std::string label;
   std::vector<std::string> parameters;

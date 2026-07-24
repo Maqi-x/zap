@@ -19,11 +19,18 @@ class Workspace {
   SourceManager sourceManager_;
   std::set<std::string> publishedDiagnosticUris_;
   zap::frontend::RuntimePaths runtimePaths_;
+  std::unordered_map<std::string, std::shared_ptr<const SemanticSnapshot>>
+      strictSnapshots_;
+  std::unordered_map<std::string, std::shared_ptr<const SemanticSnapshot>>
+      tolerantSnapshots_;
 
   void appendDiagnostics(AnalysisResult &result,
                          const std::vector<zap::Diagnostic> &diagnostics,
                          const std::string &fallbackUri) const;
   void clearStaleDiagnostics(AnalysisResult &result);
+  std::shared_ptr<const SemanticSnapshot>
+  buildSnapshot(const SourceSnapshot &document, bool allowEntryErrors);
+  void invalidateSnapshots(const std::string &uri);
 
 public:
   Workspace();
@@ -37,8 +44,8 @@ public:
   void update(const std::string &uri, std::string text, int64_t version);
   void close(const std::string &uri);
   bool contains(const std::string &uri) const;
-  std::optional<ProjectState> loadProject(const std::string &uri,
-                                          bool allowEntryErrors = false);
+  std::shared_ptr<const ProjectState>
+  loadProject(const std::string &uri, bool allowEntryErrors = false);
   std::optional<std::string> sourceForUri(const std::string &uri);
   AnalysisResult analyze(const std::string &uri);
 };

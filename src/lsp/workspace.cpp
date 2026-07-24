@@ -37,14 +37,19 @@ const SourceSnapshot *Workspace::document(const std::string &uri) const {
 void Workspace::open(const std::string &uri, std::filesystem::path path,
                      std::string text, int64_t version) {
   sourceManager_.open(uri, std::move(path), std::move(text), version);
+  invalidateSnapshots(uri);
 }
 
 void Workspace::update(const std::string &uri, std::string text,
                        int64_t version) {
   sourceManager_.update(uri, std::move(text), version);
+  invalidateSnapshots(uri);
 }
 
-void Workspace::close(const std::string &uri) { sourceManager_.close(uri); }
+void Workspace::close(const std::string &uri) {
+  sourceManager_.close(uri);
+  invalidateSnapshots(uri);
+}
 
 bool Workspace::contains(const std::string &uri) const {
   return sourceManager_.contains(uri);
@@ -80,16 +85,18 @@ void Workspace::clearStaleDiagnostics(AnalysisResult &result) {
   publishedDiagnosticUris_ = std::move(currentUris);
 }
 
-std::optional<ProjectState> Workspace::loadProject(const std::string &uri,
-                                                   bool allowEntryErrors) {
-  const auto *document = this->document(uri);
-  if (!document) {
-    return std::nullopt;
-  }
+void Workspace::invalidateSnapshots(const std::string &uri) {
+  strictSnapshots_.erase(uri);
+  tolerantSnapshots_.erase(uri);
+}
 
-  auto flags = findAndReadFlags(document->path);
+std::shared_ptr<const SemanticSnapshot>
+Workspace::buildSnapshot(const SourceSnapshot &document,
+                         bool allowEntryErrors) {
+  auto snapshot = std::make_shared<SemanticSnapshot>();
+  snapshot->documentVersion = document.version;
+  auto flags = findAndReadFlags(document.path);
 
-  ProjectState state;
   zap::frontend::FrontendSession session(
       {runtimePaths_, flags.importMap, true, allowEntryErrors},
       [this](const std::filesystem::path &path) -> std::optional<std::string> {
@@ -97,25 +104,40 @@ std::optional<ProjectState> Workspace::loadProject(const std::string &uri,
         return source ? std::optional<std::string>((*source)->text)
                       : std::nullopt;
       });
-  auto project = session.load(document->path);
+  auto project = session.load(document.path);
   if (!project.loaded) {
-    appendDiagnostics(state.analysis, project.diagnostics, uri);
-    if (state.analysis.diagnosticsByUri.find(uri) ==
-        state.analysis.diagnosticsByUri.end()) {
-      state.analysis.diagnosticsByUri[uri] = {};
-    }
-    return state;
+    appendDiagnostics(snapshot->project.analysis, project.diagnostics,
+                      sourceManager_.uriForPath(document.path));
+    return snapshot;
   }
   session.bind(project);
-  appendDiagnostics(state.analysis, project.diagnostics, uri);
-  state.semanticInfo = std::move(project.semanticInfo);
-  state.moduleMap = std::move(project.modules);
-
-  for (const auto &[moduleId, _] : state.moduleMap) {
-    state.uriByModuleId[moduleId] = sourceManager_.uriForPath(moduleId);
+  appendDiagnostics(snapshot->project.analysis, project.diagnostics,
+                    sourceManager_.uriForPath(document.path));
+  snapshot->project.semanticInfo = std::move(project.semanticInfo);
+  snapshot->project.moduleMap = std::move(project.modules);
+  for (const auto &[moduleId, _] : snapshot->project.moduleMap) {
+    snapshot->project.uriByModuleId[moduleId] = sourceManager_.uriForPath(moduleId);
   }
+  return snapshot;
+}
 
-  return state;
+std::shared_ptr<const ProjectState>
+Workspace::loadProject(const std::string &uri, bool allowEntryErrors) {
+  const auto *document = this->document(uri);
+  if (!document) {
+    return nullptr;
+  }
+  auto &snapshots = allowEntryErrors ? tolerantSnapshots_ : strictSnapshots_;
+  auto snapshot = snapshots.find(uri);
+  if (snapshot != snapshots.end() &&
+      snapshot->second->documentVersion == document->version) {
+    return std::shared_ptr<const ProjectState>(snapshot->second,
+                                               &snapshot->second->project);
+  }
+  auto built = buildSnapshot(*document, allowEntryErrors);
+  snapshots[uri] = std::move(built);
+  return std::shared_ptr<const ProjectState>(snapshots[uri],
+                                             &snapshots[uri]->project);
 }
 
 AnalysisResult Workspace::analyze(const std::string &uri) {
@@ -125,26 +147,14 @@ AnalysisResult Workspace::analyze(const std::string &uri) {
     return result;
   }
 
-  auto flags = findAndReadFlags(document->path);
-
-  zap::frontend::FrontendSession session(
-      {runtimePaths_, flags.importMap},
-      [this](const std::filesystem::path &path) -> std::optional<std::string> {
-        auto source = sourceManager_.sourceForPath(path);
-        return source ? std::optional<std::string>((*source)->text)
-                      : std::nullopt;
-      });
-  auto project = session.load(document->path);
-  if (!project.loaded) {
-    appendDiagnostics(result, project.diagnostics, uri);
-    if (result.diagnosticsByUri.find(uri) == result.diagnosticsByUri.end()) {
-      result.diagnosticsByUri[uri] = {};
-    }
-    clearStaleDiagnostics(result);
+  auto project = loadProject(uri);
+  if (!project) {
     return result;
   }
-  session.bind(project);
-  appendDiagnostics(result, project.diagnostics, uri);
+  result = project->analysis;
+  if (result.diagnosticsByUri.find(uri) == result.diagnosticsByUri.end()) {
+    result.diagnosticsByUri[uri] = {};
+  }
   clearStaleDiagnostics(result);
   return result;
 }
