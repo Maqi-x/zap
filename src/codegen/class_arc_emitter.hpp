@@ -7,6 +7,7 @@
 
 namespace llvm {
 class Function;
+class StructType;
 class Value;
 }
 
@@ -41,9 +42,12 @@ private:
   llvm::Function *getOrCreateRefcountFailureFunction(const char *name);
   void emitRefcountFailure(const char *name);
   void ensureNestedClassArcSupport(const std::shared_ptr<zir::Type> &type);
-  void collectStrongReferenceOffsets(const std::shared_ptr<zir::Type> &type,
-                                     uint64_t baseOffset,
-                                     std::vector<uint32_t> &offsets);
+  llvm::Function *emitClassTraceFunction(
+      const std::shared_ptr<zir::ClassType> &classType,
+      llvm::StructType *objectType);
+  void emitTraceChildren(const std::shared_ptr<zir::Type> &type,
+                         llvm::Value *address, llvm::Value *visitor,
+                         llvm::Value *context);
 
   LLVMCodeGen &codegen_;
 };

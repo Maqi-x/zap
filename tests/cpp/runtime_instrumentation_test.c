@@ -25,6 +25,12 @@ static void test_release(void *object) {
   }
 }
 
+static void trace_child(void *object, zap_arc_trace_visitor_t visitor,
+                        void *context) {
+  test_object_t *test_object = (test_object_t *)object;
+  visitor(context, test_object->child);
+}
+
 static int expect(int condition, const char *message) {
   if (!condition) {
     fputs(message, stderr);
@@ -68,8 +74,7 @@ static int test_direct_events_and_allocation(void) {
 }
 
 static int test_cycle_collection_events(void) {
-  static const uint32_t child_offset = offsetof(test_object_t, child);
-  static const zap_arc_metadata_t metadata = {1, &child_offset};
+  static const zap_arc_metadata_t metadata = {trace_child};
   test_object_t first = make_test_object(&metadata);
   test_object_t second = make_test_object(&metadata);
   first.child = &second;

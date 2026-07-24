@@ -51,6 +51,11 @@ void collectStrongReferencedClasses(
   } else if (type->getKind() == zir::TypeKind::Array) {
     collectStrongReferencedClasses(
         static_cast<const zir::ArrayType &>(*type).getBaseType(), classNames);
+  } else if (type->getKind() == zir::TypeKind::TaggedUnion) {
+    const auto &taggedUnion = static_cast<const zir::TaggedUnionType &>(*type);
+    for (const auto &variant : taggedUnion.getVariants()) {
+      collectStrongReferencedClasses(variant.payloadType, classNames);
+    }
   }
 }
 

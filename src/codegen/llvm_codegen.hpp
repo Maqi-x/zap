@@ -46,6 +46,7 @@ private:
   std::map<std::string, llvm::Function *> classRetainFns_;
   std::map<std::string, llvm::Function *> classReleaseFns_;
   std::map<std::string, llvm::Function *> classDestroyFns_;
+  std::map<std::string, llvm::Function *> classTraceFns_;
   std::map<std::string, llvm::Function *> classDestructorFns_;
   std::map<std::string, llvm::GlobalVariable *> classMetadataGlobals_;
   std::unordered_set<std::string> cyclicClasses_;

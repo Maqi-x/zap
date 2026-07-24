@@ -334,6 +334,52 @@ static void zap_arc_ensure_scratch(size_t n) {
   zap_arc_scratch_cap = ncap;
 }
 
+typedef struct {
+  void ***worklist;
+  size_t *count;
+  size_t *capacity;
+  zap_arc_ptrmap_t *map;
+} zap_arc_discover_context_t;
+
+static void zap_arc_discover_child(void *context, void *child) {
+  zap_arc_discover_context_t *state = (zap_arc_discover_context_t *)context;
+  if (child) {
+    zap_arc_ws_push(state->worklist, state->count, state->capacity, state->map,
+                    child);
+  }
+}
+
+typedef struct {
+  const zap_arc_ptrmap_t *map;
+  int *incoming;
+} zap_arc_incoming_context_t;
+
+static void zap_arc_count_incoming(void *context, void *child) {
+  zap_arc_incoming_context_t *state = (zap_arc_incoming_context_t *)context;
+  uint32_t child_index;
+  if (child && zap_arc_ptrmap_get(state->map, child, &child_index)) {
+    state->incoming[child_index] += 1;
+  }
+}
+
+typedef struct {
+  const zap_arc_ptrmap_t *map;
+  uint8_t *reachable;
+  uint32_t *stack;
+  size_t *stack_count;
+} zap_arc_reachable_context_t;
+
+static void zap_arc_mark_reachable(void *context, void *child) {
+  zap_arc_reachable_context_t *state =
+      (zap_arc_reachable_context_t *)context;
+  uint32_t child_index;
+  if (child && zap_arc_ptrmap_get(state->map, child, &child_index) &&
+      !state->reachable[child_index]) {
+    state->reachable[child_index] = 1;
+    state->stack[(*state->stack_count)++] = child_index;
+  }
+}
+
 void zap_arc_cycle_collect(void) {
   if (zap_arc_collecting || zap_arc_root_count == 0) {
     return;
@@ -381,13 +427,11 @@ void zap_arc_cycle_collect(void) {
     if (!header->alive || !header->metadata) {
       continue;
     }
-    for (uint32_t j = 0; j < header->metadata->strong_field_count; ++j) {
-      uint32_t offset = header->metadata->strong_field_offsets[j];
-      void *child = *(void **)((char *)zap_arc_ws[cursor] + offset);
-      if (child) {
-        zap_arc_ws_push(&zap_arc_ws, &ws_count, &zap_arc_ws_cap, &zap_arc_map,
-                        child);
-      }
+    if (header->metadata->trace_fn) {
+      zap_arc_discover_context_t context = {&zap_arc_ws, &ws_count,
+                                            &zap_arc_ws_cap, &zap_arc_map};
+      header->metadata->trace_fn(zap_arc_ws[cursor], zap_arc_discover_child,
+                                 &context);
     }
   }
 
@@ -407,13 +451,10 @@ void zap_arc_cycle_collect(void) {
     if (!header->alive || !header->metadata) {
       continue;
     }
-    for (uint32_t j = 0; j < header->metadata->strong_field_count; ++j) {
-      uint32_t offset = header->metadata->strong_field_offsets[j];
-      void *child = *(void **)((char *)zap_arc_ws[i] + offset);
-      uint32_t ci;
-      if (child && zap_arc_ptrmap_get(&zap_arc_map, child, &ci)) {
-        incoming[ci] += 1;
-      }
+    if (header->metadata->trace_fn) {
+      zap_arc_incoming_context_t context = {&zap_arc_map, incoming};
+      header->metadata->trace_fn(zap_arc_ws[i], zap_arc_count_incoming,
+                                 &context);
     }
   }
 
@@ -431,15 +472,11 @@ void zap_arc_cycle_collect(void) {
     if (!header->alive || !header->metadata) {
       continue;
     }
-    for (uint32_t j = 0; j < header->metadata->strong_field_count; ++j) {
-      uint32_t offset = header->metadata->strong_field_offsets[j];
-      void *child = *(void **)((char *)zap_arc_ws[idx] + offset);
-      uint32_t ci;
-      if (child && zap_arc_ptrmap_get(&zap_arc_map, child, &ci) &&
-          !reachable[ci]) {
-        reachable[ci] = 1;
-        stack[sp++] = ci;
-      }
+    if (header->metadata->trace_fn) {
+      zap_arc_reachable_context_t context = {&zap_arc_map, reachable, stack,
+                                             &sp};
+      header->metadata->trace_fn(zap_arc_ws[idx], zap_arc_mark_reachable,
+                                 &context);
     }
   }
 

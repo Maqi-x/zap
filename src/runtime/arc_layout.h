@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 // Shared ARC object header ABI used by runtime (C) and codegen (C++).
-#define ZAP_ARC_ABI_VERSION 1
+#define ZAP_ARC_ABI_VERSION 2
 #define ZAP_ARC_STRONG_COUNT_INDEX 0
 #define ZAP_ARC_WEAK_COUNT_INDEX 1
 #define ZAP_ARC_ALIVE_INDEX 2
@@ -20,9 +20,13 @@
 #define ZAP_ARC_GC_GARBAGE 0x1
 #define ZAP_ARC_GC_BUFFERED 0x2
 
+typedef void (*zap_arc_trace_visitor_t)(void *context, void *child);
+typedef void (*zap_arc_trace_fn_t)(void *object,
+                                   zap_arc_trace_visitor_t visitor,
+                                   void *context);
+
 typedef struct zap_arc_metadata_t {
-  uint32_t strong_field_count;
-  const uint32_t *strong_field_offsets;
+  zap_arc_trace_fn_t trace_fn;
 } zap_arc_metadata_t;
 
 typedef struct zap_arc_header_t {

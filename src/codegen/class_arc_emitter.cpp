@@ -54,36 +54,94 @@ void ClassArcEmitter::ensureNestedClassArcSupport(
     ensureNestedClassArcSupport(
         static_cast<const zir::ArrayType &>(*type).getBaseType());
     return;
+  case zir::TypeKind::TaggedUnion: {
+    const auto &taggedUnion = static_cast<const zir::TaggedUnionType &>(*type);
+    for (const auto &variant : taggedUnion.getVariants()) {
+      ensureNestedClassArcSupport(variant.payloadType);
+    }
+    return;
+  }
   default:
     return;
   }
 }
 
-void ClassArcEmitter::collectStrongReferenceOffsets(
-    const std::shared_ptr<zir::Type> &type, uint64_t baseOffset,
-    std::vector<uint32_t> &offsets) {
-  if (!type) {
+llvm::Function *ClassArcEmitter::emitClassTraceFunction(
+    const std::shared_ptr<zir::ClassType> &classType,
+    llvm::StructType *objectType) {
+  auto existing = codegen_.classTraceFns_.find(classType->getCodegenName());
+  if (existing != codegen_.classTraceFns_.end()) {
+    return existing->second;
+  }
+
+  auto *rawPtrTy = llvm::PointerType::getUnqual(codegen_.ctx_);
+  auto *traceTy = llvm::FunctionType::get(
+      llvm::Type::getVoidTy(codegen_.ctx_), {rawPtrTy, rawPtrTy, rawPtrTy},
+      false);
+  auto *traceHelper = llvm::Function::Create(
+      traceTy, llvm::Function::InternalLinkage,
+      "__zap_arc_trace_" + classType->getCodegenName(), *codegen_.module_);
+  codegen_.classTraceFns_[classType->getCodegenName()] = traceHelper;
+
+  auto *savedFunction = codegen_.currentFn_;
+  auto *savedBlock = codegen_.builder_.GetInsertBlock();
+  codegen_.currentFn_ = traceHelper;
+  auto *entry = llvm::BasicBlock::Create(codegen_.ctx_, "entry", traceHelper);
+  codegen_.builder_.SetInsertPoint(entry);
+
+  auto argument = traceHelper->arg_begin();
+  auto *rawObject = &*argument++;
+  rawObject->setName("object.raw");
+  auto *visitor = &*argument++;
+  visitor->setName("visitor");
+  auto *context = &*argument;
+  context->setName("context");
+
+  auto *object = codegen_.builder_.CreateBitCast(rawObject, rawPtrTy, "object");
+  for (size_t i = 0; i < classType->getFields().size(); ++i) {
+    auto *fieldAddr = codegen_.builder_.CreateStructGEP(
+        objectType, object, static_cast<unsigned>(i + kClassFieldStartIndex),
+        "field.addr");
+    emitTraceChildren(classType->getFields()[i].type, fieldAddr, visitor,
+                      context);
+  }
+  codegen_.builder_.CreateRetVoid();
+
+  codegen_.currentFn_ = savedFunction;
+  if (savedBlock) {
+    codegen_.builder_.SetInsertPoint(savedBlock);
+  }
+  return traceHelper;
+}
+
+void ClassArcEmitter::emitTraceChildren(
+    const std::shared_ptr<zir::Type> &type, llvm::Value *address,
+    llvm::Value *visitor, llvm::Value *context) {
+  if (!type || !address) {
     return;
   }
 
-  if (type->getKind() == zir::TypeKind::Class) {
-    if (!isWeakClassType(type)) {
-      if (baseOffset > std::numeric_limits<uint32_t>::max()) {
-        throw std::runtime_error("ARC field offset exceeds runtime ABI");
-      }
-      offsets.push_back(static_cast<uint32_t>(baseOffset));
+  if (isClassType(type)) {
+    if (isWeakClassType(type)) {
+      return;
     }
+    auto *child = codegen_.builder_.CreateLoad(codegen_.toLLVMType(*type),
+                                                address, "trace.child");
+    auto *rawPtrTy = llvm::PointerType::getUnqual(codegen_.ctx_);
+    auto *visitorTy = llvm::FunctionType::get(
+        llvm::Type::getVoidTy(codegen_.ctx_), {rawPtrTy, rawPtrTy}, false);
+    codegen_.builder_.CreateCall(visitorTy, visitor, {context, child});
     return;
   }
 
   if (type->getKind() == zir::TypeKind::Record) {
     const auto &record = static_cast<const zir::RecordType &>(*type);
     auto *recordTy = llvm::cast<llvm::StructType>(codegen_.toLLVMType(*type));
-    const auto *layout = codegen_.module_->getDataLayout().getStructLayout(recordTy);
     for (size_t i = 0; i < record.getFields().size(); ++i) {
-      collectStrongReferenceOffsets(
-          record.getFields()[i].type, baseOffset + layout->getElementOffset(i),
-          offsets);
+      auto *fieldAddr = codegen_.builder_.CreateStructGEP(
+          recordTy, address, static_cast<unsigned>(i), "trace.field.addr");
+      emitTraceChildren(record.getFields()[i].type, fieldAddr, visitor,
+                        context);
     }
     return;
   }
@@ -91,13 +149,56 @@ void ClassArcEmitter::collectStrongReferenceOffsets(
   if (type->getKind() == zir::TypeKind::Array) {
     const auto &array = static_cast<const zir::ArrayType &>(*type);
     auto *arrayTy = llvm::cast<llvm::ArrayType>(codegen_.toLLVMType(*type));
-    uint64_t elementSize =
-        codegen_.module_->getDataLayout().getTypeAllocSize(arrayTy->getElementType());
+    auto *i32Ty = llvm::Type::getInt32Ty(codegen_.ctx_);
     for (size_t i = 0; i < array.getSize(); ++i) {
-      collectStrongReferenceOffsets(array.getBaseType(),
-                                    baseOffset + i * elementSize, offsets);
+      llvm::Value *indices[] = {
+          llvm::ConstantInt::get(i32Ty, 0), llvm::ConstantInt::get(i32Ty, i)};
+      auto *elementAddr = codegen_.builder_.CreateInBoundsGEP(
+          arrayTy, address, indices, "trace.element.addr");
+      emitTraceChildren(array.getBaseType(), elementAddr, visitor, context);
     }
+    return;
   }
+
+  if (type->getKind() != zir::TypeKind::TaggedUnion) {
+    return;
+  }
+
+  const auto &taggedUnion = static_cast<const zir::TaggedUnionType &>(*type);
+  auto *unionTy = llvm::cast<llvm::StructType>(codegen_.toLLVMType(*type));
+  auto *tagAddr =
+      codegen_.builder_.CreateStructGEP(unionTy, address, 0, "trace.tag.addr");
+  auto *tag = codegen_.builder_.CreateLoad(llvm::Type::getInt32Ty(codegen_.ctx_),
+                                            tagAddr, "trace.tag");
+  auto *done = llvm::BasicBlock::Create(codegen_.ctx_, "trace.union.done",
+                                        codegen_.currentFn_);
+
+  for (const auto &variant : taggedUnion.getVariants()) {
+    if (!variant.payloadType) {
+      continue;
+    }
+
+    auto *active = llvm::BasicBlock::Create(codegen_.ctx_, "trace.union.active",
+                                             codegen_.currentFn_);
+    auto *next = llvm::BasicBlock::Create(codegen_.ctx_, "trace.union.next",
+                                           codegen_.currentFn_);
+    auto *matches = codegen_.builder_.CreateICmpEQ(
+        tag, llvm::ConstantInt::getSigned(llvm::Type::getInt32Ty(codegen_.ctx_),
+                                           variant.tag),
+        "trace.union.is_active");
+    codegen_.builder_.CreateCondBr(matches, active, next);
+
+    codegen_.builder_.SetInsertPoint(active);
+    auto *payloadAddr = codegen_.builder_.CreateStructGEP(
+        unionTy, address, 1, "trace.payload.addr");
+    emitTraceChildren(variant.payloadType, payloadAddr, visitor, context);
+    codegen_.builder_.CreateBr(done);
+
+    codegen_.builder_.SetInsertPoint(next);
+  }
+
+  codegen_.builder_.CreateBr(done);
+  codegen_.builder_.SetInsertPoint(done);
 }
 
 bool ClassArcEmitter::isClassType(
@@ -597,51 +698,13 @@ void ClassArcEmitter::ensureClassArcSupport(
   }
 
   if (!codegen_.classMetadataGlobals_.count(classType->getCodegenName())) {
-    std::vector<uint32_t> strongFieldOffsets;
-    auto *layout = codegen_.module_->getDataLayout().getStructLayout(objectTy);
-    for (size_t i = 0; i < classType->getFields().size(); ++i) {
-      const auto &field = classType->getFields()[i];
-      collectStrongReferenceOffsets(
-          field.type,
-          layout->getElementOffset(static_cast<unsigned>(
-              i + kClassFieldStartIndex)),
-          strongFieldOffsets);
-    }
-
-    auto *i32Ty = llvm::Type::getInt32Ty(codegen_.ctx_);
+    auto *traceHelper = emitClassTraceFunction(classType, objectTy);
     auto *i32PtrTy = llvm::PointerType::getUnqual(codegen_.ctx_);
-    if (strongFieldOffsets.size() > std::numeric_limits<uint32_t>::max()) {
-      throw std::runtime_error(
-          "ARC strong reference metadata exceeds runtime ABI");
-    }
-    llvm::Constant *offsetPtr = llvm::ConstantPointerNull::get(i32PtrTy);
-    if (!strongFieldOffsets.empty()) {
-      std::vector<llvm::Constant *> offsetConstants;
-      for (uint32_t offset : strongFieldOffsets) {
-        offsetConstants.push_back(llvm::ConstantInt::get(i32Ty, offset));
-      }
-      auto *offsetArrayTy = llvm::ArrayType::get(i32Ty, offsetConstants.size());
-      auto *offsetArrayInit =
-          llvm::ConstantArray::get(offsetArrayTy, offsetConstants);
-      auto *offsetGlobal = new llvm::GlobalVariable(
-          *codegen_.module_, offsetArrayTy, true,
-          llvm::GlobalValue::InternalLinkage, offsetArrayInit,
-          "__zap_arc_offsets_" + classType->getCodegenName());
-      auto *zero =
-          llvm::ConstantInt::get(llvm::Type::getInt32Ty(codegen_.ctx_), 0);
-      llvm::Constant *indices[] = {zero, zero};
-      offsetPtr = llvm::ConstantExpr::getInBoundsGetElementPtr(
-          offsetArrayTy, offsetGlobal, indices);
-    }
-
     auto *metaTy = llvm::StructType::create(
         codegen_.ctx_, "__zap_arc_meta_" + classType->getCodegenName());
-    metaTy->setBody({i32Ty, i32PtrTy});
+    metaTy->setBody({i32PtrTy});
     auto *metaInit = llvm::ConstantStruct::get(
-        metaTy,
-        llvm::ConstantInt::get(
-            i32Ty, static_cast<uint32_t>(strongFieldOffsets.size())),
-        offsetPtr);
+        metaTy, llvm::ConstantExpr::getBitCast(traceHelper, i32PtrTy));
     auto *metaGlobal = new llvm::GlobalVariable(
         *codegen_.module_, metaTy, true, llvm::GlobalValue::InternalLinkage,
         metaInit, "__zap_arc_meta_" + classType->getCodegenName());
