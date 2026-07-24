@@ -32,6 +32,7 @@ static long zap_fs_last_error_code = 0;
 
 #if defined(ZAP_RUNTIME_INSTRUMENTATION)
 static zap_runtime_ownership_counters_t zap_runtime_ownership_counters;
+static int zap_runtime_fail_arc_scratch_allocation = 0;
 
 void zap_runtime_ownership_reset_counters(void) {
   memset(&zap_runtime_ownership_counters, 0,
@@ -75,6 +76,10 @@ uint64_t zap_runtime_ownership_drop_operations(void) {
 
 uint64_t zap_runtime_ownership_destroy_calls(void) {
   return zap_runtime_ownership_counters.destroy_calls;
+}
+
+void zap_runtime_test_fail_next_arc_scratch_allocation(void) {
+  zap_runtime_fail_arc_scratch_allocation = 1;
 }
 #endif
 
@@ -390,6 +395,12 @@ static void zap_arc_ensure_scratch(zap_arc_runtime_context_t *context,
   if (n <= context->scratch_cap) {
     return;
   }
+#if defined(ZAP_RUNTIME_INSTRUMENTATION)
+  if (zap_runtime_fail_arc_scratch_allocation) {
+    zap_runtime_fail_arc_scratch_allocation = 0;
+    zap_runtime_out_of_memory();
+  }
+#endif
   size_t ncap = context->scratch_cap ? context->scratch_cap : 32;
   while (ncap < n) {
     ncap = zap_runtime_next_capacity(ncap, 32);

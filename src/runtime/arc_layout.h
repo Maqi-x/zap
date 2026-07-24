@@ -101,6 +101,8 @@ void zap_runtime_ownership_note_destroy(void);
 uint64_t zap_runtime_ownership_copy_operations(void);
 uint64_t zap_runtime_ownership_drop_operations(void);
 uint64_t zap_runtime_ownership_destroy_calls(void);
+// Test-only fault injection for the collector's scratch-storage allocation.
+void zap_runtime_test_fail_next_arc_scratch_allocation(void);
 #endif
 
 #if defined(__cplusplus)

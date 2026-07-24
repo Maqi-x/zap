@@ -173,6 +173,36 @@ static int test_retain_dead_object_fails(void) {
                 "retaining a dead object did not abort");
 }
 
+static int test_scratch_allocation_oom_fails(void) {
+  static const zap_arc_metadata_t metadata = {trace_child};
+  pid_t child = fork();
+  if (child < 0) {
+    return expect(0, "failed to fork scratch-allocation OOM test");
+  }
+  if (child == 0) {
+    zap_arc_runtime_context_t *context = zap_arc_context_create();
+    test_object_t *first = make_test_object(&metadata);
+    test_object_t *second = make_test_object(&metadata);
+    if (!context || !first || !second) {
+      _exit(2);
+    }
+    first->child = second;
+    second->child = first;
+    zap_arc_add_possible_root(context, first);
+    zap_arc_add_possible_root(context, second);
+    zap_runtime_test_fail_next_arc_scratch_allocation();
+    zap_arc_collect_at_safepoint(context);
+    _exit(0);
+  }
+
+  int status = 0;
+  if (waitpid(child, &status, 0) != child) {
+    return expect(0, "failed to wait for scratch-allocation OOM test");
+  }
+  return expect(WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT,
+                "scratch-allocation OOM did not abort");
+}
+
 static int test_context_isolation(void) {
   static const zap_arc_metadata_t metadata = {trace_child};
   zap_arc_runtime_context_t *first_context = zap_arc_context_create();
@@ -253,7 +283,8 @@ static int test_context_isolation(void) {
 
 int main(void) {
   return test_direct_events_and_allocation() && test_cycle_collection_events() &&
-                 test_retain_dead_object_fails() && test_context_isolation()
+                 test_retain_dead_object_fails() &&
+                 test_scratch_allocation_oom_fails() && test_context_isolation()
              ? 0
              : 1;
 }
