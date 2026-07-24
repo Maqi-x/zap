@@ -347,6 +347,10 @@ void Binder::applyImports(ModuleState &module, bool allowIncomplete) {
         }
         continue;
       }
+      if (semanticInfo_) {
+        semanticInfo_->recordImportedModule(module.info->moduleId, alias,
+                                            targetId);
+      }
 
       if (import.bindings.empty()) {
         bool isImplicitStdImport =

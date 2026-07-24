@@ -1188,6 +1188,24 @@ std::optional<LspSymbol> resolveDefinition(const Workspace &workspace,
       if (dot != std::string::npos) {
         memberName = memberName.substr(dot + 1);
       }
+      if (const auto *targetId =
+              project.semanticInfo.importedModuleFor(module.moduleId, base)) {
+        auto targetIt = project.moduleMap.find(*targetId);
+        auto targetUri = project.uriByModuleId.find(*targetId);
+        if (targetIt != project.moduleMap.end() &&
+            targetUri != project.uriByModuleId.end()) {
+          std::set<std::string> visited;
+          auto symbols = collectExportedSymbolsRecursive(
+              project, *targetIt->second, visited);
+          auto symbol = std::find_if(symbols.begin(), symbols.end(),
+                                     [&](const LspSymbol &candidate) {
+                                       return candidate.name == memberName;
+                                     });
+          if (symbol != symbols.end()) {
+            return *symbol;
+          }
+        }
+      }
       for (const auto &import : module.imports) {
         for (const auto &targetId : import.targetModuleIds) {
           auto targetIt = project.moduleMap.find(targetId);

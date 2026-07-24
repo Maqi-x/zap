@@ -18,6 +18,7 @@ struct SemanticInfo {
   std::unordered_map<const Symbol *, const Node *> declarationsBySymbol;
   std::unordered_map<const Node *, std::shared_ptr<zir::Type>> typesByNode;
   std::unordered_map<std::string, ImportedSymbol> importedSymbols;
+  std::unordered_map<std::string, std::string> importedModules;
 
   static std::string importKey(const std::string &moduleId,
                                const std::string &localName) {
@@ -38,6 +39,18 @@ struct SemanticInfo {
                                            const std::string &localName) const {
     auto it = importedSymbols.find(importKey(moduleId, localName));
     return it == importedSymbols.end() ? nullptr : &it->second;
+  }
+
+  void recordImportedModule(const std::string &moduleId,
+                            const std::string &localName,
+                            std::string targetModuleId) {
+    importedModules[importKey(moduleId, localName)] = std::move(targetModuleId);
+  }
+
+  const std::string *importedModuleFor(const std::string &moduleId,
+                                       const std::string &localName) const {
+    auto it = importedModules.find(importKey(moduleId, localName));
+    return it == importedModules.end() ? nullptr : &it->second;
   }
 
   void recordSymbol(const Node *node, std::shared_ptr<Symbol> symbol) {
