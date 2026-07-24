@@ -108,8 +108,10 @@ This rule is independent of CFG last-use analysis and optimization level.
 
 `ref T` denotes borrowed access and creates no destruction obligation. A
 borrowed result must be tied to an owner that outlives every use of the result.
-The compiler rejects returns, stores, captures, and calls that let the borrow
-escape without a valid lifetime contract.
+The compiler rejects returns, stores outside local storage, and calls that let
+the borrow escape without a valid lifetime contract. Zap v1 has no closure
+capture syntax; a future capture feature must either carry an explicit owner
+relation or reject borrowed `StringView` values derived from local owners.
 
 ### No public `move`
 
@@ -160,17 +162,18 @@ Liveness, escape checks, ownership verification, and later ownership lowering
 must consume the same provenance model. They must not maintain parallel
 heuristics for deciding whether a view is local.
 
-Until typed interprocedural escape contracts exist, a borrow derived from a
-function-local owner must not:
+In v1, a borrow derived from a function-local owner must not:
 
 - be returned;
 - be stored in a field, global, static, or caller-provided destination;
-- be captured by longer-lived state; or
+- be captured by longer-lived state (capture syntax is not available yet); or
 - be passed to an API that may retain it.
 
-`noescape` and `may-escape` contracts must eventually be represented
-consistently in function definitions, external declarations, function
-pointers, and call sites.
+`noescape` is represented consistently in function definitions, external
+declarations, function pointers, and call sites. The default `Unspecified`
+contract is intentionally rejected for tracked borrows. There is no public
+`may-escape` contract in v1: permitting it requires a separate lifetime-owner
+design rather than a permissive fallback.
 
 ## Aggregates and metadata
 
@@ -236,24 +239,22 @@ These constraints are normative:
 ## Implementation sequence
 
 1. Use `BorrowProvenance` in escape analysis and ownership diagnostics.
-2. Add typed `noescape` and `may-escape` contracts.
+2. Add typed `noescape` contracts; reject tracked borrows at `Unspecified`
+   boundaries until a separate `may-escape` owner design exists.
 3. Complete per-path ownership obligations for SSA temporaries across phi,
    loops, early returns, and critical edges.
 4. Generate complete copy/drop/trace metadata for aggregates, tagged unions,
-   and containers.
+   and structurally typed containers.
 5. Introduce a single-threaded `RuntimeContext` and scheduled trial deletion.
-6. Define weak-lock, destructor reentrancy, OOM, and safe-point behavior.
+6. Define weak-lock, destructor reentrancy, terminal OOM, and function-return
+   safe-point behavior.
 
 Every stage must preserve lexical lifetime for named locals and include
 regression tests with exact copy/drop/destroy counters.
 
 ## Open decisions
 
-1. Which candidate-root and allocation thresholds schedule collection?
-2. What exact syntax and runtime API should weak locking expose?
-3. Which safe points are guaranteed, and what reentrancy is allowed there?
-4. What OOM behavior is required for collector scratch storage?
-5. What separate future design, if any, permits managed sharing across
+1. What separate future design, if any, permits managed sharing across
    threads?
 
 ## Acceptance criteria
