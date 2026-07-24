@@ -723,6 +723,29 @@ std::vector<LspSignature> resolveSignatures(const std::string &source,
   }
   const sema::ModuleInfo &module = *moduleIt->second;
 
+  if (auto function = project.semanticInfo.callAt(moduleId, offset)) {
+    if (auto declaration = project.semanticInfo.declarationFor(function)) {
+      if (auto signature = signatureForNode(declaration)) {
+        return {*signature};
+      }
+    }
+    std::vector<std::string> parameters;
+    std::string label = function->name + "(";
+    for (size_t i = 0; i < function->parameters.size(); ++i) {
+      const auto &parameter = function->parameters[i];
+      if (i != 0) {
+        label += ", ";
+      }
+      const auto renderedType = parameter->type ? parameter->type->toString()
+                                                : std::string("?");
+      parameters.push_back(parameter->name + ": " + renderedType);
+      label += parameters.back();
+    }
+    label += ") " + (function->returnType ? function->returnType->toString()
+                                             : std::string("Void"));
+    return {LspSignature{std::move(label), std::move(parameters)}};
+  }
+
   if (call->isConstructor) {
     auto cls = resolveClassByTypeName(project, module, call->callee);
     return findConstructorSignatures(cls, project, module);

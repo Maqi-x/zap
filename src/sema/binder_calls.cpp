@@ -272,6 +272,9 @@ void Binder::visit(FunCall &node) {
 
       expressionStack_.push(std::make_unique<BoundFunctionCall>(
           funcSymbol, std::move(args), std::move(argIsRef)));
+      if (semanticInfo_) {
+        semanticInfo_->recordCall(currentModuleId_, node.span, funcSymbol);
+      }
       return;
     }
   }
@@ -819,6 +822,9 @@ void Binder::visit(FunCall &node) {
   expressionStack_.push(std::make_unique<BoundFunctionCall>(
       best.symbol, std::move(best.arguments), std::move(best.argumentIsRef),
       std::move(best.variadicPack)));
+  if (semanticInfo_) {
+    semanticInfo_->recordCall(currentModuleId_, node.span, best.symbol);
+  }
 }
 
 bool Binder::bindSizeOfBuiltinCall(FunCall &node) {

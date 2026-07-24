@@ -3,12 +3,17 @@
 #include "../ast/node.hpp"
 #include "../ir/type.hpp"
 #include "symbol.hpp"
+#include "../token/token.hpp"
 #include <memory>
 #include <unordered_map>
 
 namespace sema {
 
 struct SemanticInfo {
+  struct ResolvedCall {
+    SourceSpan span;
+    std::shared_ptr<FunctionSymbol> symbol;
+  };
   struct ImportedSymbol {
     std::string targetModuleId;
     std::shared_ptr<Symbol> symbol;
@@ -19,6 +24,28 @@ struct SemanticInfo {
   std::unordered_map<const Node *, std::shared_ptr<zir::Type>> typesByNode;
   std::unordered_map<std::string, ImportedSymbol> importedSymbols;
   std::unordered_map<std::string, std::string> importedModules;
+  std::unordered_map<std::string, std::vector<ResolvedCall>> resolvedCalls;
+
+  void recordCall(const std::string &moduleId, SourceSpan span,
+                  std::shared_ptr<FunctionSymbol> symbol) {
+    if (symbol) {
+      resolvedCalls[moduleId].push_back({span, std::move(symbol)});
+    }
+  }
+
+  std::shared_ptr<FunctionSymbol>
+  callAt(const std::string &moduleId, size_t offset) const {
+    auto calls = resolvedCalls.find(moduleId);
+    if (calls == resolvedCalls.end()) {
+      return nullptr;
+    }
+    for (const auto &call : calls->second) {
+      if (offset >= call.span.offset && offset <= call.span.offset + call.span.length) {
+        return call.symbol;
+      }
+    }
+    return nullptr;
+  }
 
   static std::string importKey(const std::string &moduleId,
                                const std::string &localName) {
