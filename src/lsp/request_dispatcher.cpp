@@ -3,6 +3,7 @@
 #include "lsp/document_request.hpp"
 #include "lsp/language_features.hpp"
 #include "lsp/position_codec.hpp"
+#include "lsp/protocol_codec.hpp"
 #include "lsp/protocol_messages.hpp"
 #include "lsp/protocol_utils.hpp"
 #include "lsp/workspace.hpp"
@@ -124,39 +125,22 @@ int zap::lsp::runRequestDispatcher() {
     } else if (*method == "exit") {
       running = false;
     } else if (*method == "textDocument/didOpen") {
-      auto uri = getStringField(request, {"params", "textDocument", "uri"});
-      auto text = getStringField(request, {"params", "textDocument", "text"});
-      auto version =
-          getIntegerField(request, {"params", "textDocument", "version"})
-              .value_or(0);
-
-      if (uri && text) {
-        auto path = uriToPath(*uri);
+      if (auto params = decodeOpenDocument(request)) {
+        auto path = uriToPath(params->uri);
         if (path) {
-          workspace.open(*uri, *path, *text, version);
-          publishAnalysis(server, workspace.analyze(*uri));
+          workspace.open(params->uri, *path, std::move(params->text),
+                         params->version);
+          publishAnalysis(server, workspace.analyze(params->uri));
         }
       }
     } else if (*method == "textDocument/didChange") {
-      auto uri = getStringField(request, {"params", "textDocument", "uri"});
-      auto version =
-          getIntegerField(request, {"params", "textDocument", "version"})
-              .value_or(0);
-      const JsonObject *changes =
-          getPath(request, {"params", "contentChanges"});
-
-      if (uri && changes && changes->isList() &&
-          !changes->getAsList().empty()) {
-        const JsonObject &lastChange = changes->getAsList().back();
-        auto text = getStringField(lastChange, {"text"});
-        if (text && workspace.contains(*uri)) {
-          workspace.update(*uri, *text, version);
-          publishAnalysis(server, workspace.analyze(*uri));
-        }
+      if (auto params = decodeChangeDocument(request);
+          params && workspace.contains(params->uri)) {
+        workspace.update(params->uri, std::move(params->text), params->version);
+        publishAnalysis(server, workspace.analyze(params->uri));
       }
     } else if (*method == "textDocument/didClose") {
-      auto uri = getStringField(request, {"params", "textDocument", "uri"});
-      if (uri) {
+      if (auto uri = decodeCloseDocument(request)) {
         workspace.close(*uri);
         server.sendMessage(makePublishDiagnostics(*uri, {}));
       }

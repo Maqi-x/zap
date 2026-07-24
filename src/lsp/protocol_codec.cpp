@@ -16,4 +16,34 @@ decodeTextDocumentPosition(const JsonObject &request) {
   return TextDocumentPosition{std::move(*uri), *line, *character};
 }
 
+std::optional<OpenDocumentParams> decodeOpenDocument(const JsonObject &request) {
+  auto uri = getStringField(request, {"params", "textDocument", "uri"});
+  auto text = getStringField(request, {"params", "textDocument", "text"});
+  auto version = getIntegerField(request, {"params", "textDocument", "version"});
+  if (!uri || !text || !version) {
+    return std::nullopt;
+  }
+  return OpenDocumentParams{std::move(*uri), std::move(*text), *version};
+}
+
+std::optional<ChangeDocumentParams>
+decodeChangeDocument(const JsonObject &request) {
+  auto uri = getStringField(request, {"params", "textDocument", "uri"});
+  auto version = getIntegerField(request, {"params", "textDocument", "version"});
+  const JsonObject *changes = getPath(request, {"params", "contentChanges"});
+  if (!uri || !version || !changes || !changes->isList() ||
+      changes->getAsList().empty()) {
+    return std::nullopt;
+  }
+  auto text = getStringField(changes->getAsList().back(), {"text"});
+  if (!text) {
+    return std::nullopt;
+  }
+  return ChangeDocumentParams{std::move(*uri), std::move(*text), *version};
+}
+
+std::optional<std::string> decodeCloseDocument(const JsonObject &request) {
+  return getStringField(request, {"params", "textDocument", "uri"});
+}
+
 } // namespace zap::lsp
