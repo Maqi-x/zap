@@ -69,6 +69,12 @@ extern "C" {
 #endif
 
 zap_arc_runtime_context_t *zap_arc_default_context(void);
+// Creates an isolated, single-threaded ARC collector context.
+zap_arc_runtime_context_t *zap_arc_context_create(void);
+// Destroys a context created by zap_arc_context_create(). The default context
+// is owned by the runtime and is intentionally not destroyed by this API.
+// Destroying a context drops its outstanding possible-root registrations.
+void zap_arc_context_destroy(zap_arc_runtime_context_t *context);
 void zap_arc_add_possible_root(zap_arc_runtime_context_t *context,
                                void *object);
 void zap_arc_remove_possible_root(zap_arc_runtime_context_t *context,

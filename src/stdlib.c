@@ -189,6 +189,40 @@ zap_arc_runtime_context_t *zap_arc_default_context(void) {
   return &zap_arc_default_runtime_context;
 }
 
+static void zap_arc_context_release_storage(zap_arc_runtime_context_t *context) {
+  if (!context) {
+    return;
+  }
+  for (size_t i = 0; i < context->root_count; ++i) {
+    zap_arc_header_t *header = (zap_arc_header_t *)context->roots[i];
+    if (header) {
+      header->gc_mark &= (uint8_t)~ZAP_ARC_GC_BUFFERED;
+    }
+  }
+  free(context->roots);
+  free(context->snap);
+  free(context->worklist);
+  free(context->incoming);
+  free(context->reachable);
+  free(context->stack);
+  free(context->map.keys);
+  free(context->map.vals);
+  *context = (zap_arc_runtime_context_t){0};
+}
+
+zap_arc_runtime_context_t *zap_arc_context_create(void) {
+  return (zap_arc_runtime_context_t *)zap_runtime_calloc_array(
+      1, sizeof(zap_arc_runtime_context_t));
+}
+
+void zap_arc_context_destroy(zap_arc_runtime_context_t *context) {
+  if (!context || context == &zap_arc_default_runtime_context) {
+    return;
+  }
+  zap_arc_context_release_storage(context);
+  free(context);
+}
+
 void zap_arc_add_possible_root(zap_arc_runtime_context_t *context,
                                void *object) {
   if (!context || !object) {
@@ -551,16 +585,7 @@ void zap_arc_cycle_collect(zap_arc_runtime_context_t *context) {
 }
 
 __attribute__((destructor)) static void zap_arc_shutdown(void) {
-  zap_arc_runtime_context_t *context = zap_arc_default_context();
-  free(context->roots);
-  free(context->snap);
-  free(context->worklist);
-  free(context->incoming);
-  free(context->reachable);
-  free(context->stack);
-  free(context->map.keys);
-  free(context->map.vals);
-  *context = (zap_arc_runtime_context_t){0};
+  zap_arc_context_release_storage(zap_arc_default_context());
 }
 
 void printInt(long v) { printf("%ld\n", v); }

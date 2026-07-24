@@ -173,9 +173,87 @@ static int test_retain_dead_object_fails(void) {
                 "retaining a dead object did not abort");
 }
 
+static int test_context_isolation(void) {
+  static const zap_arc_metadata_t metadata = {trace_child};
+  zap_arc_runtime_context_t *first_context = zap_arc_context_create();
+  zap_arc_runtime_context_t *second_context = zap_arc_context_create();
+  test_object_t *first_a = make_test_object(&metadata);
+  test_object_t *first_b = make_test_object(&metadata);
+  test_object_t *second_a = make_test_object(&metadata);
+  test_object_t *second_b = make_test_object(&metadata);
+  if (!expect(first_context && second_context && first_a && first_b &&
+                  second_a && second_b,
+              "failed to allocate isolated collector contexts")) {
+    zap_arc_context_destroy(first_context);
+    zap_arc_context_destroy(second_context);
+    free(first_a);
+    free(first_b);
+    free(second_a);
+    free(second_b);
+    return 0;
+  }
+
+  first_a->child = first_b;
+  first_b->child = first_a;
+  second_a->child = second_b;
+  second_b->child = second_a;
+  destroy_count = 0;
+  preserved_strong_counts = 1;
+  schedule_reentrant_collection = 0;
+  runtime_context = NULL;
+  zap_runtime_ownership_reset_counters();
+  zap_arc_add_possible_root(first_context, first_a);
+  zap_arc_add_possible_root(first_context, first_b);
+  zap_arc_add_possible_root(second_context, second_a);
+  zap_arc_add_possible_root(second_context, second_b);
+
+  zap_arc_collect_at_safepoint(first_context);
+  zap_runtime_ownership_counters_t counters = {0};
+  zap_runtime_ownership_snapshot_counters(&counters);
+  int passed =
+      expect(counters.collection_runs == 1,
+             "first collector context did not run exactly once") &&
+      expect(counters.reclaimed_objects == 2,
+             "first collector context reclaimed the wrong objects") &&
+      expect(destroy_count == 2,
+             "first collector context ran the wrong destructors") &&
+      expect(second_a->header.alive && second_b->header.alive,
+             "first collector context touched another context's cycle");
+
+  zap_arc_collect_at_safepoint(second_context);
+  zap_runtime_ownership_snapshot_counters(&counters);
+  passed = passed &&
+           expect(counters.collection_runs == 2,
+                  "second collector context did not run") &&
+           expect(counters.reclaimed_objects == 4,
+                  "second collector context did not reclaim its cycle") &&
+           expect(destroy_count == 4,
+                  "isolated collector contexts did not destroy exactly once") &&
+           expect(preserved_strong_counts,
+                  "isolated collection rewrote a strong count");
+  zap_arc_context_destroy(first_context);
+  zap_arc_context_destroy(second_context);
+
+  zap_arc_runtime_context_t *abandoned_context = zap_arc_context_create();
+  test_object_t *abandoned = make_test_object(&metadata);
+  if (!expect(abandoned_context && abandoned,
+              "failed to allocate context cleanup test")) {
+    zap_arc_context_destroy(abandoned_context);
+    free(abandoned);
+    return 0;
+  }
+  zap_arc_add_possible_root(abandoned_context, abandoned);
+  zap_arc_context_destroy(abandoned_context);
+  passed = passed &&
+           expect(!(abandoned->header.gc_mark & ZAP_ARC_GC_BUFFERED),
+                  "destroying a context left an object buffered");
+  free(abandoned);
+  return passed;
+}
+
 int main(void) {
   return test_direct_events_and_allocation() && test_cycle_collection_events() &&
-                 test_retain_dead_object_fails()
+                 test_retain_dead_object_fails() && test_context_isolation()
              ? 0
              : 1;
 }
