@@ -9,9 +9,36 @@
 namespace sema {
 
 struct SemanticInfo {
+  struct ImportedSymbol {
+    std::string targetModuleId;
+    std::shared_ptr<Symbol> symbol;
+  };
+
   std::unordered_map<const Node *, std::shared_ptr<Symbol>> symbolsByNode;
   std::unordered_map<const Symbol *, const Node *> declarationsBySymbol;
   std::unordered_map<const Node *, std::shared_ptr<zir::Type>> typesByNode;
+  std::unordered_map<std::string, ImportedSymbol> importedSymbols;
+
+  static std::string importKey(const std::string &moduleId,
+                               const std::string &localName) {
+    return moduleId + '\n' + localName;
+  }
+
+  void recordImportedSymbol(const std::string &moduleId,
+                            const std::string &localName,
+                            std::string targetModuleId,
+                            std::shared_ptr<Symbol> symbol) {
+    if (symbol) {
+      importedSymbols[importKey(moduleId, localName)] =
+          {std::move(targetModuleId), std::move(symbol)};
+    }
+  }
+
+  const ImportedSymbol *importedSymbolFor(const std::string &moduleId,
+                                           const std::string &localName) const {
+    auto it = importedSymbols.find(importKey(moduleId, localName));
+    return it == importedSymbols.end() ? nullptr : &it->second;
+  }
 
   void recordSymbol(const Node *node, std::shared_ptr<Symbol> symbol) {
     if (node && symbol) {

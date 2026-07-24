@@ -406,6 +406,11 @@ void Binder::applyImports(ModuleState &module, bool allowIncomplete) {
         if (!existing) {
           module.scope->declare(binding.localName, exportedIt->second);
         }
+        if (semanticInfo_) {
+          semanticInfo_->recordImportedSymbol(module.info->moduleId,
+                                              binding.localName, targetId,
+                                              exportedIt->second);
+        }
         if (import.visibility == Visibility::Public) {
           module.symbol->exports[binding.localName] = exportedIt->second;
         }
