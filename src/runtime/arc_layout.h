@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 // Shared ARC object header ABI used by runtime (C) and codegen (C++).
-#define ZAP_ARC_ABI_VERSION 4
+#define ZAP_ARC_ABI_VERSION 5
 #define ZAP_ARC_STRONG_COUNT_INDEX 0
 #define ZAP_ARC_WEAK_COUNT_INDEX 1
 #define ZAP_ARC_ALIVE_INDEX 2
@@ -81,6 +81,7 @@ void zap_arc_strong_refcount_overflow(void);
 void zap_arc_weak_refcount_overflow(void);
 void zap_arc_strong_refcount_underflow(void);
 void zap_arc_weak_refcount_underflow(void);
+void zap_arc_retain_dead_object(void);
 
 #if defined(ZAP_RUNTIME_INSTRUMENTATION)
 void zap_runtime_ownership_reset_counters(void);

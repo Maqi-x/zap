@@ -154,6 +154,11 @@ void zap_arc_weak_refcount_underflow(void) {
   abort();
 }
 
+void zap_arc_retain_dead_object(void) {
+  fputs("zap runtime error: cannot retain a dead ARC object\n", stderr);
+  abort();
+}
+
 typedef struct {
   void **keys;
   uint32_t *vals;
@@ -190,7 +195,9 @@ void zap_arc_add_possible_root(zap_arc_runtime_context_t *context,
     return;
   }
   zap_arc_header_t *header = (zap_arc_header_t *)object;
-  if (header->gc_mark & ZAP_ARC_GC_BUFFERED) {
+  if (!header->alive ||
+      (header->gc_mark & (ZAP_ARC_GC_BUFFERED | ZAP_ARC_GC_GARBAGE |
+                          ZAP_ARC_GC_FINALIZING))) {
     return;
   }
 

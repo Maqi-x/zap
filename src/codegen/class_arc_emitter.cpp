@@ -255,11 +255,15 @@ void ClassArcEmitter::emitRetainIfNeeded(
 
   auto *retainBB = llvm::BasicBlock::Create(codegen_.ctx_, "arc.retain.check",
                                             codegen_.currentFn_);
+  auto *countBB = llvm::BasicBlock::Create(codegen_.ctx_, "arc.retain.count",
+                                            codegen_.currentFn_);
   auto *incrementBB = llvm::BasicBlock::Create(codegen_.ctx_, "arc.retain.do",
                                                 codegen_.currentFn_);
   auto *overflowBB = llvm::BasicBlock::Create(codegen_.ctx_,
                                                "arc.retain.overflow",
                                                codegen_.currentFn_);
+  auto *deadBB = llvm::BasicBlock::Create(codegen_.ctx_, "arc.retain.dead",
+                                           codegen_.currentFn_);
   auto *contBB = llvm::BasicBlock::Create(codegen_.ctx_, "arc.retain.cont",
                                           codegen_.currentFn_);
   auto *isNull = codegen_.builder_.CreateICmpEQ(
@@ -272,6 +276,19 @@ void ClassArcEmitter::emitRetainIfNeeded(
       codegen_.structCache_.at(classType->getCodegenName() + ".obj");
   auto *typedPtr = codegen_.builder_.CreateBitCast(
       value, llvm::PointerType::getUnqual(codegen_.ctx_), "arc.retain.cast");
+  auto *aliveAddr = codegen_.builder_.CreateStructGEP(
+      objectTy, typedPtr, kClassAliveIndex, "arc.retain.alive.addr");
+  auto *alive = codegen_.builder_.CreateLoad(
+      llvm::Type::getInt8Ty(codegen_.ctx_), aliveAddr, "arc.retain.alive");
+  auto *isDead = codegen_.builder_.CreateICmpEQ(
+      alive,
+      llvm::ConstantInt::get(llvm::Type::getInt8Ty(codegen_.ctx_), 0));
+  codegen_.builder_.CreateCondBr(isDead, deadBB, countBB);
+
+  codegen_.builder_.SetInsertPoint(deadBB);
+  emitRefcountFailure("zap_arc_retain_dead_object");
+
+  codegen_.builder_.SetInsertPoint(countBB);
   auto *countAddr = codegen_.builder_.CreateStructGEP(
       objectTy, typedPtr, kClassStrongCountIndex, "arc.retain.count.addr");
   auto *count = codegen_.builder_.CreateLoad(

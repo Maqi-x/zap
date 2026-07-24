@@ -18,6 +18,7 @@ foreach(symbol
         zap_runtime_ownership_note_destroy
         zap_arc_default_context
         zap_arc_deallocate
+        zap_arc_retain_dead_object
         zap_arc_collect_at_safepoint)
     string(FIND "${emitted_ir}" "${symbol}" symbol_offset)
     if(symbol_offset EQUAL -1)
