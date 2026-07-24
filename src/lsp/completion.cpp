@@ -381,6 +381,20 @@ JsonObject::List makeCompletionItems(const std::string &uri,
     }
 
     std::set<std::string> seenImportedMembers;
+    if (const auto *targetId = project.semanticInfo.importedModuleFor(
+            moduleIt->second->moduleId, base)) {
+      auto targetIt = project.moduleMap.find(*targetId);
+      if (targetIt != project.moduleMap.end()) {
+        std::set<std::string> visited;
+        for (const auto &symbol : collectExportedSymbolsRecursive(
+                 project, *targetIt->second, visited)) {
+          if (matchesPrefix(symbol.name, memberPrefix) &&
+              seenImportedMembers.insert(symbol.name).second) {
+            items.push_back(makeCompletionItem(symbol, "imported member"));
+          }
+        }
+      }
+    }
     for (const auto &import : moduleIt->second->imports) {
       for (const auto &targetId : import.targetModuleIds) {
         auto targetIt = project.moduleMap.find(targetId);
