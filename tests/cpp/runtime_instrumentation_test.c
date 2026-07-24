@@ -207,19 +207,16 @@ static int test_removed_root_frees_collection_budget(void) {
   static const zap_arc_metadata_t metadata = {trace_child};
   zap_arc_runtime_context_t *context = zap_arc_context_create();
   test_object_t *removed = make_test_object(&metadata);
-  test_object_t *remaining = make_test_object(&metadata);
-  if (!expect(context && removed && remaining,
+  if (!expect(context && removed,
               "failed to allocate root-removal test objects")) {
     zap_arc_context_destroy(context);
     free(removed);
-    free(remaining);
     return 0;
   }
 
   zap_runtime_ownership_reset_counters();
   zap_arc_add_possible_root(context, removed);
   zap_arc_remove_possible_root(context, removed);
-  zap_arc_add_possible_root(context, remaining);
   zap_arc_collect_at_safepoint(context);
 
   zap_runtime_ownership_counters_t counters = {0};
@@ -227,11 +224,10 @@ static int test_removed_root_frees_collection_budget(void) {
   int passed =
       expect(counters.collection_runs == 0,
              "removed root still consumed the collection threshold") &&
-      expect(remaining->header.gc_mark & ZAP_ARC_GC_BUFFERED,
-             "remaining root was unexpectedly removed from the buffer");
+      expect(!(removed->header.gc_mark & ZAP_ARC_GC_BUFFERED),
+             "removed root remained buffered");
   zap_arc_context_destroy(context);
   free(removed);
-  free(remaining);
   return passed;
 }
 

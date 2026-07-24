@@ -15,7 +15,9 @@
 #define ZAP_ARC_VTABLE_INDEX 7
 #define ZAP_ARC_FIELD_START_INDEX 8
 #define ZAP_ARC_HEADER_FIELD_COUNT ZAP_ARC_FIELD_START_INDEX
-#define ZAP_ARC_COLLECTION_ROOT_THRESHOLD 2
+// A self-cycle has one possible root, so a larger threshold would postpone its
+// finalization indefinitely when no other managed object is released.
+#define ZAP_ARC_COLLECTION_ROOT_THRESHOLD 1
 
 // Flag bits packed into the gc_mark byte (index 3).
 #define ZAP_ARC_GC_GARBAGE 0x1
