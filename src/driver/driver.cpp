@@ -2,6 +2,7 @@
 #include "ast/import_node.hpp"
 #include "codegen/llvm_codegen.hpp"
 #include "driver/process.hpp"
+#include "frontend/frontend_session.hpp"
 #include "frontend/module_loader.hpp"
 #include "ir/ir_generator.hpp"
 #include "ir/ownership_lowering.hpp"
@@ -150,84 +151,6 @@ bool readSourceFile(const std::filesystem::path &path, std::string &content) {
   return false;
 }
 
-bool loadModuleGraph(
-    const std::filesystem::path &entryPath,
-    std::map<std::string, std::unique_ptr<sema::ModuleInfo>> &modules,
-    std::set<std::string> &visiting, bool incPrelude,
-    const std::unordered_map<std::string, std::string> &importMap) {
-  auto canonicalPath = std::filesystem::weakly_canonical(entryPath);
-  auto moduleId = canonicalPath.string();
-
-  if (modules.find(moduleId) != modules.end()) {
-    return false;
-  }
-  if (visiting.count(moduleId)) {
-    driver::reportError("cyclic import detected involving ", canonicalPath);
-    return true;
-  }
-
-  visiting.insert(moduleId);
-
-  std::string source;
-  if (readSourceFile(canonicalPath, source)) {
-    return true;
-  }
-
-  DiagnosticEngine diagnostics(source, canonicalPath.string());
-  Lexer lex(diagnostics);
-  auto tokens = lex.tokenize(source);
-  Parser parser(tokens, diagnostics);
-  auto ast = parser.parse();
-
-  if (diagnostics.hadErrors() || !ast) {
-    diagnostics.printText(err());
-    return true;
-  }
-
-  diagnostics.printText(err());
-
-  auto module = std::make_unique<sema::ModuleInfo>();
-  module->moduleId = moduleId;
-  module->moduleName = canonicalPath.stem().string();
-  module->linkPath = frontend::computeLogicalModulePath(
-      canonicalPath, runtimePaths(), importMap);
-  module->sourceName = canonicalPath.string();
-  module->sourceText = source;
-  module->root = std::move(ast);
-  frontend::injectImplicitPreludeImportIfNeeded(*module, incPrelude);
-
-  for (const auto &child : module->root->children) {
-    auto importNode = dynamic_cast<ImportNode *>(child.get());
-    if (!importNode) {
-      continue;
-    }
-
-    std::vector<std::filesystem::path> importTargets;
-    std::string importError;
-    if (!frontend::resolveImportTargets(canonicalPath, *importNode,
-                                        importTargets, importMap,
-                                        runtimePaths(), &importError)) {
-      driver::reportError(importError);
-      return true;
-    }
-
-    module->imports.push_back(
-        frontend::makeResolvedImport(*importNode, importTargets));
-  }
-
-  for (const auto &import : module->imports) {
-    for (const auto &targetId : import.targetModuleIds) {
-      if (loadModuleGraph(targetId, modules, visiting, incPrelude, importMap)) {
-        return true;
-      }
-    }
-  }
-
-  visiting.erase(moduleId);
-  modules[moduleId] = std::move(module);
-  return false;
-}
-
 } // namespace
 
 driver::driver() = default;
@@ -238,13 +161,23 @@ void driver::setExecutablePath(std::filesystem::path path) {
 }
 
 bool compileLoadedModules(driver &drv, const std::filesystem::path &entryPath) {
-  std::map<std::string, std::unique_ptr<sema::ModuleInfo>> moduleMap;
-  std::set<std::string> visiting;
-  if (loadModuleGraph(entryPath, moduleMap, visiting,
-                      drv.cmdArgs.incStdlib && drv.cmdArgs.incPrelude,
-                      drv.cmdArgs.importMap)) {
+  frontend::FrontendSession session(
+      {runtimePaths(), drv.cmdArgs.importMap,
+       drv.cmdArgs.incStdlib && drv.cmdArgs.incPrelude},
+      [](const std::filesystem::path &path) -> std::optional<std::string> {
+        std::string source;
+        return readSourceFile(path, source) ? std::nullopt
+                                            : std::optional<std::string>(std::move(source));
+      });
+  auto project = session.load(entryPath);
+  DiagnosticTextFormatter::print(err(), project.diagnostics);
+  for (const auto &error : project.errors) {
+    driver::reportError(error);
+  }
+  if (!project.loaded) {
     return true;
   }
+  auto moduleMap = std::move(project.modules);
 
   auto entryId = std::filesystem::weakly_canonical(entryPath).string();
   if (moduleMap.find(entryId) == moduleMap.end()) {

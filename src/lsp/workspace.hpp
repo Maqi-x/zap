@@ -20,12 +20,6 @@ class Workspace {
   std::set<std::string> publishedDiagnosticUris_;
   zap::frontend::RuntimePaths runtimePaths_;
 
-  bool loadModuleGraph(
-      const std::filesystem::path &modulePath,
-      std::map<std::string, std::unique_ptr<sema::ModuleInfo>> &modules,
-      std::set<std::string> &visiting, AnalysisResult &result,
-      const std::string &entryUri, const zap::args::ImportMap &importMap,
-      bool allowEntryErrors = false);
   void appendDiagnostics(AnalysisResult &result,
                          const std::vector<zap::Diagnostic> &diagnostics,
                          const std::string &fallbackUri) const;

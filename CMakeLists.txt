@@ -73,7 +73,10 @@ target_include_directories(zap_type_layout PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_options(zap_type_layout PRIVATE -Wall -Wextra)
 target_link_libraries(zap_type_layout PUBLIC zap_type_system)
 
-add_library(zap_frontend STATIC src/frontend/module_loader.cpp)
+add_library(zap_frontend STATIC
+    src/frontend/frontend_session.cpp
+    src/frontend/module_loader.cpp
+)
 target_include_directories(zap_frontend PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_options(zap_frontend PRIVATE -Wall -Wextra)
 
@@ -83,6 +86,7 @@ add_library(zap_syntax STATIC
 )
 target_include_directories(zap_syntax PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_options(zap_syntax PRIVATE -Wall -Wextra)
+target_link_libraries(zap_frontend PUBLIC zap_syntax)
 
 add_library(zap_zir_verifier STATIC
     src/ir/borrow_provenance.cpp

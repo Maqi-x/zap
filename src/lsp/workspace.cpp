@@ -1,9 +1,8 @@
 #include "lsp/workspace.hpp"
 
-#include "lexer/lexer.hpp"
+#include "frontend/frontend_session.hpp"
 #include "lsp/configuration.hpp"
 #include "lsp/protocol_utils.hpp"
-#include "parser/parser.hpp"
 #include "sema/binder.hpp"
 #include <utility>
 #include <vector>
@@ -29,94 +28,6 @@ Workspace::configure(const std::filesystem::path &workspaceRoot,
     runtimePaths_.stdlibDirOverride = std::move(*configuration.stdlibDir);
   }
   return configuration.errors;
-}
-
-bool Workspace::loadModuleGraph(
-    const std::filesystem::path &modulePath,
-    std::map<std::string, std::unique_ptr<sema::ModuleInfo>> &modules,
-    std::set<std::string> &visiting, AnalysisResult &result,
-    const std::string &entryUri, const zap::args::ImportMap &importMap,
-    bool allowEntryErrors) {
-  std::filesystem::path canonicalPath =
-      std::filesystem::weakly_canonical(modulePath);
-  std::string moduleId = canonicalPath.string();
-  const auto *entryDocument = document(entryUri);
-  if (!entryDocument) {
-    return false;
-  }
-  std::string entryModuleId = entryDocument->path.string();
-  bool isEntryModule = moduleId == entryModuleId;
-  if (modules.find(moduleId) != modules.end()) {
-    return true;
-  }
-  if (visiting.count(moduleId)) {
-    return false;
-  }
-
-  visiting.insert(moduleId);
-
-  auto source = sourceManager_.sourceForPath(canonicalPath);
-  if (!source) {
-    visiting.erase(moduleId);
-    return false;
-  }
-
-  zap::DiagnosticEngine diagnostics((*source)->text, canonicalPath.string());
-  Lexer lex(diagnostics);
-  auto tokens = lex.tokenize((*source)->text);
-  zap::Parser parser(tokens, diagnostics);
-  auto ast = parser.parse();
-
-  appendDiagnostics(result, diagnostics.diagnostics(),
-                    sourceManager_.uriForPath(canonicalPath));
-
-  if (!ast ||
-      (diagnostics.hadErrors() && !(allowEntryErrors && isEntryModule))) {
-    visiting.erase(moduleId);
-    return false;
-  }
-
-  auto module = std::make_unique<sema::ModuleInfo>();
-  module->moduleId = moduleId;
-  module->moduleName = canonicalPath.stem().string();
-  module->linkPath = zap::frontend::computeLogicalModulePath(
-      canonicalPath, runtimePaths_, importMap);
-  module->sourceName = canonicalPath.string();
-  module->sourceText = (*source)->text;
-  module->root = std::move(ast);
-
-  zap::frontend::injectImplicitPreludeImportIfNeeded(*module, true);
-
-  for (const auto &child : module->root->children) {
-    auto importNode = dynamic_cast<ImportNode *>(child.get());
-    if (!importNode) {
-      continue;
-    }
-
-    std::vector<std::filesystem::path> importTargets;
-    if (!zap::frontend::resolveImportTargets(canonicalPath, *importNode,
-                                             importTargets, importMap,
-                                             runtimePaths_)) {
-      continue;
-    }
-
-    module->imports.push_back(
-        zap::frontend::makeResolvedImport(*importNode, importTargets));
-  }
-
-  for (const auto &import : module->imports) {
-    for (const auto &targetId : import.targetModuleIds) {
-      if (!loadModuleGraph(targetId, modules, visiting, result, entryUri,
-                           importMap, allowEntryErrors)) {
-        visiting.erase(moduleId);
-        return false;
-      }
-    }
-  }
-
-  visiting.erase(moduleId);
-  modules[moduleId] = std::move(module);
-  return true;
 }
 
 const SourceSnapshot *Workspace::document(const std::string &uri) const {
@@ -179,10 +90,17 @@ std::optional<ProjectState> Workspace::loadProject(const std::string &uri,
   auto flags = findAndReadFlags(document->path);
 
   ProjectState state;
-  std::set<std::string> visiting;
-  if (!loadModuleGraph(document->path, state.moduleMap, visiting,
-                       state.analysis, uri, flags.importMap,
-                       allowEntryErrors)) {
+  zap::frontend::FrontendSession session(
+      {runtimePaths_, flags.importMap, true, allowEntryErrors},
+      [this](const std::filesystem::path &path) -> std::optional<std::string> {
+        auto source = sourceManager_.sourceForPath(path);
+        return source ? std::optional<std::string>((*source)->text)
+                      : std::nullopt;
+      });
+  auto project = session.load(document->path);
+  appendDiagnostics(state.analysis, project.diagnostics, uri);
+  state.moduleMap = std::move(project.modules);
+  if (!project.loaded) {
     if (state.analysis.diagnosticsByUri.find(uri) ==
         state.analysis.diagnosticsByUri.end()) {
       state.analysis.diagnosticsByUri[uri] = {};
@@ -227,10 +145,16 @@ AnalysisResult Workspace::analyze(const std::string &uri) {
 
   auto flags = findAndReadFlags(document->path);
 
-  std::map<std::string, std::unique_ptr<sema::ModuleInfo>> moduleMap;
-  std::set<std::string> visiting;
-  if (!loadModuleGraph(document->path, moduleMap, visiting, result, uri,
-                       flags.importMap, false)) {
+  zap::frontend::FrontendSession session(
+      {runtimePaths_, flags.importMap},
+      [this](const std::filesystem::path &path) -> std::optional<std::string> {
+        auto source = sourceManager_.sourceForPath(path);
+        return source ? std::optional<std::string>((*source)->text)
+                      : std::nullopt;
+      });
+  auto project = session.load(document->path);
+  appendDiagnostics(result, project.diagnostics, uri);
+  if (!project.loaded) {
     if (result.diagnosticsByUri.find(uri) == result.diagnosticsByUri.end()) {
       result.diagnosticsByUri[uri] = {};
     }
@@ -246,8 +170,8 @@ AnalysisResult Workspace::analyze(const std::string &uri) {
     return result;
   }
 
-  auto entryModuleIt = moduleMap.find(entryId);
-  if (entryModuleIt == moduleMap.end()) {
+  auto entryModuleIt = project.modules.find(entryId);
+  if (entryModuleIt == project.modules.end()) {
     clearStaleDiagnostics(result);
     return result;
   }
@@ -257,8 +181,8 @@ AnalysisResult Workspace::analyze(const std::string &uri) {
   zap::DiagnosticEngine diagnostics((*entrySource)->text,
                                     document->path.string());
   std::vector<sema::ModuleInfo> modules;
-  modules.reserve(moduleMap.size());
-  for (auto &[_, modulePtr] : moduleMap) {
+  modules.reserve(project.modules.size());
+  for (auto &[_, modulePtr] : project.modules) {
     diagnostics.registerSource(modulePtr->sourceName, modulePtr->sourceText);
     modules.push_back(std::move(*modulePtr));
   }
