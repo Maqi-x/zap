@@ -46,4 +46,17 @@ std::optional<std::string> decodeCloseDocument(const JsonObject &request) {
   return getStringField(request, {"params", "textDocument", "uri"});
 }
 
+std::optional<InitializeParams> decodeInitialize(const JsonObject &request) {
+  const JsonObject *params = getField(request, "params");
+  if (!params || !params->isObject()) {
+    return std::nullopt;
+  }
+  return InitializeParams{
+      getStringField(request, {"params", "rootUri"}),
+      getStringField(request, {"params", "rootPath"}),
+      getStringField(request, {"params", "initializationOptions", "corePath"}),
+      getStringField(request, {"params", "initializationOptions", "stdlibPath"}),
+  };
+}
+
 } // namespace zap::lsp

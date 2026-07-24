@@ -47,21 +47,19 @@ int zap::lsp::runRequestDispatcher() {
       shutdownRequested = false;
 
       std::filesystem::path workspaceRoot = std::filesystem::current_path();
-      if (auto rootUri = getStringField(request, {"params", "rootUri"})) {
-        if (auto rootPath = uriToPath(*rootUri)) {
+      auto params = decodeInitialize(request);
+      if (params && params->rootUri) {
+        if (auto rootPath = uriToPath(*params->rootUri)) {
           workspaceRoot = std::move(*rootPath);
         }
-      } else if (auto rootPath =
-                     getStringField(request, {"params", "rootPath"})) {
-        workspaceRoot = std::move(*rootPath);
+      } else if (params && params->rootPath) {
+        workspaceRoot = std::move(*params->rootPath);
       }
 
       auto configurationErrors = workspace.configure(
           workspaceRoot,
-          getStringField(request,
-                         {"params", "initializationOptions", "corePath"}),
-          getStringField(request,
-                         {"params", "initializationOptions", "stdlibPath"}));
+          params ? params->corePath : std::nullopt,
+          params ? params->stdlibPath : std::nullopt);
 
       JsonObject::Object syncOptions;
       syncOptions.emplace("openClose", JsonObject(true));
