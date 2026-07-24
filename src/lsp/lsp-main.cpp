@@ -1,4 +1,5 @@
 #include "lsp.hpp"
+#include "lsp/document_request.hpp"
 #include "lsp/language_features.hpp"
 #include "lsp/position_codec.hpp"
 #include "lsp/protocol_messages.hpp"
@@ -154,32 +155,20 @@ int main() {
         server.sendMessage(makePublishDiagnostics(*uri, {}));
       }
     } else if (*method == "textDocument/completion") {
-      auto uri = getStringField(request, {"params", "textDocument", "uri"});
-      auto line = getIntegerField(request, {"params", "position", "line"});
-      auto character =
-          getIntegerField(request, {"params", "position", "character"});
-      if (id && uri && line && character) {
+      if (id) {
         JsonObject::List items;
-        if (auto query = workspace.query(*uri)) {
-            size_t offset =
-                offsetFromPosition(query->document->text, *line, *character);
-            items = makeCompletionItems(*uri, query->document->text,
-                                        *query->project, offset);
+        if (auto context = documentRequestContext(workspace, request)) {
+            items = makeCompletionItems(context->uri, context->query.document->text,
+                                        *context->query.project, context->offset);
         }
         server.sendMessage(makeResponse(id, JsonObject(std::move(items))));
       }
     } else if (*method == "textDocument/definition") {
-      auto uri = getStringField(request, {"params", "textDocument", "uri"});
-      auto line = getIntegerField(request, {"params", "position", "line"});
-      auto character =
-          getIntegerField(request, {"params", "position", "character"});
-      if (id && uri && line && character) {
+      if (id) {
         JsonObject result(nullptr);
-        if (auto query = workspace.query(*uri)) {
-            size_t offset =
-                offsetFromPosition(query->document->text, *line, *character);
-            auto symbol = resolveDefinition(query->document->text, *uri,
-                                            *query->project, offset);
+        if (auto context = documentRequestContext(workspace, request)) {
+            auto symbol = resolveDefinition(context->query.document->text, context->uri,
+                                            *context->query.project, context->offset);
             if (symbol) {
               auto source = workspace.sourceForUri(symbol->uri);
               if (source) {
@@ -190,17 +179,11 @@ int main() {
         server.sendMessage(makeResponse(id, std::move(result)));
       }
     } else if (*method == "textDocument/hover") {
-      auto uri = getStringField(request, {"params", "textDocument", "uri"});
-      auto line = getIntegerField(request, {"params", "position", "line"});
-      auto character =
-          getIntegerField(request, {"params", "position", "character"});
-      if (id && uri && line && character) {
+      if (id) {
         JsonObject result(nullptr);
-        if (auto query = workspace.query(*uri)) {
-            size_t offset =
-                offsetFromPosition(query->document->text, *line, *character);
-            auto hover = resolveHover(query->document->text, *uri,
-                                      *query->project, offset);
+        if (auto context = documentRequestContext(workspace, request)) {
+            auto hover = resolveHover(context->query.document->text, context->uri,
+                                      *context->query.project, context->offset);
             if (hover) {
               result = makeHover(*hover);
             }
@@ -208,18 +191,12 @@ int main() {
         server.sendMessage(makeResponse(id, std::move(result)));
       }
     } else if (*method == "textDocument/signatureHelp") {
-      auto uri = getStringField(request, {"params", "textDocument", "uri"});
-      auto line = getIntegerField(request, {"params", "position", "line"});
-      auto character =
-          getIntegerField(request, {"params", "position", "character"});
-      if (id && uri && line && character) {
+      if (id) {
         JsonObject result(nullptr);
-        if (auto query = workspace.query(*uri)) {
-            size_t offset =
-                offsetFromPosition(query->document->text, *line, *character);
+        if (auto context = documentRequestContext(workspace, request)) {
             int64_t activeParameter = 0;
-            auto signatures = resolveSignatures(query->document->text, *uri,
-                                                *query->project, offset,
+            auto signatures = resolveSignatures(context->query.document->text, context->uri,
+                                                *context->query.project, context->offset,
                                                 activeParameter);
             if (!signatures.empty()) {
               int64_t activeSignature =

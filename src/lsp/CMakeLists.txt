@@ -2,6 +2,7 @@ set(LSP_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/lsp-main.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/completion.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/configuration.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/document_request.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/position_codec.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/language_features.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/lsp.cpp"
