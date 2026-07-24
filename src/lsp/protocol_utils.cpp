@@ -1,5 +1,7 @@
 #include "lsp/protocol_utils.hpp"
 
+#include "lsp/position_codec.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <fstream>
@@ -173,25 +175,6 @@ zap::args::CmdlineArgs findAndReadFlags(std::filesystem::path startPath) {
     startPath = startPath.parent_path();
   }
   return {};
-}
-
-size_t offsetFromPosition(const std::string &text, int64_t line,
-                          int64_t character) {
-  size_t offset = 0;
-  int64_t currentLine = 0;
-  while (offset < text.size() && currentLine < line) {
-    if (text[offset++] == '\n') {
-      ++currentLine;
-    }
-  }
-
-  int64_t currentChar = 0;
-  while (offset < text.size() && currentChar < character &&
-         text[offset] != '\n') {
-    ++offset;
-    ++currentChar;
-  }
-  return offset;
 }
 
 bool containsOffset(const SourceSpan &span, size_t offset) {

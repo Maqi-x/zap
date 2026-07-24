@@ -206,6 +206,15 @@ bool Workspace::contains(const std::string &uri) const {
   return documentsByUri_.find(uri) != documentsByUri_.end();
 }
 
+std::optional<std::string>
+Workspace::sourceForUri(const std::string &uri) const {
+  if (const auto *openDocument = document(uri)) {
+    return openDocument->text;
+  }
+  auto path = uriToPath(uri);
+  return path ? sourceForPath(*path) : std::nullopt;
+}
+
 std::optional<ProjectState>
 Workspace::loadProject(const std::string &uri, bool allowEntryErrors) const {
   auto docIt = documentsByUri_.find(uri);

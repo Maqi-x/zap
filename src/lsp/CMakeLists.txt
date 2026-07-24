@@ -2,6 +2,7 @@ set(LSP_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/lsp-main.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/completion.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/configuration.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/position_codec.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/language_features.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/lsp.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/protocol_messages.cpp"
@@ -51,6 +52,15 @@ if(BUILD_TESTING)
   )
   target_compile_options(zap-lsp-configuration-tests PRIVATE -Wall -Wextra)
   add_test(NAME lsp-configuration COMMAND zap-lsp-configuration-tests)
+
+  add_executable(
+    zap-lsp-position-tests
+    ${CMAKE_SOURCE_DIR}/tests/cpp/lsp_position_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/position_codec.cpp
+  )
+  target_include_directories(zap-lsp-position-tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
+  target_compile_options(zap-lsp-position-tests PRIVATE -Wall -Wextra)
+  add_test(NAME lsp-position COMMAND zap-lsp-position-tests)
 
   find_package(Python3 COMPONENTS Interpreter QUIET)
   if(Python3_Interpreter_FOUND)

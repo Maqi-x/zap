@@ -48,6 +48,7 @@ public:
   bool contains(const std::string &uri) const;
   std::optional<ProjectState> loadProject(const std::string &uri,
                                           bool allowEntryErrors = false) const;
+  std::optional<std::string> sourceForUri(const std::string &uri) const;
   AnalysisResult analyze(const std::string &uri) const;
 };
 

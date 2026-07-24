@@ -60,6 +60,10 @@ def file_uri(path):
     return pathlib.Path(path).resolve().as_uri()
 
 
+def utf16_length(text):
+    return len(text.encode("utf-16-le")) // 2
+
+
 def completion_labels(proc, uri, line, character, request_id):
     response = request(
         proc,
@@ -170,6 +174,24 @@ def main():
             loop_uri = open_document(proc, temp / "loop.zp", loop_source)
             labels = completion_labels(proc, loop_uri, 3, 9, 2)
             assert "v" in labels, "for-in item variable missing from completion"
+
+            unicode_prefix = '    var note: String = "😀"; '
+            unicode_source = f"""fun main() Int {{
+{unicode_prefix}ret
+    return 0;
+}}
+"""
+            unicode_uri = open_document(
+                proc, temp / "unicode_position.zp", unicode_source
+            )
+            labels = completion_labels(
+                proc,
+                unicode_uri,
+                1,
+                utf16_length(unicode_prefix + "ret"),
+                15,
+            )
+            assert "return" in labels, "UTF-16 cursor did not reach completion"
 
             class_source = """class Counter {
     priv value: Int;

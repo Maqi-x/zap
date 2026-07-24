@@ -1,5 +1,6 @@
 #include "lsp.hpp"
 #include "lsp/language_features.hpp"
+#include "lsp/position_codec.hpp"
 #include "lsp/protocol_messages.hpp"
 #include "lsp/protocol_utils.hpp"
 #include "lsp/workspace.hpp"
@@ -183,7 +184,10 @@ int main() {
                 offsetFromPosition(document->text, *line, *character);
             auto symbol = resolveDefinition(workspace, *uri, *project, offset);
             if (symbol) {
-              result = makeLocation(symbol->uri, symbol->span);
+              auto source = workspace.sourceForUri(symbol->uri);
+              if (source) {
+                result = makeLocation(symbol->uri, *source, symbol->span);
+              }
             }
           }
         }
