@@ -18,7 +18,7 @@ automatic prelude: common APIs such as `println`, `List<>`, `HashMap<>`, and
 | `07_predictable_lifetimes.zp` | Deterministic ARC cleanup |
 | `08_weak_references.zp` | Non-owning back references without dangling access |
 | `09_predictable_ownership.zp` | Ownership-taking APIs with stable source semantics |
-| `10_incremental_c_ffi.zp` | Calling trusted C APIs without rewriting a codebase |
+| `10_incremental_c_ffi.zp` | Sharing C-layout records and callbacks with an existing C API |
 | `11_isolated_unsafe.zp` | Keeping raw-pointer work behind a narrow boundary |
 | `12_polymorphism.zp` | Classes, inheritance, and dynamic dispatch |
 | `13_managed_cycles.zp` | Reclaiming an unreachable strong-reference cycle |
