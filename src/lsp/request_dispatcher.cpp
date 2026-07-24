@@ -67,6 +67,7 @@ JsonObject makeCapabilities() {
 
   JsonObject::Object serverInfo;
   serverInfo.emplace("name", JsonObject("zap-lsp"));
+  serverInfo.emplace("version", JsonObject(lspVersion));
 
   JsonObject::Object result;
   result.emplace("capabilities", JsonObject(std::move(capabilities)));

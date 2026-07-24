@@ -213,6 +213,7 @@ def main():
                 1,
             )
             assert "capabilities" in init["result"]
+            assert init["result"]["serverInfo"]["version"] == "0.1.0"
             notify(proc, "initialized", {})
             temp = workspace_root
 

@@ -109,5 +109,6 @@ After updating settings, run **Developer: Reload Window**.
 
 ## Notes
 
-- The server currently provides diagnostics.
+- The server provides diagnostics, completion, definition, hover, and signature help.
+- Requests can be cancelled while another analysis is running; cancelled requests return the standard LSP cancellation error.
 - The extension starts the server over stdio, so it also works in VSCodium.
