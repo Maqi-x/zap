@@ -31,49 +31,20 @@ Workspace::configure(const std::filesystem::path &workspaceRoot,
   return configuration.errors;
 }
 
-std::optional<std::string>
-Workspace::sourceForPath(const std::filesystem::path &path) const {
-  std::string key = std::filesystem::weakly_canonical(path).string();
-  auto uriIt = uriByCanonicalPath_.find(key);
-  if (uriIt != uriByCanonicalPath_.end()) {
-    auto docIt = documentsByUri_.find(uriIt->second);
-    if (docIt != documentsByUri_.end()) {
-      return docIt->second.text;
-    }
-  }
-
-  std::error_code ec;
-  auto writeTime = std::filesystem::last_write_time(path, ec);
-  if (!ec) {
-    auto cacheIt = fileContentCache_.find(key);
-    if (cacheIt != fileContentCache_.end() &&
-        cacheIt->second.lastWriteTime == writeTime) {
-      return cacheIt->second.content;
-    }
-  }
-
-  std::string content;
-  if (!readSourceFile(path, content)) {
-    return std::nullopt;
-  }
-  if (!ec) {
-    fileContentCache_[key] = CachedFile{writeTime, content};
-  }
-  return content;
-}
-
 bool Workspace::loadModuleGraph(
     const std::filesystem::path &modulePath,
     std::map<std::string, std::unique_ptr<sema::ModuleInfo>> &modules,
     std::set<std::string> &visiting, AnalysisResult &result,
     const std::string &entryUri, const zap::args::ImportMap &importMap,
-    bool allowEntryErrors) const {
+    bool allowEntryErrors) {
   std::filesystem::path canonicalPath =
       std::filesystem::weakly_canonical(modulePath);
   std::string moduleId = canonicalPath.string();
-  std::string entryModuleId =
-      std::filesystem::weakly_canonical(documentsByUri_.at(entryUri).path)
-          .string();
+  const auto *entryDocument = document(entryUri);
+  if (!entryDocument) {
+    return false;
+  }
+  std::string entryModuleId = entryDocument->path.string();
   bool isEntryModule = moduleId == entryModuleId;
   if (modules.find(moduleId) != modules.end()) {
     return true;
@@ -84,26 +55,20 @@ bool Workspace::loadModuleGraph(
 
   visiting.insert(moduleId);
 
-  auto source = sourceForPath(canonicalPath);
+  auto source = sourceManager_.sourceForPath(canonicalPath);
   if (!source) {
     visiting.erase(moduleId);
     return false;
   }
 
-  zap::DiagnosticEngine diagnostics(*source, canonicalPath.string());
+  zap::DiagnosticEngine diagnostics((*source)->text, canonicalPath.string());
   Lexer lex(diagnostics);
-  auto tokens = lex.tokenize(*source);
+  auto tokens = lex.tokenize((*source)->text);
   zap::Parser parser(tokens, diagnostics);
   auto ast = parser.parse();
 
-  auto uriIt = uriByCanonicalPath_.find(moduleId);
-  if (uriIt != uriByCanonicalPath_.end()) {
-    result.diagnosticsByUri[uriIt->second] = diagnostics.diagnostics();
-  } else if (moduleId == std::filesystem::weakly_canonical(
-                             documentsByUri_.at(entryUri).path)
-                             .string()) {
-    result.diagnosticsByUri[entryUri] = diagnostics.diagnostics();
-  }
+  appendDiagnostics(result, diagnostics.diagnostics(),
+                    sourceManager_.uriForPath(canonicalPath));
 
   if (!ast ||
       (diagnostics.hadErrors() && !(allowEntryErrors && isEntryModule))) {
@@ -117,7 +82,7 @@ bool Workspace::loadModuleGraph(
   module->linkPath = zap::frontend::computeLogicalModulePath(
       canonicalPath, runtimePaths_, importMap);
   module->sourceName = canonicalPath.string();
-  module->sourceText = *source;
+  module->sourceText = (*source)->text;
   module->root = std::move(ast);
 
   zap::frontend::injectImplicitPreludeImportIfNeeded(*module, true);
@@ -154,79 +119,68 @@ bool Workspace::loadModuleGraph(
   return true;
 }
 
-const DocumentState *Workspace::document(const std::string &uri) const {
-  auto it = documentsByUri_.find(uri);
-  return it == documentsByUri_.end() ? nullptr : &it->second;
+const SourceSnapshot *Workspace::document(const std::string &uri) const {
+  return sourceManager_.document(uri);
 }
 
 void Workspace::open(const std::string &uri, std::filesystem::path path,
                      std::string text, int64_t version) {
-  std::filesystem::path canonicalPath = std::filesystem::weakly_canonical(path);
-  std::string canonicalKey = canonicalPath.string();
-
-  auto existingUriIt = uriByCanonicalPath_.find(canonicalKey);
-  if (existingUriIt != uriByCanonicalPath_.end() &&
-      existingUriIt->second != uri) {
-    documentsByUri_.erase(existingUriIt->second);
-    existingUriIt->second = uri;
-  } else {
-    uriByCanonicalPath_[canonicalKey] = uri;
-  }
-
-  documentsByUri_[uri] =
-      DocumentState{uri, std::move(canonicalPath), std::move(text), version};
+  sourceManager_.open(uri, std::move(path), std::move(text), version);
 }
 
 void Workspace::update(const std::string &uri, std::string text,
                        int64_t version) {
-  auto it = documentsByUri_.find(uri);
-  if (it == documentsByUri_.end()) {
-    return;
-  }
-  it->second.text = std::move(text);
-  it->second.version = version;
+  sourceManager_.update(uri, std::move(text), version);
 }
 
-void Workspace::close(const std::string &uri) {
-  auto it = documentsByUri_.find(uri);
-  if (it == documentsByUri_.end()) {
-    return;
-  }
-
-  std::string canonicalKey = it->second.path.string();
-  auto pathIt = uriByCanonicalPath_.find(canonicalKey);
-  if (pathIt != uriByCanonicalPath_.end() && pathIt->second == uri) {
-    uriByCanonicalPath_.erase(pathIt);
-  }
-
-  documentsByUri_.erase(it);
-}
+void Workspace::close(const std::string &uri) { sourceManager_.close(uri); }
 
 bool Workspace::contains(const std::string &uri) const {
-  return documentsByUri_.find(uri) != documentsByUri_.end();
+  return sourceManager_.contains(uri);
 }
 
-std::optional<std::string>
-Workspace::sourceForUri(const std::string &uri) const {
-  if (const auto *openDocument = document(uri)) {
-    return openDocument->text;
+std::optional<std::string> Workspace::sourceForUri(const std::string &uri) {
+  auto source = sourceManager_.sourceForUri(uri);
+  return source ? std::optional<std::string>((*source)->text) : std::nullopt;
+}
+
+void Workspace::appendDiagnostics(
+    AnalysisResult &result, const std::vector<zap::Diagnostic> &diagnostics,
+    const std::string &fallbackUri) const {
+  for (const auto &diagnostic : diagnostics) {
+    std::string uri = fallbackUri;
+    if (!diagnostic.fileName.empty()) {
+      uri = sourceManager_.uriForPath(diagnostic.fileName);
+    }
+    result.diagnosticsByUri[uri].push_back(diagnostic);
   }
-  auto path = uriToPath(uri);
-  return path ? sourceForPath(*path) : std::nullopt;
 }
 
-std::optional<ProjectState>
-Workspace::loadProject(const std::string &uri, bool allowEntryErrors) const {
-  auto docIt = documentsByUri_.find(uri);
-  if (docIt == documentsByUri_.end()) {
+void Workspace::clearStaleDiagnostics(AnalysisResult &result) {
+  std::set<std::string> currentUris;
+  for (const auto &[uri, _] : result.diagnosticsByUri) {
+    currentUris.insert(uri);
+  }
+  for (const auto &uri : publishedDiagnosticUris_) {
+    if (currentUris.count(uri) == 0) {
+      result.diagnosticsByUri[uri] = {};
+    }
+  }
+  publishedDiagnosticUris_ = std::move(currentUris);
+}
+
+std::optional<ProjectState> Workspace::loadProject(const std::string &uri,
+                                                   bool allowEntryErrors) {
+  const auto *document = this->document(uri);
+  if (!document) {
     return std::nullopt;
   }
 
-  auto flags = findAndReadFlags(docIt->second.path);
+  auto flags = findAndReadFlags(document->path);
 
   ProjectState state;
   std::set<std::string> visiting;
-  if (!loadModuleGraph(docIt->second.path, state.moduleMap, visiting,
+  if (!loadModuleGraph(document->path, state.moduleMap, visiting,
                        state.analysis, uri, flags.importMap,
                        allowEntryErrors)) {
     if (state.analysis.diagnosticsByUri.find(uri) ==
@@ -237,25 +191,19 @@ Workspace::loadProject(const std::string &uri, bool allowEntryErrors) const {
   }
 
   for (const auto &[moduleId, _] : state.moduleMap) {
-    auto uriIt = uriByCanonicalPath_.find(moduleId);
-    if (uriIt != uriByCanonicalPath_.end()) {
-      state.uriByModuleId[moduleId] = uriIt->second;
-    } else {
-      state.uriByModuleId[moduleId] = pathToUri(moduleId);
-    }
+    state.uriByModuleId[moduleId] = sourceManager_.uriForPath(moduleId);
   }
 
-  auto entrySource = sourceForPath(docIt->second.path);
+  auto entrySource = sourceManager_.sourceForPath(document->path);
   if (entrySource) {
-    auto entryId =
-        std::filesystem::weakly_canonical(docIt->second.path).string();
+    auto entryId = document->path.string();
     auto entryModuleIt = state.moduleMap.find(entryId);
     if (entryModuleIt != state.moduleMap.end()) {
       entryModuleIt->second->isEntry = true;
     }
 
-    zap::DiagnosticEngine diagnostics(*entrySource,
-                                      docIt->second.path.string());
+    zap::DiagnosticEngine diagnostics((*entrySource)->text,
+                                      document->path.string());
     std::vector<sema::ModuleInfo *> modules;
     modules.reserve(state.moduleMap.size());
     for (auto &[_, modulePtr] : state.moduleMap) {
@@ -270,41 +218,44 @@ Workspace::loadProject(const std::string &uri, bool allowEntryErrors) const {
   return state;
 }
 
-AnalysisResult Workspace::analyze(const std::string &uri) const {
+AnalysisResult Workspace::analyze(const std::string &uri) {
   AnalysisResult result;
-  auto docIt = documentsByUri_.find(uri);
-  if (docIt == documentsByUri_.end()) {
+  const auto *document = this->document(uri);
+  if (!document) {
     return result;
   }
 
-  auto flags = findAndReadFlags(docIt->second.path);
+  auto flags = findAndReadFlags(document->path);
 
   std::map<std::string, std::unique_ptr<sema::ModuleInfo>> moduleMap;
   std::set<std::string> visiting;
-  if (!loadModuleGraph(docIt->second.path, moduleMap, visiting, result, uri,
+  if (!loadModuleGraph(document->path, moduleMap, visiting, result, uri,
                        flags.importMap, false)) {
     if (result.diagnosticsByUri.find(uri) == result.diagnosticsByUri.end()) {
       result.diagnosticsByUri[uri] = {};
     }
+    clearStaleDiagnostics(result);
     return result;
   }
 
-  std::string entryId =
-      std::filesystem::weakly_canonical(docIt->second.path).string();
-  auto entrySource = sourceForPath(docIt->second.path);
+  std::string entryId = document->path.string();
+  auto entrySource = sourceManager_.sourceForPath(document->path);
   if (!entrySource) {
     result.diagnosticsByUri[uri] = {};
+    clearStaleDiagnostics(result);
     return result;
   }
 
   auto entryModuleIt = moduleMap.find(entryId);
   if (entryModuleIt == moduleMap.end()) {
+    clearStaleDiagnostics(result);
     return result;
   }
 
   entryModuleIt->second->isEntry = true;
 
-  zap::DiagnosticEngine diagnostics(*entrySource, docIt->second.path.string());
+  zap::DiagnosticEngine diagnostics((*entrySource)->text,
+                                    document->path.string());
   std::vector<sema::ModuleInfo> modules;
   modules.reserve(moduleMap.size());
   for (auto &[_, modulePtr] : moduleMap) {
@@ -316,7 +267,8 @@ AnalysisResult Workspace::analyze(const std::string &uri) const {
   auto boundAst = binder.bind(modules);
   (void)boundAst;
 
-  result.diagnosticsByUri[uri] = diagnostics.diagnostics();
+  appendDiagnostics(result, diagnostics.diagnostics(), uri);
+  clearStaleDiagnostics(result);
   return result;
 }
 

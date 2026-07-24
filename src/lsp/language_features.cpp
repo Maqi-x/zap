@@ -1165,7 +1165,7 @@ std::optional<LspSymbol> resolveDefinition(const Workspace &workspace,
                                            const std::string &uri,
                                            const ProjectState &project,
                                            size_t offset) {
-  const DocumentState *document = workspace.document(uri);
+  const SourceSnapshot *document = workspace.document(uri);
   if (!document) {
     return std::nullopt;
   }

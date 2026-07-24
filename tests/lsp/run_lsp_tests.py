@@ -56,6 +56,16 @@ def notify(proc, method, params):
     send(proc, {"jsonrpc": "2.0", "method": method, "params": params})
 
 
+def read_diagnostics(proc, expected_uri):
+    while True:
+        message = read_message(proc)
+        if message.get("method") != "textDocument/publishDiagnostics":
+            continue
+        params = message["params"]
+        if params["uri"] == expected_uri:
+            return params["diagnostics"]
+
+
 def file_uri(path):
     return pathlib.Path(path).resolve().as_uri()
 
@@ -162,6 +172,33 @@ def main():
             assert "capabilities" in init["result"]
             notify(proc, "initialized", {})
             temp = workspace_root
+
+            imported_path = temp / "broken.zp"
+            imported_path.write_text("fun broken() Int {\n")
+            imported_uri = file_uri(imported_path)
+            main_with_broken_import = """import "broken.zp";
+
+fun main() Int {
+    return 0;
+}
+"""
+            open_document(
+                proc, temp / "main_with_broken_import.zp", main_with_broken_import
+            )
+            diagnostics = read_diagnostics(proc, imported_uri)
+            assert diagnostics, "imported-file diagnostic was not published"
+
+            open_document(
+                proc,
+                imported_path,
+                """fun broken() Int {
+    return 0;
+}
+""",
+            )
+            assert read_diagnostics(proc, imported_uri) == [], (
+                "resolved diagnostics were not cleared for the imported file"
+            )
 
             loop_source = """fun main() Int {
     var values: [2]Int = {1, 2};

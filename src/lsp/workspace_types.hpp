@@ -13,13 +13,6 @@
 
 namespace zap::lsp {
 
-struct DocumentState {
-  std::string uri;
-  std::filesystem::path path;
-  std::string text;
-  int64_t version = 0;
-};
-
 struct AnalysisResult {
   std::unordered_map<std::string, std::vector<zap::Diagnostic>>
       diagnosticsByUri;

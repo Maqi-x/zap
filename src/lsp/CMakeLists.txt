@@ -7,6 +7,7 @@ set(LSP_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/lsp.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/protocol_messages.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/protocol_utils.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/source_manager.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/symbol_index.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/workspace.cpp"
   "${CMAKE_SOURCE_DIR}/src/lexer/lexer.cpp"
@@ -61,6 +62,21 @@ if(BUILD_TESTING)
   target_include_directories(zap-lsp-position-tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
   target_compile_options(zap-lsp-position-tests PRIVATE -Wall -Wextra)
   add_test(NAME lsp-position COMMAND zap-lsp-position-tests)
+
+  add_executable(
+    zap-lsp-source-manager-tests
+    ${CMAKE_SOURCE_DIR}/tests/cpp/lsp_source_manager_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/source_manager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/protocol_utils.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/lsp.cpp
+    ${CMAKE_SOURCE_DIR}/src/driver/args/argparse.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/stream.cpp
+  )
+  target_include_directories(
+    zap-lsp-source-manager-tests PRIVATE "${CMAKE_SOURCE_DIR}/src"
+  )
+  target_compile_options(zap-lsp-source-manager-tests PRIVATE -Wall -Wextra)
+  add_test(NAME lsp-source-manager COMMAND zap-lsp-source-manager-tests)
 
   find_package(Python3 COMPONENTS Interpreter QUIET)
   if(Python3_Interpreter_FOUND)

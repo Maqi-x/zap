@@ -2,6 +2,7 @@
 
 #include "driver/args/argparse.hpp"
 #include "frontend/module_loader.hpp"
+#include "lsp/source_manager.hpp"
 #include "sema/module_info.hpp"
 #include "workspace_types.hpp"
 #include <filesystem>
@@ -15,24 +16,20 @@
 namespace zap::lsp {
 
 class Workspace {
-  struct CachedFile {
-    std::filesystem::file_time_type lastWriteTime;
-    std::string content;
-  };
-
-  std::unordered_map<std::string, DocumentState> documentsByUri_;
-  std::unordered_map<std::string, std::string> uriByCanonicalPath_;
-  mutable std::unordered_map<std::string, CachedFile> fileContentCache_;
+  SourceManager sourceManager_;
+  std::set<std::string> publishedDiagnosticUris_;
   zap::frontend::RuntimePaths runtimePaths_;
 
-  std::optional<std::string>
-  sourceForPath(const std::filesystem::path &path) const;
   bool loadModuleGraph(
       const std::filesystem::path &modulePath,
       std::map<std::string, std::unique_ptr<sema::ModuleInfo>> &modules,
       std::set<std::string> &visiting, AnalysisResult &result,
       const std::string &entryUri, const zap::args::ImportMap &importMap,
-      bool allowEntryErrors = false) const;
+      bool allowEntryErrors = false);
+  void appendDiagnostics(AnalysisResult &result,
+                         const std::vector<zap::Diagnostic> &diagnostics,
+                         const std::string &fallbackUri) const;
+  void clearStaleDiagnostics(AnalysisResult &result);
 
 public:
   Workspace();
@@ -40,16 +37,16 @@ public:
   configure(const std::filesystem::path &workspaceRoot,
             const std::optional<std::string> &corePath,
             const std::optional<std::string> &stdlibPath);
-  const DocumentState *document(const std::string &uri) const;
+  const SourceSnapshot *document(const std::string &uri) const;
   void open(const std::string &uri, std::filesystem::path path,
             std::string text, int64_t version);
   void update(const std::string &uri, std::string text, int64_t version);
   void close(const std::string &uri);
   bool contains(const std::string &uri) const;
   std::optional<ProjectState> loadProject(const std::string &uri,
-                                          bool allowEntryErrors = false) const;
-  std::optional<std::string> sourceForUri(const std::string &uri) const;
-  AnalysisResult analyze(const std::string &uri) const;
+                                          bool allowEntryErrors = false);
+  std::optional<std::string> sourceForUri(const std::string &uri);
+  AnalysisResult analyze(const std::string &uri);
 };
 
 } // namespace zap::lsp
