@@ -1,3 +1,5 @@
+import "std/collection" as collection;
+
 ext fun zap_runtime_ownership_reset_counters() Void;
 ext fun zap_runtime_ownership_copy_operations() UInt64;
 ext fun zap_runtime_ownership_drop_operations() UInt64;
@@ -131,6 +133,21 @@ fun exerciseGenericContainer() Void {
     destination = source;
 }
 
+fun exerciseHashMap() Void {
+    var first: Node = new Node();
+    var source: collection.HashMap<NodeSlot> =
+        new collection.HashMap<NodeSlot>();
+    source.put("node", NodeSlot.Occupied(first));
+
+    zap_runtime_ownership_reset_counters();
+
+    var replacement: Node = new Node();
+    source.put("node", NodeSlot.Occupied(replacement));
+
+    var destination: collection.HashMap<NodeSlot>;
+    destination = source;
+}
+
 fun hasCounts(copy: UInt64, drop: UInt64, destroy: UInt64) Bool {
     return zap_runtime_ownership_copy_operations() == copy &&
            zap_runtime_ownership_drop_operations() == drop &&
@@ -182,6 +199,11 @@ fun main() Int {
     exerciseGenericContainer();
     if !hasCounts(7, 7, 3) {
         return 9;
+    }
+
+    exerciseHashMap();
+    if !hasCounts(10, 15, 4) {
+        return 10;
     }
 
     return 0;
