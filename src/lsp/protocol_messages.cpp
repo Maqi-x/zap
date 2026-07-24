@@ -13,6 +13,19 @@ JsonObject makeResponse(const JsonObject *id, JsonObject result) {
   return JsonObject(std::move(object));
 }
 
+JsonObject makeErrorResponse(const JsonObject *id, int64_t code,
+                             std::string message) {
+  JsonObject::Object error;
+  error.emplace("code", JsonObject(code));
+  error.emplace("message", JsonObject(std::move(message)));
+
+  JsonObject::Object response;
+  response.emplace("jsonrpc", JsonObject("2.0"));
+  response.emplace("id", id ? *id : JsonObject(nullptr));
+  response.emplace("error", JsonObject(std::move(error)));
+  return JsonObject(std::move(response));
+}
+
 JsonObject makeNotification(std::string method, JsonObject params) {
   JsonObject::Object object;
   object.emplace("jsonrpc", JsonObject("2.0"));

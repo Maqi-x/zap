@@ -10,6 +10,8 @@
 namespace zap::lsp {
 
 JsonObject makeResponse(const JsonObject *id, JsonObject result);
+JsonObject makeErrorResponse(const JsonObject *id, int64_t code,
+                             std::string message);
 JsonObject makeNotification(std::string method, JsonObject params);
 JsonObject makeRange(std::string_view source, size_t startOffset,
                      size_t endOffset);

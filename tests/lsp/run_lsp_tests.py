@@ -212,6 +212,20 @@ def main():
             notify(proc, "initialized", {})
             temp = workspace_root
 
+            unknown_method = request(proc, "zap/unknown", {}, 90)
+            assert unknown_method["error"]["code"] == -32601, (
+                "unknown request did not return MethodNotFound"
+            )
+            invalid_completion = request(
+                proc,
+                "textDocument/completion",
+                {"textDocument": {"uri": file_uri(temp / "missing.zp")}},
+                91,
+            )
+            assert invalid_completion["error"]["code"] == -32602, (
+                "malformed completion did not return InvalidParams"
+            )
+
             imported_path = temp / "broken.zp"
             imported_path.write_text("fun broken() Int {\n")
             imported_uri = file_uri(imported_path)

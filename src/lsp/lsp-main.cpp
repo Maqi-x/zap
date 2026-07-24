@@ -33,6 +33,11 @@ int main() {
     const JsonObject *id = getField(request, "id");
 
     if (!method) {
+      if (id) {
+        server.sendMessage(makeErrorResponse(id, JsonRPC::InvalidRequest,
+                                             "Missing method"));
+      }
+      server.send();
       continue;
     }
 
@@ -158,10 +163,13 @@ int main() {
       if (id) {
         JsonObject::List items;
         if (auto context = documentRequestContext(workspace, request)) {
-            items = makeCompletionItems(context->uri, context->query.document->text,
-                                        *context->query.project, context->offset);
+          items = makeCompletionItems(context->uri, context->query.document->text,
+                                      *context->query.project, context->offset);
+          server.sendMessage(makeResponse(id, JsonObject(std::move(items))));
+        } else {
+          server.sendMessage(makeErrorResponse(id, JsonRPC::InvalidParams,
+                                               "Invalid document position"));
         }
-        server.sendMessage(makeResponse(id, JsonObject(std::move(items))));
       }
     } else if (*method == "textDocument/definition") {
       if (id) {
@@ -174,9 +182,12 @@ int main() {
               if (source) {
                 result = makeLocation(symbol->uri, *source, symbol->span);
               }
-            }
+          }
+          server.sendMessage(makeResponse(id, std::move(result)));
+        } else {
+          server.sendMessage(makeErrorResponse(id, JsonRPC::InvalidParams,
+                                               "Invalid document position"));
         }
-        server.sendMessage(makeResponse(id, std::move(result)));
       }
     } else if (*method == "textDocument/hover") {
       if (id) {
@@ -186,9 +197,12 @@ int main() {
                                       *context->query.project, context->offset);
             if (hover) {
               result = makeHover(*hover);
-            }
+          }
+          server.sendMessage(makeResponse(id, std::move(result)));
+        } else {
+          server.sendMessage(makeErrorResponse(id, JsonRPC::InvalidParams,
+                                               "Invalid document position"));
         }
-        server.sendMessage(makeResponse(id, std::move(result)));
       }
     } else if (*method == "textDocument/signatureHelp") {
       if (id) {
@@ -203,21 +217,17 @@ int main() {
                   chooseActiveSignature(signatures, activeParameter);
               result = makeSignatureHelp(signatures, activeSignature,
                                          activeParameter);
-            }
+          }
+          server.sendMessage(makeResponse(id, std::move(result)));
+        } else {
+          server.sendMessage(makeErrorResponse(id, JsonRPC::InvalidParams,
+                                               "Invalid document position"));
         }
-        server.sendMessage(makeResponse(id, std::move(result)));
       }
     } else {
       if (id) {
-        JsonObject::Object error;
-        error.emplace("code", JsonObject(int64_t(JsonRPC::MethodNotFound)));
-        error.emplace("message", JsonObject("Method not found"));
-
-        JsonObject::Object response;
-        response.emplace("jsonrpc", JsonObject("2.0"));
-        response.emplace("id", *id);
-        response.emplace("error", JsonObject(std::move(error)));
-        server.sendMessage(JsonObject(std::move(response)));
+        server.sendMessage(makeErrorResponse(id, JsonRPC::MethodNotFound,
+                                             "Method not found"));
       }
     }
 
