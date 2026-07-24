@@ -47,6 +47,8 @@ public:
   bool contains(const std::string &uri) const;
   std::shared_ptr<const ProjectState>
   loadProject(const std::string &uri, bool allowEntryErrors = false);
+  std::optional<SemanticQuery> query(const std::string &uri,
+                                     bool allowEntryErrors = true);
   std::optional<std::string> sourceForUri(const std::string &uri);
   AnalysisResult analyze(const std::string &uri);
 };

@@ -2,6 +2,7 @@
 
 #include "sema/module_info.hpp"
 #include "sema/semantic_info.hpp"
+#include "lsp/source_manager.hpp"
 #include "utils/diagnostics.hpp"
 #include <cstdint>
 #include <filesystem>
@@ -30,6 +31,11 @@ struct ProjectState {
 struct SemanticSnapshot {
   int64_t documentVersion = 0;
   ProjectState project;
+};
+
+struct SemanticQuery {
+  SourceManager::Snapshot document;
+  std::shared_ptr<const ProjectState> project;
 };
 
 struct LspSignature {

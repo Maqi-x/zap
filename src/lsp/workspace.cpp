@@ -167,6 +167,16 @@ Workspace::loadProject(const std::string &uri, bool allowEntryErrors) {
                                              &snapshots[uri]->project);
 }
 
+std::optional<SemanticQuery> Workspace::query(const std::string &uri,
+                                               bool allowEntryErrors) {
+  auto document = sourceManager_.sourceForUri(uri);
+  auto project = loadProject(uri, allowEntryErrors);
+  if (!document || !project) {
+    return std::nullopt;
+  }
+  return SemanticQuery{*document, std::move(project)};
+}
+
 AnalysisResult Workspace::analyze(const std::string &uri) {
   AnalysisResult result;
   const auto *document = this->document(uri);

@@ -160,13 +160,11 @@ int main() {
           getIntegerField(request, {"params", "position", "character"});
       if (id && uri && line && character) {
         JsonObject::List items;
-        if (const auto *document = workspace.document(*uri)) {
-          auto project = workspace.loadProject(*uri, true);
-          if (project) {
+        if (auto query = workspace.query(*uri)) {
             size_t offset =
-                offsetFromPosition(document->text, *line, *character);
-            items = makeCompletionItems(*uri, document->text, *project, offset);
-          }
+                offsetFromPosition(query->document->text, *line, *character);
+            items = makeCompletionItems(*uri, query->document->text,
+                                        *query->project, offset);
         }
         server.sendMessage(makeResponse(id, JsonObject(std::move(items))));
       }
@@ -177,19 +175,17 @@ int main() {
           getIntegerField(request, {"params", "position", "character"});
       if (id && uri && line && character) {
         JsonObject result(nullptr);
-        if (const auto *document = workspace.document(*uri)) {
-          auto project = workspace.loadProject(*uri, true);
-          if (project) {
+        if (auto query = workspace.query(*uri)) {
             size_t offset =
-                offsetFromPosition(document->text, *line, *character);
-            auto symbol = resolveDefinition(workspace, *uri, *project, offset);
+                offsetFromPosition(query->document->text, *line, *character);
+            auto symbol = resolveDefinition(query->document->text, *uri,
+                                            *query->project, offset);
             if (symbol) {
               auto source = workspace.sourceForUri(symbol->uri);
               if (source) {
                 result = makeLocation(symbol->uri, *source, symbol->span);
               }
             }
-          }
         }
         server.sendMessage(makeResponse(id, std::move(result)));
       }
@@ -200,16 +196,14 @@ int main() {
           getIntegerField(request, {"params", "position", "character"});
       if (id && uri && line && character) {
         JsonObject result(nullptr);
-        if (const auto *document = workspace.document(*uri)) {
-          auto project = workspace.loadProject(*uri, true);
-          if (project) {
+        if (auto query = workspace.query(*uri)) {
             size_t offset =
-                offsetFromPosition(document->text, *line, *character);
-            auto hover = resolveHover(document->text, *uri, *project, offset);
+                offsetFromPosition(query->document->text, *line, *character);
+            auto hover = resolveHover(query->document->text, *uri,
+                                      *query->project, offset);
             if (hover) {
               result = makeHover(*hover);
             }
-          }
         }
         server.sendMessage(makeResponse(id, std::move(result)));
       }
@@ -220,21 +214,19 @@ int main() {
           getIntegerField(request, {"params", "position", "character"});
       if (id && uri && line && character) {
         JsonObject result(nullptr);
-        if (const auto *document = workspace.document(*uri)) {
-          auto project = workspace.loadProject(*uri, true);
-          if (project) {
+        if (auto query = workspace.query(*uri)) {
             size_t offset =
-                offsetFromPosition(document->text, *line, *character);
+                offsetFromPosition(query->document->text, *line, *character);
             int64_t activeParameter = 0;
-            auto signatures = resolveSignatures(document->text, *uri, *project,
-                                                offset, activeParameter);
+            auto signatures = resolveSignatures(query->document->text, *uri,
+                                                *query->project, offset,
+                                                activeParameter);
             if (!signatures.empty()) {
               int64_t activeSignature =
                   chooseActiveSignature(signatures, activeParameter);
               result = makeSignatureHelp(signatures, activeSignature,
                                          activeParameter);
             }
-          }
         }
         server.sendMessage(makeResponse(id, std::move(result)));
       }

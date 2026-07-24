@@ -1212,14 +1212,10 @@ std::vector<LspSymbol> collectImportedSymbols(const ProjectState &project,
   return symbols;
 }
 
-std::optional<LspSymbol> resolveDefinition(const Workspace &workspace,
+std::optional<LspSymbol> resolveDefinition(const std::string &source,
                                            const std::string &uri,
                                            const ProjectState &project,
                                            size_t offset) {
-  const SourceSnapshot *document = workspace.document(uri);
-  if (!document) {
-    return std::nullopt;
-  }
   auto path = uriToPath(uri);
   if (!path) {
     return std::nullopt;
@@ -1231,7 +1227,7 @@ std::optional<LspSymbol> resolveDefinition(const Workspace &workspace,
   }
   const sema::ModuleInfo &module = *moduleIt->second;
 
-  if (auto qualified = qualifiedIdentifierAtOffset(document->text, offset)) {
+  if (auto qualified = qualifiedIdentifierAtOffset(source, offset)) {
     const auto &[base, rest] = *qualified;
     if (!rest.empty()) {
       std::string memberName = rest;
@@ -1302,7 +1298,7 @@ std::optional<LspSymbol> resolveDefinition(const Workspace &workspace,
     }
   }
 
-  auto name = identifierAt(document->text, offset);
+  auto name = identifierAt(source, offset);
   if (!name) {
     return std::nullopt;
   }
