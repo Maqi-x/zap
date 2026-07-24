@@ -21,8 +21,20 @@ struct SemanticInfo {
 
   void recordDeclaration(const Node *node, const std::shared_ptr<Symbol> &symbol) {
     if (node && symbol) {
+      symbolsByNode[node] = symbol;
       declarationsBySymbol[symbol.get()] = node;
     }
+  }
+
+  std::shared_ptr<Symbol>
+  declarationNamed(const std::string &name, const std::string &moduleName) const {
+    for (const auto &[node, symbol] : symbolsByNode) {
+      if (symbol && symbol->name == name && symbol->moduleName == moduleName &&
+          declarationFor(symbol) == node) {
+        return symbol;
+      }
+    }
+    return nullptr;
   }
 
   const Node *declarationFor(const std::shared_ptr<Symbol> &symbol) const {

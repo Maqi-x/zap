@@ -48,6 +48,9 @@ void Binder::predeclareModuleTypes(ModuleState &module) {
         }
       }
       recordTypeDeclarationNodes_[symbol.get()] = recordDecl;
+      if (semanticInfo_) {
+        semanticInfo_->recordDeclaration(recordDecl, symbol);
+      }
       typeDeclarationModuleIds_[symbol.get()] = module.info->moduleId;
       if (!module.scope->declare(recordDecl->name_, symbol)) {
         error(recordDecl->span,
@@ -75,6 +78,9 @@ void Binder::predeclareModuleTypes(ModuleState &module) {
         }
       }
       classTypeDeclarationNodes_[symbol.get()] = classDecl;
+      if (semanticInfo_) {
+        semanticInfo_->recordDeclaration(classDecl, symbol);
+      }
       typeDeclarationModuleIds_[symbol.get()] = module.info->moduleId;
       validateAndApplyTypeAttributes(*classDecl, symbol, true);
       if (!module.scope->declare(classDecl->name_, symbol)) {
@@ -119,6 +125,9 @@ void Binder::predeclareModuleTypes(ModuleState &module) {
         }
       }
       structTypeDeclarationNodes_[symbol.get()] = structDecl;
+      if (semanticInfo_) {
+        semanticInfo_->recordDeclaration(structDecl, symbol);
+      }
       typeDeclarationModuleIds_[symbol.get()] = module.info->moduleId;
       validateAndApplyTypeAttributes(*structDecl, symbol, true);
       if (symbol->hasReprC) {
@@ -554,6 +563,9 @@ void Binder::predeclareModuleValues(ModuleState &module) {
       }
       functionGenericParamNames_[symbol.get()] = symbol->genericParameterNames;
       functionDeclarationNodes_[symbol.get()] = funDecl;
+      if (semanticInfo_) {
+        semanticInfo_->recordDeclaration(funDecl, symbol);
+      }
       functionDeclarationModuleIds_[symbol.get()] = module.info->moduleId;
       validateAndApplyFunctionAttributes(*funDecl, symbol, false);
 
@@ -768,6 +780,9 @@ void Binder::predeclareModuleValues(ModuleState &module) {
                            functionSignatureKey(*symbol));
         declaredFunctionSymbols_[methodDecl.get()] = symbol;
         functionDeclarationNodes_[symbol.get()] = methodDecl.get();
+        if (semanticInfo_) {
+          semanticInfo_->recordDeclaration(methodDecl.get(), symbol);
+        }
         functionDeclarationModuleIds_[symbol.get()] = module.info->moduleId;
         functionGenericParamNames_[symbol.get()] =
             symbol->genericParameterNames;

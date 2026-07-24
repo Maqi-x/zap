@@ -1248,6 +1248,14 @@ std::optional<LspSymbol> resolveDefinition(const Workspace &workspace,
     }
   }
 
+  if (auto symbol =
+          project.semanticInfo.declarationNamed(*name, module.moduleName)) {
+    if (auto declaration = project.semanticInfo.declarationFor(symbol)) {
+      return *makeSymbol(uri, symbol->name, declaration->span, 3,
+                         symbol->visibility);
+    }
+  }
+
   auto locals = collectLocalSymbols(*module.root, offset, uri);
   for (auto it = locals.rbegin(); it != locals.rend(); ++it) {
     if (it->name == *name) {
