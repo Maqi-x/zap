@@ -426,6 +426,7 @@ constexpr std::string_view prefix = "Content-Length: ";
 constexpr size_t kMaxLspMessageBytes = 8 * 1024 * 1024; // 8 MiB hard cap
 
 void Server::sendMessageRaw(std::string_view message) {
+  std::lock_guard lock(outputMutex_);
   buffer += prefix;
 
   char chars[std::numeric_limits<unsigned>::digits10 + 0x20];
@@ -453,9 +454,9 @@ void Server::logMessage(MessageType type, std::string_view message) {
 }
 
 void Server::sendMessage(const JsonObject &message) {
-  scratch.clear();
-  JsonParser::toString(scratch, message);
-  sendMessageRaw(scratch);
+  std::string serialized;
+  JsonParser::toString(serialized, message);
+  sendMessageRaw(serialized);
 }
 
 std::string Server::processMessage(std::string &line) {

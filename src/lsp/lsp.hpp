@@ -4,6 +4,7 @@
 #include "visibility.hpp"
 #include <cstdint>
 #include <iostream>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -107,7 +108,7 @@ public:
 
 class Server {
   std::string buffer;
-  std::string scratch;
+  std::mutex outputMutex_;
 
   void sendMessageRaw(std::string_view message);
 
@@ -117,14 +118,15 @@ public:
   Server() = default;
   Server(const Server &) = delete;
   Server &operator=(const Server &) = delete;
-  Server(Server &&) = default;
-  Server &operator=(Server &&) = default;
+  Server(Server &&) = delete;
+  Server &operator=(Server &&) = delete;
   ~Server() noexcept = default;
 
   void logMessage(MessageType type, std::string_view message);
   std::string processMessage(std::string &line);
 
   void send() {
+    std::lock_guard lock(outputMutex_);
     std::cout << buffer;
     buffer.clear();
   }
