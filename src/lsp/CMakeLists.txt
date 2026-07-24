@@ -1,6 +1,7 @@
 set(LSP_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/lsp-main.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/completion.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/configuration.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/language_features.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/lsp.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/protocol_messages.cpp"
@@ -37,3 +38,28 @@ target_compile_definitions(zap-lsp PRIVATE ZAPC_STDLIB_DIR="${CMAKE_SOURCE_DIR}/
 set_target_properties(zap-lsp PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
 )
+
+if(BUILD_TESTING)
+  add_executable(
+    zap-lsp-configuration-tests
+    ${CMAKE_SOURCE_DIR}/tests/cpp/lsp_configuration_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/configuration.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/lsp.cpp
+  )
+  target_include_directories(
+    zap-lsp-configuration-tests PRIVATE "${CMAKE_SOURCE_DIR}/src"
+  )
+  target_compile_options(zap-lsp-configuration-tests PRIVATE -Wall -Wextra)
+  add_test(NAME lsp-configuration COMMAND zap-lsp-configuration-tests)
+
+  find_package(Python3 COMPONENTS Interpreter QUIET)
+  if(Python3_Interpreter_FOUND)
+    add_test(
+      NAME lsp-protocol
+      COMMAND
+        ${CMAKE_COMMAND} -E env
+        ZAP_LSP_SERVER=$<TARGET_FILE:zap-lsp>
+        ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/lsp/run_lsp_tests.py
+    )
+  endif()
+endif()

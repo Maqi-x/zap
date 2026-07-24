@@ -6,17 +6,35 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace zap::frontend {
 
 using ImportMap = std::unordered_map<std::string, std::string>;
 
+enum class EnvironmentOverrides { Allow, Ignore };
+
 struct RuntimePaths {
   std::filesystem::path executablePath;
   std::filesystem::path configuredCoreDir;
   std::filesystem::path configuredStdlibDir;
   std::filesystem::path configuredStdlibObject;
+  EnvironmentOverrides environmentOverrides;
+  std::optional<std::filesystem::path> coreDirOverride;
+  std::optional<std::filesystem::path> stdlibDirOverride;
+
+  RuntimePaths(
+      std::filesystem::path executablePath,
+      std::filesystem::path configuredCoreDir,
+      std::filesystem::path configuredStdlibDir,
+      std::filesystem::path configuredStdlibObject,
+      EnvironmentOverrides environmentOverrides = EnvironmentOverrides::Allow)
+      : executablePath(std::move(executablePath)),
+        configuredCoreDir(std::move(configuredCoreDir)),
+        configuredStdlibDir(std::move(configuredStdlibDir)),
+        configuredStdlibObject(std::move(configuredStdlibObject)),
+        environmentOverrides(environmentOverrides) {}
 };
 
 std::optional<std::filesystem::path>

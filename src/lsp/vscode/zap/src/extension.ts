@@ -1,7 +1,13 @@
 import * as fs from "fs";
 import * as path from "path";
 import { execFileSync } from "child_process";
-import { workspace, window, ExtensionContext } from "vscode";
+import {
+    workspace,
+    window,
+    ExtensionContext,
+    FileType,
+    Uri,
+} from "vscode";
 import {
     LanguageClient,
     LanguageClientOptions,
@@ -70,20 +76,14 @@ function detectWorkspaceZapcPath(): string {
     return "";
 }
 
-function resolveZapcPath(context: ExtensionContext): string {
+function resolveZapcPath(): string {
     const config = workspace.getConfiguration("zap-lsp");
     const configuredZapcPath = (config.get<string>("zapcPath") || "").trim();
     if (configuredZapcPath && isExecutableFile(configuredZapcPath)) {
         return configuredZapcPath;
     }
 
-    const exeName = process.platform === "win32" ? "zapc.exe" : "zapc";
-    const bundledZapcPath = context.asAbsolutePath(path.join("bin", exeName));
-    if (isExecutableFile(bundledZapcPath)) {
-        return bundledZapcPath;
-    }
-
-    return detectWorkspaceZapcPath();
+    return detectWorkspaceZapcPath() || "zapc";
 }
 
 function queryStdlibPathFromZapc(zapcPath: string): string {
@@ -168,6 +168,142 @@ function resolveCorePath(zapcPath: string): string {
     return detectWorkspaceCorePath();
 }
 
+interface RuntimePaths {
+    corePath: string;
+    stdlibPath: string;
+}
+
+function configUriForFirstWorkspace(): Uri | undefined {
+    const folder = workspace.workspaceFolders?.[0];
+    return folder ? Uri.joinPath(folder.uri, "zaplsp.json") : undefined;
+}
+
+async function configExists(configUri: Uri | undefined): Promise<boolean> {
+    if (!configUri) {
+        return false;
+    }
+    try {
+        const stat = await workspace.fs.stat(configUri);
+        return (stat.type & FileType.File) !== 0;
+    } catch {
+        return false;
+    }
+}
+
+function makeConfiguration(paths: RuntimePaths): object {
+    const coreParent = path.dirname(paths.corePath);
+    const stdlibParent = path.dirname(paths.stdlibPath);
+    if (
+        coreParent === stdlibParent &&
+        path.basename(paths.corePath) === "core" &&
+        path.basename(paths.stdlibPath) === "std"
+    ) {
+        return {
+            zapRoot: coreParent,
+            corePath: "core",
+            stdlibPath: "std",
+        };
+    }
+    return {
+        corePath: paths.corePath,
+        stdlibPath: paths.stdlibPath,
+    };
+}
+
+async function writeConfiguration(
+    configUri: Uri,
+    paths: RuntimePaths,
+): Promise<boolean> {
+    try {
+        const contents = `${JSON.stringify(makeConfiguration(paths), null, 2)}\n`;
+        await workspace.fs.writeFile(configUri, Buffer.from(contents, "utf8"));
+        window.showInformationMessage(`Created ${configUri.fsPath}`);
+        return true;
+    } catch (error) {
+        window.showErrorMessage(
+            `Could not create zaplsp.json: ${String(error)}`,
+        );
+        return false;
+    }
+}
+
+async function selectZapInstallation(): Promise<RuntimePaths | undefined> {
+    const selected = await window.showOpenDialog({
+        canSelectFiles: false,
+        canSelectFolders: true,
+        canSelectMany: false,
+        openLabel: "Select Zap Installation",
+    });
+    if (!selected?.[0]) {
+        return undefined;
+    }
+
+    const root = selected[0].fsPath;
+    const corePath = path.join(root, "core");
+    const stdlibPath = path.join(root, "std");
+    if (!isValidCoreDir(corePath) || !isValidStdlibDir(stdlibPath)) {
+        window.showErrorMessage(
+            "The selected directory must contain core/core.zp and std/prelude.zp.",
+        );
+        return undefined;
+    }
+    return {
+        corePath: fs.realpathSync(corePath),
+        stdlibPath: fs.realpathSync(stdlibPath),
+    };
+}
+
+async function offerWorkspaceConfiguration(
+    context: ExtensionContext,
+    detectedPaths: RuntimePaths,
+): Promise<boolean> {
+    const configUri = configUriForFirstWorkspace();
+    if (!configUri) {
+        return false;
+    }
+    if (await configExists(configUri)) {
+        return true;
+    }
+    if (!workspace.isTrusted) {
+        return false;
+    }
+
+    const promptKey = `zaplsp.prompted:${configUri.toString()}`;
+    if (context.workspaceState.get<boolean>(promptKey)) {
+        return false;
+    }
+
+    const createAction =
+        detectedPaths.corePath && detectedPaths.stdlibPath
+            ? "Create Configuration"
+            : undefined;
+    const selectAction = "Select Zap Installation";
+    const choices = createAction
+        ? [createAction, selectAction, "Not Now"]
+        : [selectAction, "Not Now"];
+    const choice = await window.showInformationMessage(
+        "This Zap workspace has no zaplsp.json. Create one to configure core and stdlib paths?",
+        ...choices,
+    );
+
+    if (createAction && choice === createAction) {
+        const created = await writeConfiguration(configUri, detectedPaths);
+        await context.workspaceState.update(promptKey, created);
+        return created;
+    }
+    if (choice === selectAction) {
+        const selectedPaths = await selectZapInstallation();
+        if (!selectedPaths) {
+            return false;
+        }
+        const created = await writeConfiguration(configUri, selectedPaths);
+        await context.workspaceState.update(promptKey, created);
+        return created;
+    }
+    await context.workspaceState.update(promptKey, true);
+    return false;
+}
+
 export async function activate(context: ExtensionContext) {
     const config = workspace.getConfiguration("zap-lsp");
     const configuredPath = (config.get<string>("path") || "").trim();
@@ -175,21 +311,16 @@ export async function activate(context: ExtensionContext) {
         path.join("bin", "zap-lsp"),
     );
     const lspPath = configuredPath || bundledServerPath;
-    const zapcPath = resolveZapcPath(context);
+    const zapcPath = resolveZapcPath();
     const corePath = resolveCorePath(zapcPath);
     const stdlibPath = resolveStdlibPath(zapcPath);
-    const env = { ...process.env };
+    const hasWorkspaceConfiguration = await offerWorkspaceConfiguration(
+        context,
+        { corePath, stdlibPath },
+    );
 
     if (!configuredPath && fs.existsSync(bundledServerPath)) {
         fs.chmodSync(bundledServerPath, 0o755);
-    }
-
-    if (corePath) {
-        env.ZAPC_CORE_DIR = corePath;
-    }
-
-    if (stdlibPath) {
-        env.ZAPC_STDLIB_DIR = stdlibPath;
     }
 
     const outputChannel = window.createOutputChannel("Zap LSP");
@@ -198,18 +329,30 @@ export async function activate(context: ExtensionContext) {
         run: {
             command: lspPath,
             transport: TransportKind.stdio,
-            options: { env },
         },
         debug: {
             command: lspPath,
             transport: TransportKind.stdio,
-            options: { env },
         },
     };
 
+    const configuredCorePath = (
+        config.get<string>("corePath") || ""
+    ).trim();
+    const configuredStdlibPath = (
+        config.get<string>("stdlibPath") || ""
+    ).trim();
     const clientOptions: LanguageClientOptions = {
         documentSelector: [{ scheme: "file", language: "zap" }],
         outputChannel,
+        initializationOptions: {
+            corePath:
+                configuredCorePath ||
+                (!hasWorkspaceConfiguration ? corePath : undefined),
+            stdlibPath:
+                configuredStdlibPath ||
+                (!hasWorkspaceConfiguration ? stdlibPath : undefined),
+        },
     };
 
     client = new LanguageClient(

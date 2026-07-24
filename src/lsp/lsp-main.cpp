@@ -4,7 +4,9 @@
 #include "lsp/protocol_utils.hpp"
 #include "lsp/workspace.hpp"
 #include <cstdio>
+#include <filesystem>
 #include <string>
+#include <utility>
 
 using namespace zap::lsp;
 
@@ -34,6 +36,23 @@ int main() {
 
     if (*method == "initialize") {
       shutdownRequested = false;
+
+      std::filesystem::path workspaceRoot = std::filesystem::current_path();
+      if (auto rootUri = getStringField(request, {"params", "rootUri"})) {
+        if (auto rootPath = uriToPath(*rootUri)) {
+          workspaceRoot = std::move(*rootPath);
+        }
+      } else if (auto rootPath =
+                     getStringField(request, {"params", "rootPath"})) {
+        workspaceRoot = std::move(*rootPath);
+      }
+
+      auto configurationErrors = workspace.configure(
+          workspaceRoot,
+          getStringField(request,
+                         {"params", "initializationOptions", "corePath"}),
+          getStringField(request,
+                         {"params", "initializationOptions", "stdlibPath"}));
 
       JsonObject::Object syncOptions;
       syncOptions.emplace("openClose", JsonObject(true));
@@ -86,6 +105,9 @@ int main() {
       result.emplace("serverInfo", JsonObject(std::move(serverInfo)));
 
       server.sendMessage(makeResponse(id, JsonObject(std::move(result))));
+      for (const auto &error : configurationErrors) {
+        server.logMessage(Server::MessageType::Error, error);
+      }
     } else if (*method == "initialized") {
       continue;
     } else if (*method == "shutdown") {

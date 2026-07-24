@@ -1,6 +1,7 @@
 #include "lsp/workspace.hpp"
 
 #include "lexer/lexer.hpp"
+#include "lsp/configuration.hpp"
 #include "lsp/protocol_utils.hpp"
 #include "parser/parser.hpp"
 #include "sema/binder.hpp"
@@ -9,10 +10,25 @@
 
 namespace zap::lsp {
 
-zap::frontend::RuntimePaths Workspace::runtimePaths() const {
-  return zap::frontend::RuntimePaths{
-      std::filesystem::path(), std::filesystem::path(ZAPC_CORE_DIR),
-      std::filesystem::path(ZAPC_STDLIB_DIR), std::filesystem::path()};
+Workspace::Workspace()
+    : runtimePaths_{
+          std::filesystem::path(), std::filesystem::path(ZAPC_CORE_DIR),
+          std::filesystem::path(ZAPC_STDLIB_DIR), std::filesystem::path(),
+          zap::frontend::EnvironmentOverrides::Ignore} {}
+
+std::vector<std::string>
+Workspace::configure(const std::filesystem::path &workspaceRoot,
+                     const std::optional<std::string> &corePath,
+                     const std::optional<std::string> &stdlibPath) {
+  auto configuration =
+      loadRuntimePathConfiguration(workspaceRoot, corePath, stdlibPath);
+  if (configuration.coreDir) {
+    runtimePaths_.coreDirOverride = std::move(*configuration.coreDir);
+  }
+  if (configuration.stdlibDir) {
+    runtimePaths_.stdlibDirOverride = std::move(*configuration.stdlibDir);
+  }
+  return configuration.errors;
 }
 
 std::optional<std::string>
@@ -99,7 +115,7 @@ bool Workspace::loadModuleGraph(
   module->moduleId = moduleId;
   module->moduleName = canonicalPath.stem().string();
   module->linkPath = zap::frontend::computeLogicalModulePath(
-      canonicalPath, runtimePaths(), importMap);
+      canonicalPath, runtimePaths_, importMap);
   module->sourceName = canonicalPath.string();
   module->sourceText = *source;
   module->root = std::move(ast);
@@ -115,7 +131,7 @@ bool Workspace::loadModuleGraph(
     std::vector<std::filesystem::path> importTargets;
     if (!zap::frontend::resolveImportTargets(canonicalPath, *importNode,
                                              importTargets, importMap,
-                                             runtimePaths())) {
+                                             runtimePaths_)) {
       continue;
     }
 

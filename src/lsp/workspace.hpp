@@ -23,8 +23,8 @@ class Workspace {
   std::unordered_map<std::string, DocumentState> documentsByUri_;
   std::unordered_map<std::string, std::string> uriByCanonicalPath_;
   mutable std::unordered_map<std::string, CachedFile> fileContentCache_;
+  zap::frontend::RuntimePaths runtimePaths_;
 
-  zap::frontend::RuntimePaths runtimePaths() const;
   std::optional<std::string>
   sourceForPath(const std::filesystem::path &path) const;
   bool loadModuleGraph(
@@ -35,6 +35,11 @@ class Workspace {
       bool allowEntryErrors = false) const;
 
 public:
+  Workspace();
+  std::vector<std::string>
+  configure(const std::filesystem::path &workspaceRoot,
+            const std::optional<std::string> &corePath,
+            const std::optional<std::string> &stdlibPath);
   const DocumentState *document(const std::string &uri) const;
   void open(const std::string &uri, std::filesystem::path path,
             std::string text, int64_t version);

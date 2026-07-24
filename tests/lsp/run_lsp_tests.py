@@ -8,7 +8,9 @@ import tempfile
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-SERVER = ROOT / "build" / "zap-lsp"
+SERVER = pathlib.Path(
+    os.environ.get("ZAP_LSP_SERVER", ROOT / "build" / "zap-lsp")
+).resolve()
 
 
 def send(proc, payload):
@@ -120,28 +122,42 @@ def main():
         raise SystemExit(f"missing {SERVER}; build zap-lsp first")
 
     env = os.environ.copy()
-    env["ZAPC_CORE_DIR"] = str(ROOT / "core")
-    env["ZAPC_STDLIB_DIR"] = str(ROOT / "std")
-    proc = subprocess.Popen(
-        [str(SERVER)],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env=env,
-    )
 
-    try:
-        init = request(
-            proc,
-            "initialize",
-            {"processId": None, "rootUri": file_uri(ROOT), "capabilities": {}},
-            1,
+    with tempfile.TemporaryDirectory(prefix="zap-lsp-workspace-") as workspace_dir:
+        workspace_root = pathlib.Path(workspace_dir)
+        env["ZAPC_CORE_DIR"] = str(workspace_root / "invalid-core")
+        env["ZAPC_STDLIB_DIR"] = str(workspace_root / "invalid-std")
+        (workspace_root / "zaplsp.json").write_text(
+            json.dumps(
+                {
+                    "zapRoot": str(ROOT),
+                    "corePath": "core",
+                    "stdlibPath": "std",
+                }
+            )
         )
-        assert "capabilities" in init["result"]
-        notify(proc, "initialized", {})
+        proc = subprocess.Popen(
+            [str(SERVER)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+        )
 
-        with tempfile.TemporaryDirectory(prefix="zap-lsp-") as temp_dir:
-            temp = pathlib.Path(temp_dir)
+        try:
+            init = request(
+                proc,
+                "initialize",
+                {
+                    "processId": None,
+                    "rootUri": file_uri(workspace_root),
+                    "capabilities": {},
+                },
+                1,
+            )
+            assert "capabilities" in init["result"]
+            notify(proc, "initialized", {})
+            temp = workspace_root
 
             loop_source = """fun main() Int {
     var values: [2]Int = {1, 2};
@@ -336,12 +352,12 @@ fun main() Int {
                 "newCounter(value: Float) Int"
             ], "newCounter was incorrectly resolved as a constructor"
 
-        request(proc, "shutdown", None, 14)
-        notify(proc, "exit", {})
-        proc.wait(timeout=5)
-    finally:
-        if proc.poll() is None:
-            proc.kill()
+            request(proc, "shutdown", None, 14)
+            notify(proc, "exit", {})
+            proc.wait(timeout=5)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
 
 
 if __name__ == "__main__":
