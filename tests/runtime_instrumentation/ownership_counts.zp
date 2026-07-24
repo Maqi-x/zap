@@ -20,6 +20,26 @@ struct NodePair {
     second: Node,
 }
 
+class Cell<T> {
+    value: T;
+
+    fun init(value: T) {
+        self.value = value;
+    }
+}
+
+class Chain<T> {
+    head: Cell<T>;
+
+    fun init() {
+        self.head = null;
+    }
+
+    pub fun push(value: T) {
+        self.head = new Cell<T>(value);
+    }
+}
+
 @error
 class Failure {
 }
@@ -100,6 +120,17 @@ fun exerciseNestedAggregate() Void {
     destination = source;
 }
 
+fun exerciseGenericContainer() Void {
+    zap_runtime_ownership_reset_counters();
+
+    var node: Node = new Node();
+    var source: Chain<NodeSlot> = new Chain<NodeSlot>();
+    source.push(NodeSlot.Occupied(node));
+
+    var destination: Chain<NodeSlot>;
+    destination = source;
+}
+
 fun hasCounts(copy: UInt64, drop: UInt64, destroy: UInt64) Bool {
     return zap_runtime_ownership_copy_operations() == copy &&
            zap_runtime_ownership_drop_operations() == drop &&
@@ -146,6 +177,11 @@ fun main() Int {
     exerciseNestedAggregate();
     if !hasCounts(4, 7, 1) {
         return 8;
+    }
+
+    exerciseGenericContainer();
+    if !hasCounts(7, 7, 3) {
+        return 9;
     }
 
     return 0;
