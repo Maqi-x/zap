@@ -15,6 +15,11 @@ struct NodeSlots {
     values: [2]NodeSlot;
 }
 
+struct NodePair {
+    first: Node,
+    second: Node,
+}
+
 @error
 class Failure {
 }
@@ -59,6 +64,27 @@ fun exerciseFailure() Void!Failure {
 
 fun observeFailure() Void {
     exerciseFailure() or err {
+        return;
+    };
+}
+
+fun failNode() Node!Failure {
+    fail new Failure();
+    return new Node();
+}
+
+fun exercisePartialAggregate() Void!Failure {
+    zap_runtime_ownership_reset_counters();
+
+    var ignored: NodePair = NodePair {
+        first: new Node(),
+        second: failNode()?,
+    };
+    return;
+}
+
+fun observePartialAggregate() Void {
+    exercisePartialAggregate() or err {
         return;
     };
 }
@@ -112,9 +138,14 @@ fun main() Int {
         return 6;
     }
 
+    observePartialAggregate();
+    if !hasCounts(0, 7, 2) {
+        return 7;
+    }
+
     exerciseNestedAggregate();
     if !hasCounts(4, 7, 1) {
-        return 7;
+        return 8;
     }
 
     return 0;
