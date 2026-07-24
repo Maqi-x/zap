@@ -36,6 +36,13 @@ def read_message(proc):
     return json.loads(proc.stdout.read(length).decode("utf-8"))
 
 
+def read_response(proc, request_id):
+    while True:
+        response = read_message(proc)
+        if response.get("id") == request_id:
+            return response
+
+
 def request(proc, method, params, request_id):
     send(
         proc,
@@ -46,10 +53,7 @@ def request(proc, method, params, request_id):
             "params": params,
         },
     )
-    while True:
-        response = read_message(proc)
-        if response.get("id") == request_id:
-            return response
+    return read_response(proc, request_id)
 
 
 def notify(proc, method, params):
@@ -224,6 +228,34 @@ def main():
             )
             assert invalid_completion["error"]["code"] == -32602, (
                 "malformed completion did not return InvalidParams"
+            )
+
+            cancellation_source = "\n".join(
+                f"fun queued{i}() Int {{ return {i}; }}" for i in range(2000)
+            )
+            cancellation_uri = open_document(
+                proc, temp / "cancellation.zp", cancellation_source
+            )
+            send(
+                proc,
+                {
+                    "jsonrpc": "2.0",
+                    "id": 92,
+                    "method": "textDocument/completion",
+                    "params": {
+                        "textDocument": {"uri": cancellation_uri},
+                        "position": {"line": 0, "character": 3},
+                    },
+                },
+            )
+            notify(proc, "$/cancelRequest", {"id": 92})
+            cancelled = read_response(proc, 92)
+            assert cancelled["error"]["code"] == -32800, (
+                "cancelled request published a normal result"
+            )
+            reused_id = request(proc, "zap/unknown", {}, 92)
+            assert reused_id["error"]["code"] == -32601, (
+                "cancellation leaked into a later request with the same id"
             )
 
             imported_path = temp / "broken.zp"

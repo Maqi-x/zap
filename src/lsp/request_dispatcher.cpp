@@ -1,51 +1,130 @@
 #include "lsp/request_dispatcher.hpp"
+
 #include "lsp.hpp"
 #include "lsp/document_request.hpp"
 #include "lsp/language_features.hpp"
-#include "lsp/position_codec.hpp"
 #include "lsp/protocol_codec.hpp"
 #include "lsp/protocol_messages.hpp"
 #include "lsp/protocol_utils.hpp"
 #include "lsp/workspace.hpp"
+#include <condition_variable>
 #include <cstdio>
+#include <deque>
 #include <filesystem>
+#include <mutex>
+#include <optional>
 #include <string>
+#include <thread>
+#include <unordered_set>
 #include <utility>
 
-using namespace zap::lsp;
+namespace zap::lsp {
+namespace {
 
-int zap::lsp::runRequestDispatcher() {
-  std::setvbuf(stdout, nullptr, _IONBF, 0);
+std::optional<std::string> requestKey(const JsonObject *id) {
+  if (!id) {
+    return std::nullopt;
+  }
+  if (id->isInteger()) {
+    return "i:" + std::to_string(id->getAsInteger());
+  }
+  if (id->isString()) {
+    return "s:" + id->getAsString();
+  }
+  return std::nullopt;
+}
 
-  Server server;
-  Workspace workspace;
-  bool running = true;
-  bool shutdownRequested = false;
-  std::string line;
+JsonObject makeCapabilities() {
+  JsonObject::Object syncOptions;
+  syncOptions.emplace("openClose", JsonObject(true));
+  syncOptions.emplace("change", JsonObject(int64_t(1)));
 
-  while (running) {
-    std::string message = server.processMessage(line);
-    if (message.empty()) {
-      break;
+  JsonObject::Object completionOptions;
+  completionOptions.emplace("resolveProvider", JsonObject(false));
+  JsonObject::List completionTriggers{JsonObject("."), JsonObject("_")};
+  for (char ch = 'a'; ch <= 'z'; ++ch) {
+    completionTriggers.emplace_back(std::string(1, ch));
+  }
+  for (char ch = 'A'; ch <= 'Z'; ++ch) {
+    completionTriggers.emplace_back(std::string(1, ch));
+  }
+  completionOptions.emplace("triggerCharacters",
+                            JsonObject(std::move(completionTriggers)));
+
+  JsonObject::Object signatureHelpOptions;
+  signatureHelpOptions.emplace(
+      "triggerCharacters",
+      JsonObject(JsonObject::List{JsonObject("("), JsonObject(",")}));
+
+  JsonObject::Object capabilities;
+  capabilities.emplace("textDocumentSync", JsonObject(std::move(syncOptions)));
+  capabilities.emplace("definitionProvider", JsonObject(true));
+  capabilities.emplace("hoverProvider", JsonObject(true));
+  capabilities.emplace("completionProvider",
+                       JsonObject(std::move(completionOptions)));
+  capabilities.emplace("signatureHelpProvider",
+                       JsonObject(std::move(signatureHelpOptions)));
+
+  JsonObject::Object serverInfo;
+  serverInfo.emplace("name", JsonObject("zap-lsp"));
+
+  JsonObject::Object result;
+  result.emplace("capabilities", JsonObject(std::move(capabilities)));
+  result.emplace("serverInfo", JsonObject(std::move(serverInfo)));
+  return JsonObject(std::move(result));
+}
+
+class RequestScheduler {
+  Server &server_;
+  Workspace workspace_;
+  std::mutex queueMutex_;
+  std::condition_variable queueReady_;
+  std::deque<JsonObject> queue_;
+  bool stopping_ = false;
+  std::thread worker_;
+
+  std::mutex cancellationMutex_;
+  std::unordered_set<std::string> cancelled_;
+  std::unordered_set<std::string> outstanding_;
+  bool shutdownRequested_ = false;
+
+  bool isCancelled(const std::optional<std::string> &key) {
+    if (!key) {
+      return false;
     }
+    std::lock_guard lock(cancellationMutex_);
+    return cancelled_.find(*key) != cancelled_.end();
+  }
 
-    JsonRPC rpc(message);
-    const JsonObject &request = rpc.object();
+  bool finishRequest(const std::optional<std::string> &key) {
+    if (!key) {
+      return false;
+    }
+    std::lock_guard lock(cancellationMutex_);
+    outstanding_.erase(*key);
+    return cancelled_.erase(*key) != 0;
+  }
+
+  void sendCancelled(const JsonObject *id) {
+    server_.discardPendingMessages();
+    server_.sendMessage(
+        makeErrorResponse(id, JsonRPC::RequestCancelled, "Request cancelled"));
+    server_.send();
+  }
+
+  void execute(const JsonObject &request) {
     auto method = getStringField(request, {"method"});
     const JsonObject *id = getField(request, "id");
-
     if (!method) {
       if (id) {
-        server.sendMessage(makeErrorResponse(id, JsonRPC::InvalidRequest,
-                                             "Missing method"));
+        server_.sendMessage(
+            makeErrorResponse(id, JsonRPC::InvalidRequest, "Missing method"));
       }
-      server.send();
-      continue;
+      return;
     }
 
     if (*method == "initialize") {
-      shutdownRequested = false;
-
+      shutdownRequested_ = false;
       std::filesystem::path workspaceRoot = std::filesystem::current_path();
       auto params = decodeInitialize(request);
       if (params && params->rootUri) {
@@ -55,167 +134,213 @@ int zap::lsp::runRequestDispatcher() {
       } else if (params && params->rootPath) {
         workspaceRoot = std::move(*params->rootPath);
       }
-
-      auto configurationErrors = workspace.configure(
-          workspaceRoot,
-          params ? params->corePath : std::nullopt,
+      auto errors = workspace_.configure(
+          workspaceRoot, params ? params->corePath : std::nullopt,
           params ? params->stdlibPath : std::nullopt);
-
-      JsonObject::Object syncOptions;
-      syncOptions.emplace("openClose", JsonObject(true));
-      syncOptions.emplace("change", JsonObject(int64_t(1)));
-
-      JsonObject::Object capabilities;
-      capabilities.emplace("textDocumentSync",
-                           JsonObject(std::move(syncOptions)));
-      capabilities.emplace("definitionProvider", JsonObject(true));
-      capabilities.emplace("hoverProvider", JsonObject(true));
-
-      JsonObject::Object completionOptions;
-      completionOptions.emplace("resolveProvider", JsonObject(false));
-      completionOptions.emplace(
-          "triggerCharacters",
-          JsonObject(JsonObject::List{
-              JsonObject("."), JsonObject("_"), JsonObject("a"),
-              JsonObject("b"), JsonObject("c"), JsonObject("d"),
-              JsonObject("e"), JsonObject("f"), JsonObject("g"),
-              JsonObject("h"), JsonObject("i"), JsonObject("j"),
-              JsonObject("k"), JsonObject("l"), JsonObject("m"),
-              JsonObject("n"), JsonObject("o"), JsonObject("p"),
-              JsonObject("q"), JsonObject("r"), JsonObject("s"),
-              JsonObject("t"), JsonObject("u"), JsonObject("v"),
-              JsonObject("w"), JsonObject("x"), JsonObject("y"),
-              JsonObject("z"), JsonObject("A"), JsonObject("B"),
-              JsonObject("C"), JsonObject("D"), JsonObject("E"),
-              JsonObject("F"), JsonObject("G"), JsonObject("H"),
-              JsonObject("I"), JsonObject("J"), JsonObject("K"),
-              JsonObject("L"), JsonObject("M"), JsonObject("N"),
-              JsonObject("O"), JsonObject("P"), JsonObject("Q"),
-              JsonObject("R"), JsonObject("S"), JsonObject("T"),
-              JsonObject("U"), JsonObject("V"), JsonObject("W"),
-              JsonObject("X"), JsonObject("Y"), JsonObject("Z")}));
-      capabilities.emplace("completionProvider",
-                           JsonObject(std::move(completionOptions)));
-
-      JsonObject::Object signatureHelpOptions;
-      signatureHelpOptions.emplace(
-          "triggerCharacters",
-          JsonObject(JsonObject::List{JsonObject("("), JsonObject(",")}));
-      capabilities.emplace("signatureHelpProvider",
-                           JsonObject(std::move(signatureHelpOptions)));
-
-      JsonObject::Object serverInfo;
-      serverInfo.emplace("name", JsonObject("zap-lsp"));
-
-      JsonObject::Object result;
-      result.emplace("capabilities", JsonObject(std::move(capabilities)));
-      result.emplace("serverInfo", JsonObject(std::move(serverInfo)));
-
-      server.sendMessage(makeResponse(id, JsonObject(std::move(result))));
-      for (const auto &error : configurationErrors) {
-        server.logMessage(Server::MessageType::Error, error);
+      server_.sendMessage(makeResponse(id, makeCapabilities()));
+      for (const auto &error : errors) {
+        server_.logMessage(Server::MessageType::Error, error);
       }
     } else if (*method == "initialized") {
-      continue;
+      return;
     } else if (*method == "shutdown") {
-      shutdownRequested = true;
-      server.sendMessage(makeResponse(id, JsonObject(nullptr)));
+      shutdownRequested_ = true;
+      server_.sendMessage(makeResponse(id, JsonObject(nullptr)));
     } else if (*method == "exit") {
-      running = false;
+      return;
     } else if (*method == "textDocument/didOpen") {
       if (auto params = decodeOpenDocument(request)) {
-        auto path = uriToPath(params->uri);
-        if (path) {
-          workspace.open(params->uri, *path, std::move(params->text),
-                         params->version);
-          publishAnalysis(server, workspace.analyze(params->uri));
+        if (auto path = uriToPath(params->uri)) {
+          workspace_.open(params->uri, *path, std::move(params->text),
+                          params->version);
+          publishAnalysis(server_, workspace_.analyze(params->uri));
         }
       }
     } else if (*method == "textDocument/didChange") {
       if (auto params = decodeChangeDocument(request);
-          params && workspace.contains(params->uri)) {
-        workspace.update(params->uri, std::move(params->text), params->version);
-        publishAnalysis(server, workspace.analyze(params->uri));
+          params && workspace_.contains(params->uri)) {
+        workspace_.update(params->uri, std::move(params->text),
+                          params->version);
+        publishAnalysis(server_, workspace_.analyze(params->uri));
       }
     } else if (*method == "textDocument/didClose") {
       if (auto uri = decodeCloseDocument(request)) {
-        workspace.close(*uri);
-        server.sendMessage(makePublishDiagnostics(*uri, {}));
+        workspace_.close(*uri);
+        server_.sendMessage(makePublishDiagnostics(*uri, {}));
       }
     } else if (*method == "textDocument/completion") {
       if (id) {
-        JsonObject::List items;
-        if (auto context = documentRequestContext(workspace, request)) {
-          items = makeCompletionItems(context->uri, context->query.document->text,
-                                      *context->query.project, context->offset);
-          server.sendMessage(makeResponse(id, JsonObject(std::move(items))));
+        if (auto context = documentRequestContext(workspace_, request)) {
+          auto items =
+              makeCompletionItems(context->uri, context->query.document->text,
+                                  *context->query.project, context->offset);
+          server_.sendMessage(makeResponse(id, JsonObject(std::move(items))));
         } else {
-          server.sendMessage(makeErrorResponse(id, JsonRPC::InvalidParams,
-                                               "Invalid document position"));
+          server_.sendMessage(makeErrorResponse(id, JsonRPC::InvalidParams,
+                                                "Invalid document position"));
         }
       }
     } else if (*method == "textDocument/definition") {
+      JsonObject result(nullptr);
       if (id) {
-        JsonObject result(nullptr);
-        if (auto context = documentRequestContext(workspace, request)) {
-            auto symbol = resolveDefinition(context->query.document->text, context->uri,
-                                            *context->query.project, context->offset);
-            if (symbol) {
-              auto source = workspace.sourceForUri(symbol->uri);
-              if (source) {
-                result = makeLocation(symbol->uri, *source, symbol->span);
-              }
+        if (auto context = documentRequestContext(workspace_, request)) {
+          if (auto symbol =
+                  resolveDefinition(context->query.document->text, context->uri,
+                                    *context->query.project, context->offset)) {
+            if (auto source = workspace_.sourceForUri(symbol->uri)) {
+              result = makeLocation(symbol->uri, *source, symbol->span);
+            }
           }
-          server.sendMessage(makeResponse(id, std::move(result)));
+          server_.sendMessage(makeResponse(id, std::move(result)));
         } else {
-          server.sendMessage(makeErrorResponse(id, JsonRPC::InvalidParams,
-                                               "Invalid document position"));
+          server_.sendMessage(makeErrorResponse(id, JsonRPC::InvalidParams,
+                                                "Invalid document position"));
         }
       }
     } else if (*method == "textDocument/hover") {
+      JsonObject result(nullptr);
       if (id) {
-        JsonObject result(nullptr);
-        if (auto context = documentRequestContext(workspace, request)) {
-            auto hover = resolveHover(context->query.document->text, context->uri,
-                                      *context->query.project, context->offset);
-            if (hover) {
-              result = makeHover(*hover);
+        if (auto context = documentRequestContext(workspace_, request)) {
+          if (auto hover =
+                  resolveHover(context->query.document->text, context->uri,
+                               *context->query.project, context->offset)) {
+            result = makeHover(*hover);
           }
-          server.sendMessage(makeResponse(id, std::move(result)));
+          server_.sendMessage(makeResponse(id, std::move(result)));
         } else {
-          server.sendMessage(makeErrorResponse(id, JsonRPC::InvalidParams,
-                                               "Invalid document position"));
+          server_.sendMessage(makeErrorResponse(id, JsonRPC::InvalidParams,
+                                                "Invalid document position"));
         }
       }
     } else if (*method == "textDocument/signatureHelp") {
+      JsonObject result(nullptr);
       if (id) {
-        JsonObject result(nullptr);
-        if (auto context = documentRequestContext(workspace, request)) {
-            int64_t activeParameter = 0;
-            auto signatures = resolveSignatures(context->query.document->text, context->uri,
-                                                *context->query.project, context->offset,
-                                                activeParameter);
-            if (!signatures.empty()) {
-              int64_t activeSignature =
-                  chooseActiveSignature(signatures, activeParameter);
-              result = makeSignatureHelp(signatures, activeSignature,
-                                         activeParameter);
+        if (auto context = documentRequestContext(workspace_, request)) {
+          int64_t activeParameter = 0;
+          auto signatures = resolveSignatures(
+              context->query.document->text, context->uri,
+              *context->query.project, context->offset, activeParameter);
+          if (!signatures.empty()) {
+            result = makeSignatureHelp(
+                signatures, chooseActiveSignature(signatures, activeParameter),
+                activeParameter);
           }
-          server.sendMessage(makeResponse(id, std::move(result)));
+          server_.sendMessage(makeResponse(id, std::move(result)));
         } else {
-          server.sendMessage(makeErrorResponse(id, JsonRPC::InvalidParams,
-                                               "Invalid document position"));
+          server_.sendMessage(makeErrorResponse(id, JsonRPC::InvalidParams,
+                                                "Invalid document position"));
         }
       }
-    } else {
-      if (id) {
-        server.sendMessage(makeErrorResponse(id, JsonRPC::MethodNotFound,
-                                             "Method not found"));
-      }
+    } else if (id) {
+      server_.sendMessage(
+          makeErrorResponse(id, JsonRPC::MethodNotFound, "Method not found"));
     }
-
-    server.send();
   }
 
-  return shutdownRequested ? 0 : 1;
+  void workerLoop() {
+    while (true) {
+      JsonObject request;
+      {
+        std::unique_lock lock(queueMutex_);
+        queueReady_.wait(lock, [this] { return stopping_ || !queue_.empty(); });
+        if (queue_.empty()) {
+          return;
+        }
+        request = std::move(queue_.front());
+        queue_.pop_front();
+      }
+
+      const JsonObject *id = getField(request, "id");
+      auto key = requestKey(id);
+      if (isCancelled(key)) {
+        finishRequest(key);
+        sendCancelled(id);
+        continue;
+      }
+
+      execute(request);
+      if (finishRequest(key)) {
+        sendCancelled(id);
+      } else {
+        server_.send();
+      }
+    }
+  }
+
+public:
+  explicit RequestScheduler(Server &server) : server_(server) {
+    worker_ = std::thread([this] { workerLoop(); });
+  }
+
+  RequestScheduler(const RequestScheduler &) = delete;
+  RequestScheduler &operator=(const RequestScheduler &) = delete;
+
+  ~RequestScheduler() { stop(); }
+
+  bool submit(JsonObject request) {
+    auto method = getStringField(request, {"method"});
+    if (method && *method == "$/cancelRequest") {
+      auto key = requestKey(getPath(request, {"params", "id"}));
+      if (key) {
+        std::lock_guard lock(cancellationMutex_);
+        if (outstanding_.find(*key) != outstanding_.end()) {
+          cancelled_.insert(std::move(*key));
+        }
+      }
+      return true;
+    }
+
+    const bool keepReading = !method || *method != "exit";
+    if (auto key = requestKey(getField(request, "id"))) {
+      std::lock_guard lock(cancellationMutex_);
+      outstanding_.insert(std::move(*key));
+    }
+    {
+      std::lock_guard lock(queueMutex_);
+      queue_.push_back(std::move(request));
+    }
+    queueReady_.notify_one();
+    return keepReading;
+  }
+
+  void stop() {
+    {
+      std::lock_guard lock(queueMutex_);
+      if (stopping_) {
+        return;
+      }
+      stopping_ = true;
+    }
+    queueReady_.notify_one();
+    if (worker_.joinable()) {
+      worker_.join();
+    }
+  }
+
+  bool shutdownRequested() const { return shutdownRequested_; }
+};
+
+} // namespace
+
+int runRequestDispatcher() {
+  std::setvbuf(stdout, nullptr, _IONBF, 0);
+  Server server;
+  RequestScheduler scheduler(server);
+  std::string line;
+
+  while (true) {
+    std::string message = server.processMessage(line);
+    if (message.empty()) {
+      break;
+    }
+    JsonRPC rpc(message);
+    if (!scheduler.submit(rpc.object())) {
+      break;
+    }
+  }
+
+  scheduler.stop();
+  return scheduler.shutdownRequested() ? 0 : 1;
 }
+
+} // namespace zap::lsp

@@ -92,6 +92,7 @@ public:
     MethodNotFound = -32601,
     InvalidParams = -32602,
     InternalError = -32603,
+    RequestCancelled = -32800,
   };
 
 private:
@@ -128,6 +129,11 @@ public:
   void send() {
     std::lock_guard lock(outputMutex_);
     std::cout << buffer;
+    buffer.clear();
+  }
+
+  void discardPendingMessages() {
+    std::lock_guard lock(outputMutex_);
     buffer.clear();
   }
 
