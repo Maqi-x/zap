@@ -27,11 +27,6 @@ _Static_assert(offsetof(zap_string_t, ptr) == 0,
 _Static_assert(offsetof(zap_string_t, len) == sizeof(const char *),
                "String ABI: value len offset mismatch");
 
-static void **zap_arc_roots = NULL;
-static size_t zap_arc_root_count = 0;
-static size_t zap_arc_root_capacity = 0;
-static int zap_arc_collecting = 0;
-static int zap_arc_collection_pending = 0;
 static int zap_net_last_error = 0;
 static long zap_fs_last_error_code = 0;
 
@@ -159,8 +154,39 @@ void zap_arc_weak_refcount_underflow(void) {
   abort();
 }
 
-void zap_arc_add_possible_root(void *object) {
-  if (!object) {
+typedef struct {
+  void **keys;
+  uint32_t *vals;
+  size_t cap;
+  size_t len;
+} zap_arc_ptrmap_t;
+
+struct zap_arc_runtime_context_t {
+  void **roots;
+  size_t root_count;
+  size_t root_capacity;
+  int collecting;
+  int collection_pending;
+  void **snap;
+  size_t snap_cap;
+  void **worklist;
+  size_t worklist_cap;
+  int *incoming;
+  uint8_t *reachable;
+  uint32_t *stack;
+  size_t scratch_cap;
+  zap_arc_ptrmap_t map;
+};
+
+static zap_arc_runtime_context_t zap_arc_default_runtime_context = {0};
+
+zap_arc_runtime_context_t *zap_arc_default_context(void) {
+  return &zap_arc_default_runtime_context;
+}
+
+void zap_arc_add_possible_root(zap_arc_runtime_context_t *context,
+                               void *object) {
+  if (!context || !object) {
     return;
   }
   zap_arc_header_t *header = (zap_arc_header_t *)object;
@@ -168,34 +194,35 @@ void zap_arc_add_possible_root(void *object) {
     return;
   }
 
-  if (zap_arc_root_count == zap_arc_root_capacity) {
-    size_t next_capacity = zap_runtime_next_capacity(zap_arc_root_capacity, 16);
-    void **next = (void **)zap_runtime_realloc_array(
-        zap_arc_roots, next_capacity, sizeof(void *));
-    zap_arc_roots = next;
-    zap_arc_root_capacity = next_capacity;
+  if (context->root_count == context->root_capacity) {
+    size_t next_capacity =
+        zap_runtime_next_capacity(context->root_capacity, 16);
+    context->roots = (void **)zap_runtime_realloc_array(
+        context->roots, next_capacity, sizeof(void *));
+    context->root_capacity = next_capacity;
   }
 
   header->gc_mark |= ZAP_ARC_GC_BUFFERED;
-  zap_arc_roots[zap_arc_root_count++] = object;
-  if (zap_arc_root_count >= ZAP_ARC_COLLECTION_ROOT_THRESHOLD) {
-    zap_arc_collection_pending = 1;
+  context->roots[context->root_count++] = object;
+  if (context->root_count >= ZAP_ARC_COLLECTION_ROOT_THRESHOLD) {
+    context->collection_pending = 1;
   }
 #if defined(ZAP_RUNTIME_INSTRUMENTATION)
   ++zap_runtime_ownership_counters.candidate_roots;
 #endif
 }
 
-void zap_arc_collect_at_safepoint(void) {
-  if (!zap_arc_collection_pending || zap_arc_collecting) {
+void zap_arc_collect_at_safepoint(zap_arc_runtime_context_t *context) {
+  if (!context || !context->collection_pending || context->collecting) {
     return;
   }
-  zap_arc_collection_pending = 0;
-  zap_arc_cycle_collect();
+  context->collection_pending = 0;
+  zap_arc_cycle_collect(context);
 }
 
-void zap_arc_remove_possible_root(void *object) {
-  if (!object) {
+void zap_arc_remove_possible_root(zap_arc_runtime_context_t *context,
+                                  void *object) {
+  if (!context || !object) {
     return;
   }
   zap_arc_header_t *header = (zap_arc_header_t *)object;
@@ -203,28 +230,21 @@ void zap_arc_remove_possible_root(void *object) {
     return;
   }
   header->gc_mark &= (uint8_t)~ZAP_ARC_GC_BUFFERED;
-  for (size_t i = 0; i < zap_arc_root_count; ++i) {
-    if (zap_arc_roots[i] == object) {
-      zap_arc_roots[i] = NULL;
+  for (size_t i = 0; i < context->root_count; ++i) {
+    if (context->roots[i] == object) {
+      context->roots[i] = NULL;
       break;
     }
   }
 }
 
-void zap_arc_deallocate(void *object) {
+void zap_arc_deallocate(zap_arc_runtime_context_t *context, void *object) {
   if (!object) {
     return;
   }
-  zap_arc_remove_possible_root(object);
+  zap_arc_remove_possible_root(context, object);
   free(object);
 }
-
-typedef struct {
-  void **keys;
-  uint32_t *vals;
-  size_t cap;
-  size_t len;
-} zap_arc_ptrmap_t;
 
 static size_t zap_arc_hash_ptr(void *p) {
   uintptr_t x = (uintptr_t)p;
@@ -324,34 +344,25 @@ static void zap_arc_ws_push(void ***ws, size_t *count, size_t *cap,
   (*ws)[(*count)++] = object;
 }
 
-static void **zap_arc_snap = NULL;
-static size_t zap_arc_snap_cap = 0;
-static void **zap_arc_ws = NULL;
-static size_t zap_arc_ws_cap = 0;
-static int *zap_arc_incoming = NULL;
-static uint8_t *zap_arc_reachable = NULL;
-static uint32_t *zap_arc_stack = NULL;
-static size_t zap_arc_scratch_cap = 0;
-static zap_arc_ptrmap_t zap_arc_map = {NULL, NULL, 0, 0};
-
-static void zap_arc_ensure_scratch(size_t n) {
-  if (n <= zap_arc_scratch_cap) {
+static void zap_arc_ensure_scratch(zap_arc_runtime_context_t *context,
+                                   size_t n) {
+  if (n <= context->scratch_cap) {
     return;
   }
-  size_t ncap = zap_arc_scratch_cap ? zap_arc_scratch_cap : 32;
+  size_t ncap = context->scratch_cap ? context->scratch_cap : 32;
   while (ncap < n) {
     ncap = zap_runtime_next_capacity(ncap, 32);
   }
-  int *ni = (int *)zap_runtime_realloc_array(zap_arc_incoming, ncap,
+  int *ni = (int *)zap_runtime_realloc_array(context->incoming, ncap,
                                                sizeof(int));
   uint8_t *nr = (uint8_t *)zap_runtime_realloc_array(
-      zap_arc_reachable, ncap, sizeof(uint8_t));
-  uint32_t *ns = (uint32_t *)zap_runtime_realloc_array(zap_arc_stack, ncap,
-                                                         sizeof(uint32_t));
-  zap_arc_incoming = ni;
-  zap_arc_reachable = nr;
-  zap_arc_stack = ns;
-  zap_arc_scratch_cap = ncap;
+      context->reachable, ncap, sizeof(uint8_t));
+  uint32_t *ns = (uint32_t *)zap_runtime_realloc_array(
+      context->stack, ncap, sizeof(uint32_t));
+  context->incoming = ni;
+  context->reachable = nr;
+  context->stack = ns;
+  context->scratch_cap = ncap;
 }
 
 typedef struct {
@@ -400,25 +411,25 @@ static void zap_arc_mark_reachable(void *context, void *child) {
   }
 }
 
-void zap_arc_cycle_collect(void) {
-  if (zap_arc_collecting || zap_arc_root_count == 0) {
+void zap_arc_cycle_collect(zap_arc_runtime_context_t *context) {
+  if (!context || context->collecting || context->root_count == 0) {
     return;
   }
-  zap_arc_collecting = 1;
+  context->collecting = 1;
 #if defined(ZAP_RUNTIME_INSTRUMENTATION)
   ++zap_runtime_ownership_counters.collection_runs;
 #endif
 
-  if (zap_arc_root_count > zap_arc_snap_cap) {
+  if (context->root_count > context->snap_cap) {
     void **next = (void **)zap_runtime_realloc_array(
-        zap_arc_snap, zap_arc_root_count, sizeof(void *));
-    zap_arc_snap = next;
-    zap_arc_snap_cap = zap_arc_root_count;
+        context->snap, context->root_count, sizeof(void *));
+    context->snap = next;
+    context->snap_cap = context->root_count;
   }
-  void **roots = zap_arc_snap;
+  void **roots = context->snap;
   size_t root_count = 0;
-  for (size_t i = 0; i < zap_arc_root_count; ++i) {
-    void *object = zap_arc_roots[i];
+  for (size_t i = 0; i < context->root_count; ++i) {
+    void *object = context->roots[i];
     if (!object) {
       continue;
     }
@@ -426,33 +437,34 @@ void zap_arc_cycle_collect(void) {
     header->gc_mark &= (uint8_t)~ZAP_ARC_GC_BUFFERED;
     roots[root_count++] = object;
   }
-  zap_arc_root_count = 0;
-  zap_arc_collection_pending = 0;
+  context->root_count = 0;
+  context->collection_pending = 0;
   if (root_count == 0) {
-    zap_arc_collecting = 0;
+    context->collecting = 0;
     return;
   }
 
-  if (zap_arc_map.cap == 0) {
-    zap_arc_ptrmap_init(&zap_arc_map, 64);
+  if (context->map.cap == 0) {
+    zap_arc_ptrmap_init(&context->map, 64);
   }
-  zap_arc_ptrmap_clear(&zap_arc_map);
+  zap_arc_ptrmap_clear(&context->map);
 
   size_t ws_count = 0;
   for (size_t i = 0; i < root_count; ++i) {
-    zap_arc_ws_push(&zap_arc_ws, &ws_count, &zap_arc_ws_cap, &zap_arc_map,
-                    roots[i]);
+    zap_arc_ws_push(&context->worklist, &ws_count, &context->worklist_cap,
+                    &context->map, roots[i]);
   }
   for (size_t cursor = 0; cursor < ws_count; ++cursor) {
-    zap_arc_header_t *header = (zap_arc_header_t *)zap_arc_ws[cursor];
+    zap_arc_header_t *header = (zap_arc_header_t *)context->worklist[cursor];
     if (!header->alive || !header->metadata) {
       continue;
     }
     if (header->metadata->trace_fn) {
-      zap_arc_discover_context_t context = {&zap_arc_ws, &ws_count,
-                                            &zap_arc_ws_cap, &zap_arc_map};
-      header->metadata->trace_fn(zap_arc_ws[cursor], zap_arc_discover_child,
-                                 &context);
+      zap_arc_discover_context_t discovery = {
+          &context->worklist, &ws_count, &context->worklist_cap,
+          &context->map};
+      header->metadata->trace_fn(context->worklist[cursor],
+                                 zap_arc_discover_child, &discovery);
     }
   }
 
@@ -460,28 +472,28 @@ void zap_arc_cycle_collect(void) {
   zap_runtime_ownership_counters.visited_objects += ws_count;
 #endif
 
-  zap_arc_ensure_scratch(ws_count);
-  int *incoming = zap_arc_incoming;
-  uint8_t *reachable = zap_arc_reachable;
-  uint32_t *stack = zap_arc_stack;
+  zap_arc_ensure_scratch(context, ws_count);
+  int *incoming = context->incoming;
+  uint8_t *reachable = context->reachable;
+  uint32_t *stack = context->stack;
   memset(incoming, 0, ws_count * sizeof(int));
   memset(reachable, 0, ws_count * sizeof(uint8_t));
 
   for (size_t i = 0; i < ws_count; ++i) {
-    zap_arc_header_t *header = (zap_arc_header_t *)zap_arc_ws[i];
+    zap_arc_header_t *header = (zap_arc_header_t *)context->worklist[i];
     if (!header->alive || !header->metadata) {
       continue;
     }
     if (header->metadata->trace_fn) {
-      zap_arc_incoming_context_t context = {&zap_arc_map, incoming};
-      header->metadata->trace_fn(zap_arc_ws[i], zap_arc_count_incoming,
-                                 &context);
+      zap_arc_incoming_context_t incoming_context = {&context->map, incoming};
+      header->metadata->trace_fn(context->worklist[i],
+                                 zap_arc_count_incoming, &incoming_context);
     }
   }
 
   size_t sp = 0;
   for (size_t i = 0; i < ws_count; ++i) {
-    zap_arc_header_t *header = (zap_arc_header_t *)zap_arc_ws[i];
+    zap_arc_header_t *header = (zap_arc_header_t *)context->worklist[i];
     if (header->alive && header->strong_count > incoming[i] && !reachable[i]) {
       reachable[i] = 1;
       stack[sp++] = (uint32_t)i;
@@ -489,20 +501,20 @@ void zap_arc_cycle_collect(void) {
   }
   while (sp) {
     uint32_t idx = stack[--sp];
-    zap_arc_header_t *header = (zap_arc_header_t *)zap_arc_ws[idx];
+    zap_arc_header_t *header = (zap_arc_header_t *)context->worklist[idx];
     if (!header->alive || !header->metadata) {
       continue;
     }
     if (header->metadata->trace_fn) {
-      zap_arc_reachable_context_t context = {&zap_arc_map, reachable, stack,
-                                             &sp};
-      header->metadata->trace_fn(zap_arc_ws[idx], zap_arc_mark_reachable,
-                                 &context);
+      zap_arc_reachable_context_t reachable_context = {
+          &context->map, reachable, stack, &sp};
+      header->metadata->trace_fn(context->worklist[idx],
+                                 zap_arc_mark_reachable, &reachable_context);
     }
   }
 
   for (size_t i = 0; i < ws_count; ++i) {
-    zap_arc_header_t *header = (zap_arc_header_t *)zap_arc_ws[i];
+    zap_arc_header_t *header = (zap_arc_header_t *)context->worklist[i];
     if (!header->alive || reachable[i]) {
       continue;
     }
@@ -513,41 +525,35 @@ void zap_arc_cycle_collect(void) {
 #endif
   }
   for (size_t i = 0; i < ws_count; ++i) {
-    zap_arc_header_t *header = (zap_arc_header_t *)zap_arc_ws[i];
+    zap_arc_header_t *header = (zap_arc_header_t *)context->worklist[i];
     if ((header->gc_mark & ZAP_ARC_GC_GARBAGE) && header->destroy_fn) {
-      header->destroy_fn(zap_arc_ws[i]);
+      header->destroy_fn(context->worklist[i]);
     }
   }
   for (size_t i = 0; i < ws_count; ++i) {
-    zap_arc_header_t *header = (zap_arc_header_t *)zap_arc_ws[i];
+    zap_arc_header_t *header = (zap_arc_header_t *)context->worklist[i];
     if ((header->gc_mark & ZAP_ARC_GC_GARBAGE) &&
         header->weak_count == 0) {
-      zap_arc_deallocate(zap_arc_ws[i]);
+      zap_arc_deallocate(context, context->worklist[i]);
     } else if (header->gc_mark & ZAP_ARC_GC_GARBAGE) {
       header->gc_mark &= (uint8_t)~ZAP_ARC_GC_GARBAGE;
     }
   }
 
-  zap_arc_collecting = 0;
+  context->collecting = 0;
 }
 
 __attribute__((destructor)) static void zap_arc_shutdown(void) {
-  free(zap_arc_roots);
-  free(zap_arc_snap);
-  free(zap_arc_ws);
-  free(zap_arc_incoming);
-  free(zap_arc_reachable);
-  free(zap_arc_stack);
-  free(zap_arc_map.keys);
-  free(zap_arc_map.vals);
-  zap_arc_roots = NULL;
-  zap_arc_snap = NULL;
-  zap_arc_ws = NULL;
-  zap_arc_incoming = NULL;
-  zap_arc_reachable = NULL;
-  zap_arc_stack = NULL;
-  zap_arc_map.keys = NULL;
-  zap_arc_map.vals = NULL;
+  zap_arc_runtime_context_t *context = zap_arc_default_context();
+  free(context->roots);
+  free(context->snap);
+  free(context->worklist);
+  free(context->incoming);
+  free(context->reachable);
+  free(context->stack);
+  free(context->map.keys);
+  free(context->map.vals);
+  *context = (zap_arc_runtime_context_t){0};
 }
 
 void printInt(long v) { printf("%ld\n", v); }

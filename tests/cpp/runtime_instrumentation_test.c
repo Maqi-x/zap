@@ -84,12 +84,13 @@ static int test_cycle_collection_events(void) {
   first->child = second;
   second->child = first;
   first->header.weak_count = 1;
+  zap_arc_runtime_context_t *context = zap_arc_default_context();
 
   destroy_count = 0;
   preserved_strong_counts = 1;
   zap_runtime_ownership_reset_counters();
-  zap_arc_add_possible_root(first);
-  zap_arc_add_possible_root(second);
+  zap_arc_add_possible_root(context, first);
+  zap_arc_add_possible_root(context, second);
 
   zap_runtime_ownership_counters_t counters = {0};
   zap_runtime_ownership_snapshot_counters(&counters);
@@ -100,7 +101,7 @@ static int test_cycle_collection_events(void) {
     return 0;
   }
 
-  zap_arc_collect_at_safepoint();
+  zap_arc_collect_at_safepoint(context);
   zap_runtime_ownership_snapshot_counters(&counters);
   int passed = expect(counters.collection_runs == 1,
                       "collection did not run at the safe point") &&
@@ -117,7 +118,7 @@ static int test_cycle_collection_events(void) {
                expect(first->header.strong_count == 1,
                       "weak tombstone did not preserve its strong count");
   first->header.weak_count = 0;
-  zap_arc_deallocate(first);
+  zap_arc_deallocate(context, first);
   return passed;
 }
 

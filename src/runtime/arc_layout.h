@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 // Shared ARC object header ABI used by runtime (C) and codegen (C++).
-#define ZAP_ARC_ABI_VERSION 3
+#define ZAP_ARC_ABI_VERSION 4
 #define ZAP_ARC_STRONG_COUNT_INDEX 0
 #define ZAP_ARC_WEAK_COUNT_INDEX 1
 #define ZAP_ARC_ALIVE_INDEX 2
@@ -30,6 +30,8 @@ typedef void (*zap_arc_trace_fn_t)(void *object,
 typedef struct zap_arc_metadata_t {
   zap_arc_trace_fn_t trace_fn;
 } zap_arc_metadata_t;
+
+typedef struct zap_arc_runtime_context_t zap_arc_runtime_context_t;
 
 typedef struct zap_arc_header_t {
   int64_t strong_count;
@@ -66,11 +68,14 @@ extern "C" {
 #define ZAP_ARC_STATIC_ASSERT(condition, message) _Static_assert(condition, message)
 #endif
 
-void zap_arc_add_possible_root(void *object);
-void zap_arc_remove_possible_root(void *object);
-void zap_arc_deallocate(void *object);
-void zap_arc_cycle_collect(void);
-void zap_arc_collect_at_safepoint(void);
+zap_arc_runtime_context_t *zap_arc_default_context(void);
+void zap_arc_add_possible_root(zap_arc_runtime_context_t *context,
+                               void *object);
+void zap_arc_remove_possible_root(zap_arc_runtime_context_t *context,
+                                  void *object);
+void zap_arc_deallocate(zap_arc_runtime_context_t *context, void *object);
+void zap_arc_cycle_collect(zap_arc_runtime_context_t *context);
+void zap_arc_collect_at_safepoint(zap_arc_runtime_context_t *context);
 void *zap_runtime_alloc(size_t size);
 void zap_arc_strong_refcount_overflow(void);
 void zap_arc_weak_refcount_overflow(void);

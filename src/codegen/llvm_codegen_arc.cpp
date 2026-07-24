@@ -193,17 +193,28 @@ void LLVMCodeGen::emitOwnershipRelease(
 }
 
 void LLVMCodeGen::emitArcCollectionSafePoint() {
+  auto *rawPtrTy = llvm::PointerType::getUnqual(ctx_);
+  auto contextIt = functionMap_.find("zap_arc_default_context");
+  if (contextIt == functionMap_.end()) {
+    auto *contextTy = llvm::FunctionType::get(rawPtrTy, {}, false);
+    auto *contextFn = llvm::Function::Create(
+        contextTy, llvm::Function::ExternalLinkage, "zap_arc_default_context",
+        *module_);
+    contextIt = functionMap_.emplace("zap_arc_default_context", contextFn)
+                    .first;
+  }
   auto it = functionMap_.find("zap_arc_collect_at_safepoint");
   if (it == functionMap_.end()) {
-    auto *safePointTy =
-        llvm::FunctionType::get(llvm::Type::getVoidTy(ctx_), {}, false);
+    auto *safePointTy = llvm::FunctionType::get(
+        llvm::Type::getVoidTy(ctx_), {rawPtrTy}, false);
     auto *safePointFn = llvm::Function::Create(
         safePointTy, llvm::Function::ExternalLinkage,
         "zap_arc_collect_at_safepoint", *module_);
     it = functionMap_.emplace("zap_arc_collect_at_safepoint", safePointFn)
              .first;
   }
-  builder_.CreateCall(it->second);
+  auto *context = builder_.CreateCall(contextIt->second, {}, "arc.context");
+  builder_.CreateCall(it->second, {context});
 }
 
 void LLVMCodeGen::emitRetainIfNeeded(llvm::Value *value,

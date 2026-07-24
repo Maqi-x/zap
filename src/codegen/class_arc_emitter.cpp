@@ -36,12 +36,26 @@ llvm::Function *ClassArcEmitter::getOrCreateArcDeallocateFunction() {
 
   auto *rawPtrTy = llvm::PointerType::getUnqual(codegen_.ctx_);
   auto *deallocateType = llvm::FunctionType::get(
-      llvm::Type::getVoidTy(codegen_.ctx_), {rawPtrTy}, false);
+      llvm::Type::getVoidTy(codegen_.ctx_), {rawPtrTy, rawPtrTy}, false);
   auto *deallocateFn =
       llvm::Function::Create(deallocateType, llvm::Function::ExternalLinkage,
                              "zap_arc_deallocate", *codegen_.module_);
   codegen_.functionMap_["zap_arc_deallocate"] = deallocateFn;
   return deallocateFn;
+}
+
+llvm::Value *ClassArcEmitter::emitArcRuntimeContext() {
+  auto it = codegen_.functionMap_.find("zap_arc_default_context");
+  if (it == codegen_.functionMap_.end()) {
+    auto *rawPtrTy = llvm::PointerType::getUnqual(codegen_.ctx_);
+    auto *contextType = llvm::FunctionType::get(rawPtrTy, {}, false);
+    auto *contextFn = llvm::Function::Create(
+        contextType, llvm::Function::ExternalLinkage,
+        "zap_arc_default_context", *codegen_.module_);
+    it = codegen_.functionMap_.emplace("zap_arc_default_context", contextFn)
+             .first;
+  }
+  return codegen_.builder_.CreateCall(it->second, {}, "arc.context");
 }
 
 void ClassArcEmitter::emitRefcountFailure(const char *name) {
@@ -487,7 +501,8 @@ void ClassArcEmitter::emitReleaseWeakIfNeeded(
   auto *rawObject = codegen_.builder_.CreateBitCast(
       typedPtr,
       llvm::PointerType::getUnqual(codegen_.ctx_));
-  codegen_.builder_.CreateCall(getOrCreateArcDeallocateFunction(), {rawObject});
+  codegen_.builder_.CreateCall(getOrCreateArcDeallocateFunction(),
+                               {emitArcRuntimeContext(), rawObject});
   codegen_.builder_.CreateBr(contBB);
 
   codegen_.builder_.SetInsertPoint(contBB);
@@ -856,14 +871,15 @@ void ClassArcEmitter::ensureClassArcSupport(
   codegen_.builder_.SetInsertPoint(destroyBB);
   if (codegen_.functionMap_.count("zap_arc_remove_possible_root") == 0) {
     auto *removeTy = llvm::FunctionType::get(
-        llvm::Type::getVoidTy(codegen_.ctx_), {rawPtrTy}, false);
+        llvm::Type::getVoidTy(codegen_.ctx_), {rawPtrTy, rawPtrTy}, false);
     auto *removeFn = llvm::Function::Create(
         removeTy, llvm::Function::ExternalLinkage,
         "zap_arc_remove_possible_root", *codegen_.module_);
     codegen_.functionMap_["zap_arc_remove_possible_root"] = removeFn;
   }
   codegen_.builder_.CreateCall(
-      codegen_.functionMap_.at("zap_arc_remove_possible_root"), {rawObject});
+      codegen_.functionMap_.at("zap_arc_remove_possible_root"),
+      {emitArcRuntimeContext(), rawObject});
   auto *destroyAddr = codegen_.builder_.CreateStructGEP(
       objectTy, typedObject, kClassDestroyFnIndex, "destroy.addr");
   auto *destroyFn = codegen_.builder_.CreateLoad(
@@ -882,21 +898,23 @@ void ClassArcEmitter::ensureClassArcSupport(
   codegen_.builder_.CreateCondBr(isWeakZero, deallocateBB, returnBB);
 
   codegen_.builder_.SetInsertPoint(deallocateBB);
-  codegen_.builder_.CreateCall(getOrCreateArcDeallocateFunction(), {rawObject});
+  codegen_.builder_.CreateCall(getOrCreateArcDeallocateFunction(),
+                               {emitArcRuntimeContext(), rawObject});
   codegen_.builder_.CreateBr(returnBB);
 
   if (canBeCyclic) {
     codegen_.builder_.SetInsertPoint(cycleBB);
     if (codegen_.functionMap_.count("zap_arc_add_possible_root") == 0) {
       auto *addTy = llvm::FunctionType::get(
-          llvm::Type::getVoidTy(codegen_.ctx_), {rawPtrTy}, false);
+          llvm::Type::getVoidTy(codegen_.ctx_), {rawPtrTy, rawPtrTy}, false);
       auto *addFn = llvm::Function::Create(
           addTy, llvm::Function::ExternalLinkage, "zap_arc_add_possible_root",
           *codegen_.module_);
       codegen_.functionMap_["zap_arc_add_possible_root"] = addFn;
     }
     codegen_.builder_.CreateCall(
-        codegen_.functionMap_.at("zap_arc_add_possible_root"), {rawObject});
+        codegen_.functionMap_.at("zap_arc_add_possible_root"),
+        {emitArcRuntimeContext(), rawObject});
     codegen_.builder_.CreateBr(returnBB);
   }
 
