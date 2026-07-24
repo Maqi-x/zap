@@ -1,7 +1,10 @@
 #pragma once
 
 #include "frontend/module_loader.hpp"
+#include "sema/bound_nodes.hpp"
 #include "sema/module_info.hpp"
+#include "sema/semantic_info.hpp"
+#include "sema/target_info.hpp"
 #include "utils/diagnostics.hpp"
 #include <filesystem>
 #include <functional>
@@ -19,12 +22,16 @@ struct FrontendSessionConfig {
   ImportMap importMap;
   bool includePrelude = true;
   bool allowEntryErrors = false;
+  sema::TargetInfo targetInfo{};
 };
 
 struct FrontendProject {
+  std::string entryModuleId;
   std::map<std::string, std::unique_ptr<sema::ModuleInfo>> modules;
   std::vector<Diagnostic> diagnostics;
   std::vector<std::string> errors;
+  sema::SemanticInfo semanticInfo;
+  std::unique_ptr<sema::BoundRootNode> boundRoot;
   bool loaded = false;
 };
 
@@ -36,6 +43,7 @@ public:
   FrontendSession(FrontendSessionConfig config, SourceLoader sourceLoader);
 
   FrontendProject load(const std::filesystem::path &entryPath);
+  bool bind(FrontendProject &project);
 
 private:
   FrontendSessionConfig config_;

@@ -3,6 +3,7 @@
 #include "ast/import_node.hpp"
 #include "lexer/lexer.hpp"
 #include "parser/parser.hpp"
+#include "sema/binder.hpp"
 
 namespace zap::frontend {
 
@@ -13,6 +14,7 @@ FrontendSession::FrontendSession(FrontendSessionConfig config,
 FrontendProject FrontendSession::load(const std::filesystem::path &entryPath) {
   FrontendProject project;
   const auto canonicalEntry = std::filesystem::weakly_canonical(entryPath);
+  project.entryModuleId = canonicalEntry.string();
   std::unordered_map<std::string, bool> visiting;
   project.loaded = loadModule(canonicalEntry, canonicalEntry.string(), project,
                               visiting);
@@ -97,6 +99,33 @@ bool FrontendSession::loadModule(
   visiting.erase(moduleId);
   project.modules[moduleId] = std::move(module);
   return true;
+}
+
+bool FrontendSession::bind(FrontendProject &project) {
+  if (!project.loaded || project.modules.empty()) {
+    return false;
+  }
+
+  const auto entryIt = project.modules.find(project.entryModuleId);
+  if (entryIt == project.modules.end()) {
+    return false;
+  }
+  const auto &entry = *entryIt->second;
+  DiagnosticEngine diagnostics(entry.sourceText, entry.sourceName);
+  std::vector<sema::ModuleInfo *> modules;
+  modules.reserve(project.modules.size());
+  for (auto &[_, module] : project.modules) {
+    diagnostics.registerSource(module->sourceName, module->sourceText);
+    modules.push_back(module.get());
+  }
+
+  sema::Binder binder(diagnostics, true, &project.semanticInfo,
+                      config_.targetInfo);
+  project.boundRoot = binder.bind(std::move(modules));
+  const auto &bindingDiagnostics = diagnostics.diagnostics();
+  project.diagnostics.insert(project.diagnostics.end(), bindingDiagnostics.begin(),
+                             bindingDiagnostics.end());
+  return static_cast<bool>(project.boundRoot);
 }
 
 } // namespace zap::frontend

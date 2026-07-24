@@ -161,58 +161,35 @@ void driver::setExecutablePath(std::filesystem::path path) {
 }
 
 bool compileLoadedModules(driver &drv, const std::filesystem::path &entryPath) {
-  frontend::FrontendSession session(
-      {runtimePaths(), drv.cmdArgs.importMap,
-       drv.cmdArgs.incStdlib && drv.cmdArgs.incPrelude},
-      [](const std::filesystem::path &path) -> std::optional<std::string> {
-        std::string source;
-        return readSourceFile(path, source) ? std::nullopt
-                                            : std::optional<std::string>(std::move(source));
-      });
-  auto project = session.load(entryPath);
-  DiagnosticTextFormatter::print(err(), project.diagnostics);
-  for (const auto &error : project.errors) {
-    driver::reportError(error);
-  }
-  if (!project.loaded) {
-    return true;
-  }
-  auto moduleMap = std::move(project.modules);
-
-  auto entryId = std::filesystem::weakly_canonical(entryPath).string();
-  if (moduleMap.find(entryId) == moduleMap.end()) {
-    driver::reportError("failed to load entry module: ", entryPath);
-    return true;
-  }
-  moduleMap[entryId]->isEntry = true;
-
-  std::string entrySource;
-  if (readSourceFile(entryPath, entrySource)) {
-    return true;
-  }
-  DiagnosticEngine diagnostics(entrySource, entryPath.string());
-
-  std::vector<sema::ModuleInfo> modules;
-  modules.reserve(moduleMap.size());
-  for (auto &[_, module] : moduleMap) {
-    diagnostics.registerSource(module->sourceName, module->sourceText);
-    modules.push_back(std::move(*module));
-  }
-
   auto targetInfo = targetInfoForTriple(drv.get_target_triple());
   if (!targetInfo) {
     driver::reportError("unsupported target word size for '",
                         drv.get_target_triple(), "'");
     return true;
   }
-  sema::Binder binder(diagnostics, true, nullptr, *targetInfo);
-  auto boundAst = binder.bind(modules);
-  diagnostics.printText(err());
-
-  if (!boundAst) {
+  frontend::FrontendSession session(
+      {runtimePaths(), drv.cmdArgs.importMap,
+       drv.cmdArgs.incStdlib && drv.cmdArgs.incPrelude, false, *targetInfo},
+      [](const std::filesystem::path &path) -> std::optional<std::string> {
+        std::string source;
+        return readSourceFile(path, source) ? std::nullopt
+                                            : std::optional<std::string>(std::move(source));
+      });
+  auto project = session.load(entryPath);
+  for (const auto &error : project.errors) {
+    driver::reportError(error);
+  }
+  if (!project.loaded) {
+    DiagnosticTextFormatter::print(err(), project.diagnostics);
+    return true;
+  }
+  if (!session.bind(project)) {
+    DiagnosticTextFormatter::print(err(), project.diagnostics);
     driver::reportError(entryPath, ": semantic analysis failed");
     return true;
   }
+  DiagnosticTextFormatter::print(err(), project.diagnostics);
+  auto &boundAst = project.boundRoot;
 
   if (drv.binary_output()) {
     std::filesystem::path out_path;
