@@ -1,5 +1,6 @@
 set(LSP_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/lsp-main.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/request_dispatcher.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/completion.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/configuration.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/document_request.cpp"
