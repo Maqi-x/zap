@@ -6,6 +6,15 @@ ext fun zap_runtime_ownership_destroy_calls() UInt64;
 class Node {
 }
 
+enum NodeSlot {
+    Empty,
+    Occupied(Node),
+}
+
+struct NodeSlots {
+    values: [2]NodeSlot;
+}
+
 @error
 class Failure {
 }
@@ -54,6 +63,17 @@ fun observeFailure() Void {
     };
 }
 
+fun exerciseNestedAggregate() Void {
+    zap_runtime_ownership_reset_counters();
+
+    var node: Node = new Node();
+    var source: NodeSlots = NodeSlots {
+        values: { NodeSlot.Occupied(node), NodeSlot.Empty() }
+    };
+    var destination: NodeSlots;
+    destination = source;
+}
+
 fun hasCounts(copy: UInt64, drop: UInt64, destroy: UInt64) Bool {
     return zap_runtime_ownership_copy_operations() == copy &&
            zap_runtime_ownership_drop_operations() == drop &&
@@ -90,6 +110,11 @@ fun main() Int {
     observeFailure();
     if !hasCounts(0, 3, 1) {
         return 6;
+    }
+
+    exerciseNestedAggregate();
+    if !hasCounts(4, 7, 1) {
+        return 7;
     }
 
     return 0;
