@@ -1,0 +1,44 @@
+global var destroyed: Int = 0;
+
+class Payload {
+    value: Int;
+
+    fun init(value: Int) {
+        self.value = value;
+    }
+
+    fun deinit() {
+        destroyed = destroyed + self.value;
+    }
+}
+
+enum Result {
+    Empty,
+    Value(Payload),
+}
+
+fun verifyEmptyVariant() Int {
+    var empty: Result = Result.Empty();
+    return empty.tag;
+}
+
+fun copyManagedVariant() Int {
+    var payload: Payload = new Payload(42);
+    var first: Result = Result.Value(payload);
+    var second: Result = first;
+
+    return second.tag;
+}
+
+fun main() Int {
+    if verifyEmptyVariant() != 0 {
+        return 1;
+    }
+    if copyManagedVariant() != 1 {
+        return 2;
+    }
+    if destroyed != 42 {
+        return 3;
+    }
+    return 0;
+}

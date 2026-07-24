@@ -468,6 +468,14 @@ inline bool containsManagedValues(const std::shared_ptr<Type> &type) {
     const auto &array = static_cast<const ArrayType &>(*type);
     return containsManagedValues(array.getBaseType());
   }
+  if (type->getKind() == TypeKind::TaggedUnion) {
+    const auto &taggedUnion = static_cast<const TaggedUnionType &>(*type);
+    for (const auto &variant : taggedUnion.getVariants()) {
+      if (containsManagedValues(variant.payloadType)) {
+        return true;
+      }
+    }
+  }
   return false;
 }
 

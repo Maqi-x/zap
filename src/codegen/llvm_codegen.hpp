@@ -120,6 +120,10 @@ private:
                          const std::shared_ptr<zir::Type> &type);
   void emitManagedRelease(llvm::Value *value,
                           const std::shared_ptr<zir::Type> &type);
+  void emitManagedForActiveTaggedUnion(
+      llvm::Value *value, const std::shared_ptr<zir::TaggedUnionType> &type,
+      void (LLVMCodeGen::*operation)(llvm::Value *,
+                                     const std::shared_ptr<zir::Type> &));
   void emitOwnershipRelease(llvm::Value *value,
                             const std::shared_ptr<zir::Type> &type,
                             zir::ValueOwnership ownership);

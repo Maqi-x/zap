@@ -325,6 +325,10 @@ bool testManagedTypeClassification() {
   auto record = std::make_shared<zir::RecordType>("TextBox");
   record->addField("text", stringType);
   auto array = std::make_shared<zir::ArrayType>(record, 2);
+  auto taggedUnion = std::make_shared<zir::TaggedUnionType>(
+      "TextResult",
+      std::vector<zir::TaggedUnionType::Variant>{
+          {"Empty", nullptr, 0}, {"Text", stringType, 1}});
 
   return expect(zir::containsManagedValues(stringType),
                 "String was not classified as managed") &&
@@ -334,7 +338,9 @@ bool testManagedTypeClassification() {
                 "record containing String was not classified as managed") &&
          expect(
              zir::containsManagedValues(array),
-             "array containing managed records was not classified as managed");
+             "array containing managed records was not classified as managed") &&
+         expect(zir::containsManagedValues(taggedUnion),
+                "tagged union containing String was not classified as managed");
 }
 
 bool testPhiRequiresOwnershipMatchingIncomingValues() {

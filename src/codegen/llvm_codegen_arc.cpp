@@ -81,6 +81,10 @@ void LLVMCodeGen::emitManagedRetain(
                             value, {static_cast<unsigned>(i)}),
                         array.getBaseType());
     }
+  } else if (type->getKind() == zir::TypeKind::TaggedUnion) {
+    emitManagedForActiveTaggedUnion(
+        value, std::static_pointer_cast<zir::TaggedUnionType>(type),
+        &LLVMCodeGen::emitManagedRetain);
   }
 }
 
@@ -121,7 +125,57 @@ void LLVMCodeGen::emitManagedRelease(
                              value, {static_cast<unsigned>(i - 1)}),
                          array.getBaseType());
     }
+  } else if (type->getKind() == zir::TypeKind::TaggedUnion) {
+    emitManagedForActiveTaggedUnion(
+        value, std::static_pointer_cast<zir::TaggedUnionType>(type),
+        &LLVMCodeGen::emitManagedRelease);
   }
+}
+
+void LLVMCodeGen::emitManagedForActiveTaggedUnion(
+    llvm::Value *value, const std::shared_ptr<zir::TaggedUnionType> &type,
+    void (LLVMCodeGen::*operation)(llvm::Value *,
+                                   const std::shared_ptr<zir::Type> &)) {
+  if (!value || !type || !containsManagedValues(type)) {
+    return;
+  }
+
+  auto *unionTy = llvm::cast<llvm::StructType>(toLLVMType(*type));
+  auto *storage = createEntryAlloca(currentFn_, "arc.union.addr", unionTy);
+  builder_.CreateStore(value, storage);
+  auto *tagAddr =
+      builder_.CreateStructGEP(unionTy, storage, 0, "arc.union.tag.addr");
+  auto *tag = builder_.CreateLoad(llvm::Type::getInt32Ty(ctx_), tagAddr,
+                                  "arc.union.tag");
+  auto *done = llvm::BasicBlock::Create(ctx_, "arc.union.done", currentFn_);
+
+  for (const auto &variant : type->getVariants()) {
+    if (!containsManagedValues(variant.payloadType)) {
+      continue;
+    }
+
+    auto *active =
+        llvm::BasicBlock::Create(ctx_, "arc.union.active", currentFn_);
+    auto *next = llvm::BasicBlock::Create(ctx_, "arc.union.next", currentFn_);
+    auto *isActive = builder_.CreateICmpEQ(
+        tag, llvm::ConstantInt::getSigned(llvm::Type::getInt32Ty(ctx_),
+                                           variant.tag),
+        "arc.union.is_active");
+    builder_.CreateCondBr(isActive, active, next);
+
+    builder_.SetInsertPoint(active);
+    auto *payloadAddr = builder_.CreateStructGEP(
+        unionTy, storage, 1, "arc.union.payload.addr");
+    auto *payload = builder_.CreateLoad(toLLVMType(*variant.payloadType),
+                                        payloadAddr, "arc.union.payload");
+    (this->*operation)(payload, variant.payloadType);
+    builder_.CreateBr(done);
+
+    builder_.SetInsertPoint(next);
+  }
+
+  builder_.CreateBr(done);
+  builder_.SetInsertPoint(done);
 }
 
 void LLVMCodeGen::emitOwnershipRelease(
