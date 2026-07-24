@@ -1,0 +1,30 @@
+// In C, returning a pointer into a temporary packet would create a dangling
+// pointer. Zap tracks which String owns every borrowed StringView instead.
+
+fun receivePacket() String {
+    return "event:deploy";
+}
+
+fun payload(packet: StringView) StringView borrows(packet) {
+    return slice(packet, 6, packet.len - 6);
+}
+
+fun printPayload(value: noescape StringView) {
+    println("Payload: " + value);
+}
+
+fun main() Int {
+    // The returned view borrows from a temporary String. Zap keeps that hidden
+    // owner alive until the view's last use, so this cannot become use-after-free.
+    var temporaryPayload: StringView = payload(receivePacket());
+    printPayload(temporaryPayload);
+
+    // Reassigning the original variable also cannot invalidate an existing view.
+    // The old allocation stays alive while firstPayload still borrows from it.
+    var packet = "event:first";
+    var firstPayload: StringView = payload(packet);
+    packet = "event:second";
+    printPayload(firstPayload);
+
+    return 0;
+}

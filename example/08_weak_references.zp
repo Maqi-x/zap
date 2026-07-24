@@ -1,0 +1,39 @@
+class Project {
+    priv name: String;
+
+    fun init(name: String) {
+        self.name = name;
+    }
+
+    pub fun title() String {
+        return self.name;
+    }
+}
+
+class Task {
+    priv project: weak Project;
+
+    pub fun attach(project: weak Project) {
+        self.project = project;
+    }
+
+    pub fun projectTitle() String {
+        if !alive(self.project) {
+            return "unassigned";
+        }
+        var project = lock(self.project);
+        return project.title();
+    }
+}
+
+fun main() Int {
+    var task = new Task();
+    if true {
+        var project = new Project("Zap website");
+        task.attach(project);
+        println(task.projectTitle());
+    }
+
+    println(task.projectTitle());
+    return 0;
+}

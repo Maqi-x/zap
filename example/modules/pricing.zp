@@ -1,0 +1,13 @@
+pub record Quote {
+    subtotal: Int;
+    tax: Int;
+}
+
+pub fun quote(unitPrice: Int, quantity: Int) Quote {
+    var subtotal = unitPrice * quantity;
+    return Quote{subtotal: subtotal, tax: subtotal / 5};
+}
+
+pub fun total(value: Quote) Int {
+    return value.subtotal + value.tax;
+}

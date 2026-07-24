@@ -1,0 +1,24 @@
+fun sum(values: List<Int>) Int {
+    var total = 0;
+    var index = 0;
+    while index < values.len() {
+        total = total + values.at(index);
+        index = index + 1;
+    }
+    return total;
+}
+
+fun main() Int {
+    var scores = new List<Int>();
+    scores.push(12);
+    scores.push(18);
+    scores.push(25);
+
+    var retries = new HashMap<Int>();
+    retries.put("api", 3);
+    retries.put("database", 5);
+
+    println("Total score: " + toString(sum(scores)));
+    println("Database retries: " + toString(retries.get("database")));
+    return 0;
+}

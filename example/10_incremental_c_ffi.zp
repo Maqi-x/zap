@@ -1,0 +1,16 @@
+// These declarations are the narrow, reviewed boundary to a trusted C API.
+ext fun abs(value: Int32) Int32;
+ext fun labs(value: Int64) Int64;
+
+fun legacyDistance(x: Int64, y: Int64) Int64 {
+    return labs(x) + labs(y);
+}
+
+fun main() Int {
+    var oldStatus: Int32 = abs(-7);
+    var distance = legacyDistance(-12, 30);
+
+    println("Legacy status: " + toString(oldStatus as Int));
+    println("Distance from C: " + toString(distance as Int));
+    return 0;
+}

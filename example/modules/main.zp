@@ -1,0 +1,8 @@
+import "pricing";
+
+fun main() Int {
+    var quote = pricing.quote(25, 4);
+    println("Subtotal: " + toString(quote.subtotal));
+    println("Total: " + toString(pricing.total(quote)));
+    return 0;
+}

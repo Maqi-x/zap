@@ -1,0 +1,9 @@
+fun greeting(name: String) String {
+    return "Hello, " + name + ".";
+}
+
+fun main() Int {
+    println(greeting("Zap"));
+    println("Safe systems programming without ceremony.");
+    return 0;
+}

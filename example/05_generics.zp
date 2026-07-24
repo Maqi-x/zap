@@ -1,0 +1,20 @@
+record Pair<T, U> {
+    first: T;
+    second: U;
+}
+
+fun choose<T>(preferred: T, fallback: T, usePreferred: Bool) T {
+    if usePreferred {
+        return preferred;
+    }
+    return fallback;
+}
+
+fun main() Int {
+    var deployment = Pair{first: "production", second: 3};
+    var replicas = choose(deployment.second, 1, true);
+
+    println("Environment: " + deployment.first);
+    println("Replicas: " + toString(replicas));
+    return 0;
+}

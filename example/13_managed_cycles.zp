@@ -1,0 +1,38 @@
+global var releasedNodes: Int = 0;
+
+class Parent {
+    priv child: Child;
+
+    pub fun connect(child: Child) {
+        self.child = child;
+    }
+
+    fun deinit() {
+        releasedNodes = releasedNodes + 1;
+    }
+}
+
+class Child {
+    priv parent: Parent;
+
+    pub fun connect(parent: Parent) {
+        self.parent = parent;
+    }
+
+    fun deinit() {
+        releasedNodes = releasedNodes + 1;
+    }
+}
+
+fun buildTemporaryGraph() {
+    var parent = new Parent();
+    var child = new Child();
+    parent.connect(child);
+    child.connect(parent);
+}
+
+fun main() Int {
+    buildTemporaryGraph();
+    println("Cycle nodes released: " + toString(releasedNodes));
+    return 0;
+}

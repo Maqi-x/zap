@@ -67,6 +67,14 @@ fun main() Int {
 
 ---
 
+## Examples
+
+The curated [example gallery](example/README.md) contains small, runnable
+programs for safe domain modeling, local error handling, collections,
+predictable ARC lifetimes, C FFI, isolated `unsafe`, modules, and more.
+
+---
+
 ## Documentation
 
 Start here: **[docs/README.md](docs/README.md)**
