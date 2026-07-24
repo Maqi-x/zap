@@ -113,6 +113,30 @@ def signature_help(proc, uri, line, character, request_id):
     return response["result"]
 
 
+def definition_location(proc, uri, line, character, request_id):
+    response = request(
+        proc,
+        "textDocument/definition",
+        {"textDocument": {"uri": uri}, "position": {"line": line, "character": character}},
+        request_id,
+    )
+    if "error" in response:
+        raise AssertionError(response["error"])
+    return response["result"]
+
+
+def hover(proc, uri, line, character, request_id):
+    response = request(
+        proc,
+        "textDocument/hover",
+        {"textDocument": {"uri": uri}, "position": {"line": line, "character": character}},
+        request_id,
+    )
+    if "error" in response:
+        raise AssertionError(response["error"])
+    return response["result"]
+
+
 def open_document(proc, path, text):
     uri = file_uri(path)
     pathlib.Path(path).write_text(text)
@@ -129,6 +153,21 @@ def open_document(proc, path, text):
         },
     )
     return uri
+
+
+def change_document(proc, uri, text, version):
+    notify(
+        proc,
+        "textDocument/didChange",
+        {
+            "textDocument": {"uri": uri, "version": version},
+            "contentChanges": [{"text": text}],
+        },
+    )
+
+
+def close_document(proc, uri):
+    notify(proc, "textDocument/didClose", {"textDocument": {"uri": uri}})
 
 
 def main():
@@ -229,6 +268,54 @@ fun main() Int {
                 15,
             )
             assert "return" in labels, "UTF-16 cursor did not reach completion"
+
+            unicode_definition_prefix = '    var note: String = "😀"; var alias: Int = '
+            unicode_definition_source = f"""fun main() Int {{
+    var value: Int = 1;
+{unicode_definition_prefix}value;
+    return alias;
+}}
+"""
+            unicode_definition_uri = open_document(
+                proc, temp / "unicode_definition.zp", unicode_definition_source
+            )
+            value_position = utf16_length(unicode_definition_prefix) + 2
+            location = definition_location(
+                proc, unicode_definition_uri, 2, value_position, 16
+            )
+            assert location["uri"] == unicode_definition_uri
+            assert location["range"]["start"] == {"line": 1, "character": 4}, (
+                "UTF-16 cursor resolved an unexpected definition: "
+                f'{location["range"]["start"]}'
+            )
+
+            hover_result = hover(
+                proc, unicode_definition_uri, 2, value_position, 17
+            )
+            assert "var value: isize" in hover_result["contents"]["value"], (
+                "UTF-16 cursor returned unexpected hover information: "
+                f'{hover_result}'
+            )
+
+            lifecycle_invalid_source = "fun main() Int {\n"
+            lifecycle_uri = open_document(
+                proc, temp / "document_lifecycle.zp", lifecycle_invalid_source
+            )
+            assert read_diagnostics(proc, lifecycle_uri), (
+                "invalid opened document did not publish diagnostics"
+            )
+            lifecycle_valid_source = """fun main() Int {
+    return 0;
+}
+"""
+            change_document(proc, lifecycle_uri, lifecycle_valid_source, 2)
+            assert read_diagnostics(proc, lifecycle_uri) == [], (
+                "didChange did not clear resolved diagnostics"
+            )
+            close_document(proc, lifecycle_uri)
+            assert read_diagnostics(proc, lifecycle_uri) == [], (
+                "didClose did not clear document diagnostics"
+            )
 
             class_source = """class Counter {
     priv value: Int;
@@ -411,7 +498,7 @@ fun main() Int {
                 "newCounter(value: Float) Int"
             ], "newCounter was incorrectly resolved as a constructor"
 
-            request(proc, "shutdown", None, 14)
+            request(proc, "shutdown", None, 18)
             notify(proc, "exit", {})
             proc.wait(timeout=5)
         finally:
