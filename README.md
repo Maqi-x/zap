@@ -75,15 +75,6 @@ predictable ARC lifetimes, C FFI, isolated `unsafe`, modules, and more.
 
 ---
 
-## Documentation
-
-Start here: **[docs/README.md](docs/README.md)**
-
-Highlights:
-- Language guide: variables, functions, control flow, data structures, classes, memory
-- Generics coverage: function/type generics, constraints (`where`), and compile-time `iftype` (see docs sections and tests)
-- Diagnostic code reference: **[docs/diagnostic_codes.md](docs/diagnostic_codes.md)**
-
 ## Contributing
 
 Zap is in early alpha. **Your feedback directly shapes the language.**
