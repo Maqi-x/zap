@@ -1,0 +1,13 @@
+record Counter {
+    value: Int;
+}
+
+fun expose(ref counter: Counter) ref Int {
+    return counter.value;
+}
+
+fun main() Int {
+    var counter = Counter{value: 1};
+    expose(ref counter) = 2;
+    return 0;
+}

@@ -1,0 +1,44 @@
+record User {
+    name: String;
+    age: Int;
+}
+
+struct Counter {
+    value: Int;
+}
+
+class SharedCounter {
+    pub value: Int;
+
+    fun init(value: Int) {
+        self.value = value;
+    }
+}
+
+record Dashboard {
+    counter: SharedCounter;
+}
+
+fun main() Int {
+    var user = User{name: "Ada", age: 30};
+    var copy = user;
+    user = User{name: "Ada", age: 31};
+
+    if copy.age != 30 || user.age != 31 {
+        return 1;
+    }
+
+    var counter = Counter{value: 1};
+    counter.value = 2;
+    if counter.value != 2 {
+        return 2;
+    }
+
+    var dashboard = Dashboard{counter: new SharedCounter(1)};
+    dashboard.counter.value = 2;
+    if dashboard.counter.value != 2 {
+        return 3;
+    }
+
+    return 0;
+}

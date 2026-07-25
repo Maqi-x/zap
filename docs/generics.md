@@ -57,6 +57,8 @@ struct Box<T> {
 }
 ```
 
+Generic records keep immutable fields, while generic structs remain mutable.
+
 Instantiate with concrete types:
 
 ```/dev/null/examples.zp#L1-3

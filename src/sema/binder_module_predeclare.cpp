@@ -27,7 +27,9 @@ void Binder::predeclareModuleTypes(ModuleState &module) {
           displayTypeName(module.info->moduleName, recordDecl->name_),
           mangleName(module.info->linkPath.empty() ? module.info->moduleId
                                                    : module.info->linkPath,
-                     recordDecl->name_));
+                     recordDecl->name_),
+          zir::IntrinsicTypeKind::None, zir::RecordRole::User,
+          zir::RecordMutability::Immutable);
       auto symbol = std::make_shared<TypeSymbol>(
           recordDecl->name_, type,
           mangleName(module.info->linkPath.empty() ? module.info->moduleId
@@ -36,8 +38,9 @@ void Binder::predeclareModuleTypes(ModuleState &module) {
           module.info->moduleName, recordDecl->visibility_, false);
       validateAndApplyTypeAttributes(*recordDecl, symbol, true);
       if (symbol->hasReprC) {
-        auto reprType = std::make_shared<zir::RecordType>(recordDecl->name_,
-                                                          recordDecl->name_);
+        auto reprType = std::make_shared<zir::RecordType>(
+            recordDecl->name_, recordDecl->name_, zir::IntrinsicTypeKind::None,
+            zir::RecordRole::User, zir::RecordMutability::Immutable);
         reprType->hasReprC = true;
         reprType->isPacked = symbol->isPacked;
         symbol->type = reprType;

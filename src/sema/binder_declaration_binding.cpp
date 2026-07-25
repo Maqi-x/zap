@@ -317,6 +317,11 @@ void Binder::visit(VarDecl &node) {
     }
   }
 
+  if (isRef && initializer && accessesImmutableRecordField(*initializer)) {
+    error(node.span,
+          "Cannot bind a mutable reference to a field of immutable record.");
+  }
+
   if (!symbol) {
     symbol = std::make_shared<VariableSymbol>(
         node.name_, type, false, isRef,

@@ -56,6 +56,7 @@ bool sameFunctionSignature(const FunctionSymbol &lhs,
                            const FunctionSymbol &rhs);
 bool stmtAlwaysReturns(const BoundStatement *stmt);
 bool blockAlwaysReturns(const BoundBlock *block);
+bool accessesImmutableRecordField(const BoundExpression &expression);
 std::unique_ptr<BoundExpression>
 deriveValueExpressionFromBlock(const BoundBlock &block);
 std::unique_ptr<BoundExpression>

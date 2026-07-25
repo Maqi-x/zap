@@ -110,6 +110,12 @@ void Binder::visit(AsmStmtNode &node) {
         return;
       }
     }
+    if (accessesImmutableRecordField(*bound)) {
+      error(node.span,
+            "Cannot use a field of immutable record as an inline 'asm' "
+            "output.");
+      return;
+    }
     outputs.push_back({operand.constraint, std::move(bound)});
   }
 
@@ -186,6 +192,12 @@ void Binder::visit(ReturnNode &node) {
         expr = applyConversion(std::move(expr), *conversion);
       }
     }
+  }
+
+  if (expr && currentFunction_ && currentFunction_->returnsRef &&
+      accessesImmutableRecordField(*expr)) {
+    error(node.span,
+          "Cannot return a mutable reference to a field of immutable record.");
   }
 
   statementStack_.push(std::make_unique<BoundReturnStatement>(

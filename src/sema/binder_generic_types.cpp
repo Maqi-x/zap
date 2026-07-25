@@ -158,6 +158,7 @@ std::shared_ptr<TypeSymbol> Binder::instantiateGenericTypeSymbol(
       baseRecordType->getName(), baseRecordType->getCodegenName(), genericArgs);
   instantiatedType->hasReprC = baseRecordType->hasReprC;
   instantiatedType->isPacked = baseRecordType->isPacked;
+  instantiatedType->setMutability(baseRecordType->getMutability());
 
   auto instantiatedSymbol = std::make_shared<TypeSymbol>(
       baseSymbol->name, instantiatedType, codegenName, baseSymbol->moduleName,

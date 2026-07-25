@@ -68,6 +68,11 @@ enum class RecordRole {
   GenericParameter,
 };
 
+enum class RecordMutability {
+  Mutable,
+  Immutable,
+};
+
 class Type {
   IntrinsicTypeKind intrinsicKind;
 
@@ -135,6 +140,7 @@ protected:
   std::string genericCodegenBaseName;
   std::vector<std::shared_ptr<Type>> genericArguments;
   RecordRole role = RecordRole::User;
+  RecordMutability mutability = RecordMutability::Mutable;
 
 public:
   bool hasReprC = false;
@@ -142,10 +148,11 @@ public:
 
   RecordType(std::string n, std::string codegen = "",
              IntrinsicTypeKind intrinsic = IntrinsicTypeKind::None,
-             RecordRole recordRole = RecordRole::User)
+             RecordRole recordRole = RecordRole::User,
+             RecordMutability recordMutability = RecordMutability::Mutable)
       : Type(intrinsic), name(std::move(n)),
         codegenName(codegen.empty() ? name : std::move(codegen)),
-        role(recordRole) {}
+        role(recordRole), mutability(recordMutability) {}
   TypeKind getKind() const override { return TypeKind::Record; }
   std::string toString() const override { return "%" + name; }
   bool isReferenceType() const override { return true; }
@@ -169,7 +176,13 @@ public:
     return genericArguments;
   }
   RecordRole getRole() const { return role; }
+  RecordMutability getMutability() const { return mutability; }
+  bool hasImmutableFields() const {
+    return mutability == RecordMutability::Immutable;
+  }
   bool isGenericInstance() const { return !genericBaseName.empty(); }
+
+  void setMutability(RecordMutability value) { mutability = value; }
 
   void setGenericInstance(std::string baseName, std::string codegenBaseName,
                           std::vector<std::shared_ptr<Type>> args) {

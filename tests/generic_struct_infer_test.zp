@@ -61,8 +61,7 @@ fun main() Int {
     if unbox(b3) != 123 { return 16; }
 
     var p6 = Pair{first: 0, second: 0};
-    p6.first = 7;
-    p6.second = 8;
+    p6 = Pair{first: 7, second: 8};
     if p6.first != 7 { return 17; }
     if p6.second != 8 { return 18; }
 

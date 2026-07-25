@@ -46,7 +46,7 @@ Zap supports user-defined aggregate data types with named fields.
 
 ## `record`
 
-Use `record` for named product types:
+Use `record` for immutable named product types:
 
 ```/dev/null/examples.zp#L1-8
 record Person {
@@ -60,9 +60,23 @@ fun age_of(p: Person) Int {
 }
 ```
 
+Record fields cannot be reassigned after construction. A mutable `var` may
+still be replaced with a new record value:
+
+```/dev/null/examples.zp#L1-4
+var person = Person { name: "Ada", age: 30, email: "ada@example.com" };
+person = Person { name: person.name, age: 31, email: person.email };
+// person.age = 31; // error: record fields are immutable
+```
+
+This immutability is shallow. A record field that references a class cannot be
+reassigned, but the referenced object may still be changed through its mutable
+API.
+
 ## `struct`
 
-`struct` is also available for field-based aggregate modeling:
+Use `struct` when an aggregate needs mutable fields, in-place updates, or an
+explicit ABI layout:
 
 ```/dev/null/examples.zp#L1-8
 struct Vec2 {
@@ -75,7 +89,8 @@ fun length_sq(v: Vec2) Float {
 }
 ```
 
-> Both forms are supported in current Zap tooling/tests. Use project conventions consistently.
+Unlike records, fields of a `struct` may be updated directly or through a
+`ref` parameter.
 
 ### Packed layout
 
@@ -174,8 +189,13 @@ fun main() Int {
   - size is fixed and known
   - you need contiguous homogeneous storage
 
-- Use **record/struct** when:
-  - you need a custom type with named fields
+- Use **record** when:
+  - you need an immutable value with named fields
+  - changes should construct a replacement value
+
+- Use **struct** when:
+  - you need a mutable value with named fields
+  - in-place mutation or a C-compatible layout is required
 
 - Use **enum** when:
   - value must be one of a known finite set and some variants carry data

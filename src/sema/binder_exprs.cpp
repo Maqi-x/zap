@@ -614,6 +614,10 @@ void Binder::visit(AssignNode &node) {
       return;
     }
   }
+  if (accessesImmutableRecordField(*target)) {
+    error(node.span, "Cannot assign to a field of immutable record.");
+    return;
+  }
 
   auto expr = bindExpressionWithExpected(node.expr_.get(), target->type);
   if (!expr)
@@ -1002,6 +1006,10 @@ void Binder::visit(UnaryExpr &node) {
                     (exprAsCall && exprAsCall->symbol->returnsRef);
     if (!isLValue) {
       error(node.span, "Cannot take the address of a non-lvalue expression.");
+    }
+    if (accessesImmutableRecordField(*expr)) {
+      error(node.span,
+            "Cannot take the address of a field of immutable record.");
     }
 
     type = std::make_shared<zir::PointerType>(expr->type);
