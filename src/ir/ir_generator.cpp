@@ -204,7 +204,16 @@ std::shared_ptr<Value> BoundIRGenerator::emitFailableFieldLoad(
       std::make_unique<GetElementPtrInst>(fieldAddr, value, fieldIndex));
   auto loaded = createRegister(fieldType);
   currentBlock_->addInstruction(std::make_unique<LoadInst>(loaded, fieldAddr));
-  return loaded;
+  if (!containsManagedValues(fieldType)) {
+    return loaded;
+  }
+
+  // A failable aggregate owns its managed payload. The aggregate is released
+  // after its selected field is read, so the extracted value needs its own
+  // reference before that release.
+  auto copied = createRegister(fieldType, ownedForType(fieldType));
+  currentBlock_->addInstruction(std::make_unique<CopyInst>(copied, loaded));
+  return copied;
 }
 
 std::shared_ptr<Value>
@@ -907,6 +916,19 @@ void BoundIRGenerator::emitInitializationStore(
       std::move(value), std::move(destination), StoreMode::Initialize));
 }
 
+std::shared_ptr<Value>
+BoundIRGenerator::materializeOwnedValue(std::shared_ptr<Value> value) {
+  if (!value || !containsManagedValues(value->getType()) ||
+      isOwned(value->getOwnership())) {
+    return value;
+  }
+
+  auto copied =
+      createRegister(value->getType(), ownedForType(value->getType()));
+  currentBlock_->addInstruction(std::make_unique<CopyInst>(copied, value));
+  return copied;
+}
+
 void BoundIRGenerator::prepareCallArgument(
     std::shared_ptr<Value> &value, ParameterOwnership parameterOwnership) {
   if (!transfersOwnership(parameterOwnership) || !value ||
@@ -1479,6 +1501,7 @@ void BoundIRGenerator::visit(sema::BoundFallbackExpression &node) {
   currentFunction_->addBlock(std::move(successBlock));
   currentBlock_ = successBlockPtr;
   auto successValue = emitFailableValue(failableValue);
+  successValue = materializeOwnedValue(successValue);
   std::string successFrom = currentBlock_->label;
   bool resultIsVoid = node.type && node.type->getKind() == TypeKind::Void;
   currentBlock_->addInstruction(std::make_unique<BranchInst>(mergeLabel));
@@ -1490,6 +1513,7 @@ void BoundIRGenerator::visit(sema::BoundFallbackExpression &node) {
   node.fallback->accept(*this);
   auto fallbackValue = valueStack_.top();
   valueStack_.pop();
+  fallbackValue = materializeOwnedValue(fallbackValue);
   std::string fallbackFrom = currentBlock_->label;
   currentBlock_->addInstruction(std::make_unique<BranchInst>(mergeLabel));
 
@@ -1533,6 +1557,7 @@ void BoundIRGenerator::visit(sema::BoundFailableHandleExpression &node) {
   currentFunction_->addBlock(std::move(successBlock));
   currentBlock_ = successBlockPtr;
   auto successValue = emitFailableValue(failableValue);
+  successValue = materializeOwnedValue(successValue);
   std::string successFrom = currentBlock_->label;
   currentBlock_->addInstruction(std::make_unique<BranchInst>(mergeLabel));
 
@@ -1566,6 +1591,9 @@ void BoundIRGenerator::visit(sema::BoundFailableHandleExpression &node) {
   }
 
   bool handlerReachesMerge = !isTerminated(currentBlock_);
+  if (handlerReachesMerge) {
+    handlerValue = materializeOwnedValue(handlerValue);
+  }
   std::string handlerFrom = currentBlock_->label;
   if (handlerReachesMerge) {
     currentBlock_->addInstruction(std::make_unique<BranchInst>(mergeLabel));

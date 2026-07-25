@@ -78,6 +78,7 @@ private:
                  ValueOwnership ownership = ValueOwnership::Borrowed);
   void emitInitializationStore(std::shared_ptr<Value> value,
                                std::shared_ptr<Value> destination);
+  std::shared_ptr<Value> materializeOwnedValue(std::shared_ptr<Value> value);
   void prepareCallArgument(std::shared_ptr<Value> &value,
                            ParameterOwnership parameterOwnership);
   void emitReturn(std::shared_ptr<Value> value = nullptr);

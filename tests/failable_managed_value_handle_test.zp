@@ -1,0 +1,33 @@
+@error
+struct LookupError {
+    message: String,
+}
+
+fun lookup(found: Bool) String!LookupError {
+    if !found {
+        fail LookupError{ message: "missing" };
+    }
+    return "value";
+}
+
+fun valueOrEmpty(found: Bool) String {
+    return lookup(found) or err {
+        return "";
+    };
+}
+
+fun main() Int {
+    var i: Int = 0;
+    while i < 1000 {
+        var value: String = valueOrEmpty(true);
+        if value != "value" {
+            return 1;
+        }
+        i = i + 1;
+    }
+
+    if valueOrEmpty(false) != "" {
+        return 2;
+    }
+    return 0;
+}
