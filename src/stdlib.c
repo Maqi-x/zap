@@ -3,8 +3,11 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <math.h>
 #include <netdb.h>
+#include <openssl/err.h>
+#include <openssl/ssl.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -28,6 +31,7 @@ _Static_assert(offsetof(zap_string_t, len) == sizeof(const char *),
                "String ABI: value len offset mismatch");
 
 static int zap_net_last_error = 0;
+static long zap_tls_last_error_code = 0;
 static long zap_fs_last_error_code = 0;
 
 #if defined(ZAP_RUNTIME_INSTRUMENTATION)
@@ -194,7 +198,8 @@ zap_arc_runtime_context_t *zap_arc_default_context(void) {
   return &zap_arc_default_runtime_context;
 }
 
-static void zap_arc_context_release_storage(zap_arc_runtime_context_t *context) {
+static void
+zap_arc_context_release_storage(zap_arc_runtime_context_t *context) {
   if (!context) {
     return;
   }
@@ -235,8 +240,8 @@ void zap_arc_add_possible_root(zap_arc_runtime_context_t *context,
   }
   zap_arc_header_t *header = (zap_arc_header_t *)object;
   if (!header->alive ||
-      (header->gc_mark & (ZAP_ARC_GC_BUFFERED | ZAP_ARC_GC_GARBAGE |
-                          ZAP_ARC_GC_FINALIZING))) {
+      (header->gc_mark &
+       (ZAP_ARC_GC_BUFFERED | ZAP_ARC_GC_GARBAGE | ZAP_ARC_GC_FINALIZING))) {
     return;
   }
 
@@ -383,8 +388,7 @@ static void zap_arc_ws_push(void ***ws, size_t *count, size_t *cap,
   }
   if (*count == *cap) {
     size_t ncap = zap_runtime_next_capacity(*cap, 32);
-    void **next =
-        (void **)zap_runtime_realloc_array(*ws, ncap, sizeof(void *));
+    void **next = (void **)zap_runtime_realloc_array(*ws, ncap, sizeof(void *));
     *ws = next;
     *cap = ncap;
   }
@@ -407,12 +411,12 @@ static void zap_arc_ensure_scratch(zap_arc_runtime_context_t *context,
   while (ncap < n) {
     ncap = zap_runtime_next_capacity(ncap, 32);
   }
-  int *ni = (int *)zap_runtime_realloc_array(context->incoming, ncap,
-                                               sizeof(int));
-  uint8_t *nr = (uint8_t *)zap_runtime_realloc_array(
-      context->reachable, ncap, sizeof(uint8_t));
-  uint32_t *ns = (uint32_t *)zap_runtime_realloc_array(
-      context->stack, ncap, sizeof(uint32_t));
+  int *ni =
+      (int *)zap_runtime_realloc_array(context->incoming, ncap, sizeof(int));
+  uint8_t *nr = (uint8_t *)zap_runtime_realloc_array(context->reachable, ncap,
+                                                     sizeof(uint8_t));
+  uint32_t *ns = (uint32_t *)zap_runtime_realloc_array(context->stack, ncap,
+                                                       sizeof(uint32_t));
   context->incoming = ni;
   context->reachable = nr;
   context->stack = ns;
@@ -455,8 +459,7 @@ typedef struct {
 } zap_arc_reachable_context_t;
 
 static void zap_arc_mark_reachable(void *context, void *child) {
-  zap_arc_reachable_context_t *state =
-      (zap_arc_reachable_context_t *)context;
+  zap_arc_reachable_context_t *state = (zap_arc_reachable_context_t *)context;
   uint32_t child_index;
   if (child && zap_arc_ptrmap_get(state->map, child, &child_index) &&
       !state->reachable[child_index]) {
@@ -515,8 +518,7 @@ void zap_arc_cycle_collect(zap_arc_runtime_context_t *context) {
     }
     if (header->metadata->trace_fn) {
       zap_arc_discover_context_t discovery = {
-          &context->worklist, &ws_count, &context->worklist_cap,
-          &context->map};
+          &context->worklist, &ws_count, &context->worklist_cap, &context->map};
       header->metadata->trace_fn(context->worklist[cursor],
                                  zap_arc_discover_child, &discovery);
     }
@@ -540,8 +542,8 @@ void zap_arc_cycle_collect(zap_arc_runtime_context_t *context) {
     }
     if (header->metadata->trace_fn) {
       zap_arc_incoming_context_t incoming_context = {&context->map, incoming};
-      header->metadata->trace_fn(context->worklist[i],
-                                 zap_arc_count_incoming, &incoming_context);
+      header->metadata->trace_fn(context->worklist[i], zap_arc_count_incoming,
+                                 &incoming_context);
     }
   }
 
@@ -560,10 +562,10 @@ void zap_arc_cycle_collect(zap_arc_runtime_context_t *context) {
       continue;
     }
     if (header->metadata->trace_fn) {
-      zap_arc_reachable_context_t reachable_context = {
-          &context->map, reachable, stack, &sp};
-      header->metadata->trace_fn(context->worklist[idx],
-                                 zap_arc_mark_reachable, &reachable_context);
+      zap_arc_reachable_context_t reachable_context = {&context->map, reachable,
+                                                       stack, &sp};
+      header->metadata->trace_fn(context->worklist[idx], zap_arc_mark_reachable,
+                                 &reachable_context);
     }
   }
 
@@ -586,8 +588,7 @@ void zap_arc_cycle_collect(zap_arc_runtime_context_t *context) {
   }
   for (size_t i = 0; i < ws_count; ++i) {
     zap_arc_header_t *header = (zap_arc_header_t *)context->worklist[i];
-    if ((header->gc_mark & ZAP_ARC_GC_GARBAGE) &&
-        header->weak_count == 0) {
+    if ((header->gc_mark & ZAP_ARC_GC_GARBAGE) && header->weak_count == 0) {
       zap_arc_deallocate(context, context->worklist[i]);
     } else if (header->gc_mark & ZAP_ARC_GC_GARBAGE) {
       header->gc_mark &= (uint8_t)~ZAP_ARC_GC_GARBAGE;
@@ -797,6 +798,8 @@ void println(zap_string_t s) {
   fputc('\n', stdout);
 }
 
+void zap_flush_stdout(void) { fflush(stdout); }
+
 long zap_printf(zap_string_t format, ...) {
   char *fmt = zap_string_to_cstr(format);
   if (!fmt)
@@ -875,6 +878,18 @@ zap_string_t argv(long i) {
 
   const char *arg = zap_process_argv[i];
   return zap_string_from_cstr(arg);
+}
+
+zap_string_t zap_process_getenv(zap_string_t name) {
+  char *name_buffer = zap_string_to_cstr(name);
+  if (!name_buffer) {
+    return (zap_string_t){.ptr = NULL, .len = 0};
+  }
+
+  const char *value = getenv(name_buffer);
+  zap_string_t result = zap_string_from_cstr(value);
+  free(name_buffer);
+  return result;
 }
 
 long len(zap_string_t s) { return s.len; }
@@ -1455,3 +1470,146 @@ zap_string_t netResolve(zap_string_t host) {
 }
 
 long netLastError() { return zap_net_last_error; }
+
+typedef struct {
+  SSL_CTX *context;
+  SSL *ssl;
+  int fd;
+} zap_tls_session_t;
+
+static void zap_tls_session_free(zap_tls_session_t *session) {
+  if (!session) {
+    return;
+  }
+  if (session->ssl) {
+    SSL_shutdown(session->ssl);
+    SSL_free(session->ssl);
+  }
+  if (session->context) {
+    SSL_CTX_free(session->context);
+  }
+  if (session->fd >= 0) {
+    close(session->fd);
+  }
+  free(session);
+}
+
+long zap_tls_connect(zap_string_t host, long port) {
+  const long fd = netConnect(host, port);
+  if (fd < 0) {
+    zap_tls_last_error_code = zap_net_last_error;
+    return 0;
+  }
+
+  char *host_buffer = zap_copy_path(host);
+  if (!host_buffer) {
+    close((int)fd);
+    zap_tls_last_error_code = ENOMEM;
+    return 0;
+  }
+
+  zap_tls_session_t *session = calloc(1, sizeof(*session));
+  if (!session) {
+    free(host_buffer);
+    close((int)fd);
+    zap_tls_last_error_code = ENOMEM;
+    return 0;
+  }
+  session->fd = (int)fd;
+  session->context = SSL_CTX_new(TLS_client_method());
+  if (!session->context ||
+      SSL_CTX_set_default_verify_paths(session->context) != 1) {
+    free(host_buffer);
+    zap_tls_session_free(session);
+    zap_tls_last_error_code = EIO;
+    return 0;
+  }
+  SSL_CTX_set_verify(session->context, SSL_VERIFY_PEER, NULL);
+  session->ssl = SSL_new(session->context);
+  if (!session->ssl ||
+      SSL_set_tlsext_host_name(session->ssl, host_buffer) != 1 ||
+      SSL_set1_host(session->ssl, host_buffer) != 1 ||
+      SSL_set_fd(session->ssl, session->fd) != 1 ||
+      SSL_connect(session->ssl) != 1) {
+    free(host_buffer);
+    zap_tls_session_free(session);
+    zap_tls_last_error_code = EIO;
+    return 0;
+  }
+  free(host_buffer);
+
+  if (SSL_get_verify_result(session->ssl) != X509_V_OK) {
+    zap_tls_session_free(session);
+    zap_tls_last_error_code = EACCES;
+    return 0;
+  }
+
+  zap_tls_last_error_code = 0;
+  return (long)(intptr_t)session;
+}
+
+long zap_tls_send(long handle, zap_string_t data) {
+  zap_tls_session_t *session = (zap_tls_session_t *)(intptr_t)handle;
+  if (!session || !session->ssl || !data.ptr) {
+    zap_tls_last_error_code = EINVAL;
+    return -1;
+  }
+
+  size_t total = 0;
+  const size_t target = data.len > 0 ? (size_t)data.len : 0;
+  while (total < target) {
+    const size_t remaining = target - total;
+    const int request = remaining > INT_MAX ? INT_MAX : (int)remaining;
+    const int written = SSL_write(session->ssl, data.ptr + total, request);
+    if (written <= 0) {
+      zap_tls_last_error_code = EIO;
+      return -1;
+    }
+    total += (size_t)written;
+  }
+  zap_tls_last_error_code = 0;
+  return (long)total;
+}
+
+zap_string_t zap_tls_recv(long handle, long max_len) {
+  zap_tls_session_t *session = (zap_tls_session_t *)(intptr_t)handle;
+  if (!session || !session->ssl || max_len <= 0) {
+    zap_tls_last_error_code = EINVAL;
+    return (zap_string_t){.ptr = NULL, .len = 0};
+  }
+
+  const size_t capacity = (size_t)max_len;
+  char *buffer = zap_string_alloc_owned(capacity);
+  if (!buffer) {
+    zap_tls_last_error_code = ENOMEM;
+    return (zap_string_t){.ptr = NULL, .len = 0};
+  }
+  const int request = capacity > INT_MAX ? INT_MAX : (int)capacity;
+  const int received = SSL_read(session->ssl, buffer, request);
+  if (received <= 0) {
+    const int ssl_error = SSL_get_error(session->ssl, received);
+    zap_string_release_ptr(buffer);
+    if (ssl_error == SSL_ERROR_ZERO_RETURN) {
+      zap_tls_last_error_code = 0;
+    } else {
+      zap_tls_last_error_code = EIO;
+    }
+    return (zap_string_t){.ptr = NULL, .len = 0};
+  }
+  buffer[received] = '\0';
+  zap_tls_last_error_code = 0;
+  return (zap_string_t){.ptr = buffer, .len = received};
+}
+
+long zap_tls_close(long handle) {
+  zap_tls_session_t *session = (zap_tls_session_t *)(intptr_t)handle;
+  if (!session) {
+    zap_tls_last_error_code = EINVAL;
+    return EINVAL;
+  }
+  zap_tls_session_free(session);
+  zap_tls_last_error_code = 0;
+  return 0;
+}
+
+long zap_tls_last_error() { return zap_tls_last_error_code; }

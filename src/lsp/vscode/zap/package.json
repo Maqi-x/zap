@@ -18,6 +18,7 @@
         "node_modules/**",
         "src/**",
         "syntaxes/**",
+        "images/**",
         "zaplsp.schema.json",
         "language-configuration.json",
         "README.md",
@@ -75,6 +76,10 @@
                     ".zp",
                     ".zap"
                 ],
+                "icon": {
+                    "light": "./images/zap.svg",
+                    "dark": "./images/zap.svg"
+                },
                 "configuration": "./language-configuration.json"
             }
         ],

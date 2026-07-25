@@ -173,9 +173,8 @@ Binder::buildBinaryExpression(std::unique_ptr<BoundExpression> left,
       // Keep the left-hand integer type for shift results.
       resultType = leftType;
       auto shiftAmount = evaluateConstantInt(right.get());
-      right = applyConversion(
-          std::move(right),
-          *conversions_.classifyImplicit(rightType, resultType));
+      right = applyConversion(std::move(right), *conversions_.classifyImplicit(
+                                                    rightType, resultType));
 
       if (shiftAmount) {
         if (*shiftAmount < 0) {
@@ -218,12 +217,10 @@ Binder::buildBinaryExpression(std::unique_ptr<BoundExpression> left,
 
     if (stringComparison) {
       auto stringViewType = zir::makeStringViewType();
-      left = applyConversion(
-          std::move(left),
-          *conversions_.classifyImplicit(leftType, stringViewType));
-      right = applyConversion(
-          std::move(right),
-          *conversions_.classifyImplicit(rightType, stringViewType));
+      left = applyConversion(std::move(left), *conversions_.classifyImplicit(
+                                                  leftType, stringViewType));
+      right = applyConversion(std::move(right), *conversions_.classifyImplicit(
+                                                    rightType, stringViewType));
     } else if (auto join = conversions_.joinTypes(leftType, rightType)) {
       applyJoin(*join);
     } else {
@@ -304,9 +301,8 @@ void Binder::visit(ConstFloat &node) {
 }
 
 void Binder::visit(ConstString &node) {
-  expressionStack_.push(std::make_unique<BoundLiteral>(
-      node.value_,
-      zir::makeStringViewType()));
+  expressionStack_.push(
+      std::make_unique<BoundLiteral>(node.value_, zir::makeStringViewType()));
 }
 
 void Binder::visit(ConstChar &node) {
@@ -471,8 +467,7 @@ void Binder::visit(FailableHandleExpr &node) {
                            renderTypeForUser(valueType) + "'");
       return;
     }
-    handler->result =
-        applyConversion(std::move(handler->result), *conversion);
+    handler->result = applyConversion(std::move(handler->result), *conversion);
     handlerResultType = valueType;
   } else if (valueType && valueType->getKind() != zir::TypeKind::Void &&
              (!handler || !blockAlwaysReturns(handler.get()))) {
@@ -638,6 +633,12 @@ void Binder::visit(AssignNode &node) {
     error(node.span, "Cannot assign expression of type '" +
                          renderTypeForUser(expr->type) + "' to type '" +
                          renderTypeForUser(target->type) + "'");
+  } else if (conversion->kind == ConversionKind::StringToView &&
+             !dynamic_cast<BoundVariableExpression *>(expr.get()) &&
+             !dynamic_cast<BoundMemberAccess *>(expr.get())) {
+    error(node.expr_->span,
+          "Cannot assign a temporary String to a StringView; store it in a "
+          "String variable or use a String variable as the view owner.");
   } else {
     expr = applyConversion(std::move(expr), *conversion);
   }
@@ -1070,27 +1071,23 @@ void Binder::visit(ArrayLiteralNode &node) {
         if (conversion) {
           boundEl = applyConversion(std::move(boundEl), *conversion);
         } else {
-          error(el->span,
-                "Array elements must have the same type. Expected '" +
-                    renderTypeForUser(elementType) + "', but got '" +
-                    renderTypeForUser(boundEl->type) + "'");
+          error(el->span, "Array elements must have the same type. Expected '" +
+                              renderTypeForUser(elementType) + "', but got '" +
+                              renderTypeForUser(boundEl->type) + "'");
           continue;
         }
       } else {
         auto join = conversions_.joinTypes(elementType, boundEl->type);
         if (!join) {
-          error(el->span,
-                "Array elements must have a common type, got '" +
-                    renderTypeForUser(elementType) + "' and '" +
-                    renderTypeForUser(boundEl->type) + "'");
+          error(el->span, "Array elements must have a common type, got '" +
+                              renderTypeForUser(elementType) + "' and '" +
+                              renderTypeForUser(boundEl->type) + "'");
           continue;
         } else {
           for (auto &element : elements) {
-            element =
-                applyConversion(std::move(element), join->leftConversion);
+            element = applyConversion(std::move(element), join->leftConversion);
           }
-          boundEl =
-              applyConversion(std::move(boundEl), join->rightConversion);
+          boundEl = applyConversion(std::move(boundEl), join->rightConversion);
           elementType = join->type;
         }
       }
@@ -1226,8 +1223,7 @@ void Binder::visit(StructLiteralNode &node) {
     bool found = false;
     for (const auto &f : recordType->getFields()) {
       if (f.name == fieldInit.name) {
-        auto conversion =
-            conversions_.classifyImplicit(boundVal->type, f.type);
+        auto conversion = conversions_.classifyImplicit(boundVal->type, f.type);
         if (!conversion) {
           error(node.span, "Cannot assign type '" +
                                renderTypeForUser(boundVal->type) +
@@ -1276,11 +1272,9 @@ void Binder::visit(StructLiteralNode &node) {
             bindExpressionWithExpected(declField->defaultValue.get(), f.type);
         if (!defaultValue) {
           defaultValue = nullptr;
-        } else if (auto conversion =
-                       conversions_.classifyImplicit(defaultValue->type,
-                                                     f.type)) {
-          defaultValue =
-              applyConversion(std::move(defaultValue), *conversion);
+        } else if (auto conversion = conversions_.classifyImplicit(
+                       defaultValue->type, f.type)) {
+          defaultValue = applyConversion(std::move(defaultValue), *conversion);
         } else {
           error(declField->defaultValue->span,
                 "Cannot assign default value of type '" +

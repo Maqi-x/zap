@@ -1,0 +1,9 @@
+import "std/tls";
+
+fun main() Int {
+    var stream: tls.Stream = tls.dial("localhost", 443);
+    if stream.isOpen() {
+        stream.close();
+    }
+    return 0;
+}

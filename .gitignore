@@ -90,6 +90,7 @@ bugs/
 playground/
 bench/
 /zap-website/
+zapup/
 
 # Local audit notes
 raport.md

@@ -5,6 +5,11 @@ pub ext fun argc() Int;
 pub ext fun argv(i: Int) String;
 pub ext fun exec(cmd: String) Int;
 pub ext fun cwd() String;
+pub ext fun zap_process_getenv(name: String) String;
+
+pub fun getenv(name: String) String {
+  return zap_process_getenv(name);
+}
 
 pub fun panic(message: String) Void {
   eprintln(message);

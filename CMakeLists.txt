@@ -27,6 +27,7 @@ endif()
 
 # Accept the system LLVM version and handle API differences in code when needed.
 find_package(LLVM REQUIRED CONFIG)
+find_package(OpenSSL REQUIRED)
 
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 
@@ -202,7 +203,12 @@ if(BUILD_TESTING)
     target_include_directories(zap-runtime-instrumentation-tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
     target_compile_definitions(zap-runtime-instrumentation-tests PRIVATE ZAP_RUNTIME_INSTRUMENTATION=1)
     target_compile_options(zap-runtime-instrumentation-tests PRIVATE -Wall -Wextra)
-    target_link_libraries(zap-runtime-instrumentation-tests PRIVATE m)
+target_link_libraries(zap-runtime-instrumentation-tests
+    PRIVATE
+        m
+        OpenSSL::SSL
+        OpenSSL::Crypto
+)
     add_test(NAME runtime-instrumentation COMMAND zap-runtime-instrumentation-tests)
 
     if(ZAP_ENABLE_RUNTIME_INSTRUMENTATION)

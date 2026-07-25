@@ -172,8 +172,9 @@ bool compileLoadedModules(driver &drv, const std::filesystem::path &entryPath) {
        drv.cmdArgs.incStdlib && drv.cmdArgs.incPrelude, false, *targetInfo},
       [](const std::filesystem::path &path) -> std::optional<std::string> {
         std::string source;
-        return readSourceFile(path, source) ? std::nullopt
-                                            : std::optional<std::string>(std::move(source));
+        return readSourceFile(path, source)
+                   ? std::nullopt
+                   : std::optional<std::string>(std::move(source));
       });
   auto project = session.load(entryPath);
   for (const auto &error : project.errors) {
@@ -218,10 +219,10 @@ bool compileLoadedModules(driver &drv, const std::filesystem::path &entryPath) {
         drv.is_implicit_output() ? entryPath : drv.get_output();
     out_path.replace_extension(
         driver::format_fileextension(args::OutputType::ASM));
-    if (compileAssemblyFromZIR(
-            *boundAst, out_path.string(),
-            static_cast<int>(drv.cmdArgs.optLevel), drv.cmdArgs.targetTriple,
-            drv.cmdArgs.freestanding)) {
+    if (compileAssemblyFromZIR(*boundAst, out_path.string(),
+                               static_cast<int>(drv.cmdArgs.optLevel),
+                               drv.cmdArgs.targetTriple,
+                               drv.cmdArgs.freestanding)) {
       return true;
     }
   } else if (drv.emits_text_output()) {
@@ -412,7 +413,8 @@ bool compileObjectFromZIR(sema::BoundRootNode &node,
 bool compileAssemblyFromZIR(sema::BoundRootNode &node,
                             const std::string &output_path,
                             int optimization_level,
-                            const std::string &targetTriple, bool freestanding) {
+                            const std::string &targetTriple,
+                            bool freestanding) {
   try {
     auto mod = generateZIRModule(node);
     if (!mod) {
@@ -550,6 +552,8 @@ bool driver::link() {
   }
 
   arguments.emplace_back("-lm");
+  arguments.emplace_back("-lssl");
+  arguments.emplace_back("-lcrypto");
   arguments.emplace_back("-o");
   arguments.push_back(cmdArgs.output.path.string());
 

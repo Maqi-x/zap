@@ -1,0 +1,269 @@
+import "std/network" as network;
+import "std/tls" as tls;
+import "std/string" as string;
+import "std/convert" as convert;
+
+pub enum HttpError {
+    InvalidUrl,
+    UnsupportedScheme,
+    ConnectionFailed,
+    SendFailed,
+    InvalidResponse,
+}
+
+pub struct Url {
+    scheme: String,
+    host: String,
+    port: Int,
+    path: String,
+}
+
+pub struct Response {
+    statusCode: Int,
+    statusLine: String,
+    headers: String,
+    body: String,
+    valid: Bool,
+    errorCode: Int,
+}
+
+fun emptyResponse(code: Int) Response {
+    return Response{
+        statusCode: 0,
+        statusLine: "",
+        headers: "",
+        body: "",
+        valid: false,
+        errorCode: code,
+    };
+}
+
+pub fun parseUrl(raw: String) Url {
+    var out: Url;
+    out.scheme = "";
+    out.host = "";
+    out.port = 80;
+    out.path = "/";
+
+    var schemeEnd: Int = string.indexOf(string.view(raw), "://");
+    if schemeEnd < 0 {
+        return out;
+    }
+    out.scheme = string.owned(string.slice(string.view(raw), 0, schemeEnd));
+    if out.scheme == "https" {
+        out.port = 443;
+    }
+    var authorityStart: Int = schemeEnd + 3;
+    var pathStart: Int = string.indexOf(string.slice(string.view(raw), authorityStart, string.len(raw) - authorityStart), "/");
+    if pathStart < 0 {
+        pathStart = string.len(raw);
+    } else {
+        pathStart = authorityStart + pathStart;
+        out.path = string.owned(string.slice(string.view(raw), pathStart, string.len(raw) - pathStart));
+    }
+
+    var authority: String = string.owned(string.slice(string.view(raw), authorityStart, pathStart - authorityStart));
+    var colon: Int = string.indexOf(string.view(authority), ":");
+    if colon < 0 {
+        out.host = authority;
+    } else {
+        out.host = string.owned(string.slice(string.view(authority), 0, colon));
+        var portText: String = string.owned(string.slice(string.view(authority), colon + 1, string.len(authority) - colon - 1));
+        var port: Int = 0;
+        var i: Int = 0;
+        while i < string.len(portText) && string.at(portText, i) >= '0' && string.at(portText, i) <= '9' {
+            port = port * 10 + convert.toInt(string.at(portText, i)) - convert.toInt('0');
+            i = i + 1;
+        }
+        if i == 0 || port <= 0 || port > 65535 {
+            out.host = "";
+            return out;
+        }
+        out.port = port;
+    }
+    return out;
+}
+
+fun receiveAll(stream: network.Stream) String {
+    var output: string.TextBuf = new string.TextBuf();
+    while stream.isOpen() {
+        var chunk: String = stream.recv(8192);
+        if string.len(chunk) == 0 {
+            break;
+        }
+        output.push(string.view(chunk));
+    }
+    return output.build();
+}
+
+fun receiveAllTls(stream: tls.Stream) String {
+    var output: string.TextBuf = new string.TextBuf();
+    while stream.isOpen() {
+        var chunk: String = stream.recv(8192);
+        if string.len(chunk) == 0 {
+            break;
+        }
+        output.push(string.view(chunk));
+    }
+    return output.build();
+}
+
+fun parseStatusCode(line: String) Int {
+    var firstSpace: Int = string.indexOf(string.view(line), " ");
+    if firstSpace < 0 {
+        return 0;
+    }
+    var code: Int = 0;
+    var i: Int = firstSpace + 1;
+    while i < string.len(line) && string.at(line, i) >= '0' && string.at(line, i) <= '9' {
+        code = code * 10 + convert.toInt(string.at(line, i)) - convert.toInt('0');
+        i = i + 1;
+    }
+    return code;
+}
+
+fun requestText(parsed: Url) String {
+    var request: String = "GET " + parsed.path + " HTTP/1.1\r\n";
+    request = request + "Host: " + parsed.host + "\r\n";
+    request = request + "User-Agent: zap/1.0\r\n";
+    request = request + "Accept: */*\r\n";
+    request = request + "Accept-Encoding: identity\r\n";
+    request = request + "Connection: close\r\n\r\n";
+    return request;
+}
+
+fun hexValue(c: Char) Int {
+    if c >= '0' && c <= '9' { return convert.toInt(c) - convert.toInt('0'); }
+    if c >= 'a' && c <= 'f' { return convert.toInt(c) - convert.toInt('a') + 10; }
+    if c >= 'A' && c <= 'F' { return convert.toInt(c) - convert.toInt('A') + 10; }
+    return -1;
+}
+
+fun decodeChunked(encoded: String) String {
+    var out: string.TextBuf = new string.TextBuf();
+    var cursor: Int = 0;
+    while cursor < string.len(encoded) {
+        var lineLength: Int = string.indexOf(string.slice(string.view(encoded), cursor, string.len(encoded) - cursor), "\r\n");
+        if lineLength < 0 { return ""; }
+        var size: Int = 0;
+        var i: Int = 0;
+        while i < lineLength && string.at(encoded, cursor + i) != ';' {
+            var digit: Int = hexValue(string.at(encoded, cursor + i));
+            if digit < 0 { return ""; }
+            size = size * 16 + digit;
+            i = i + 1;
+        }
+        cursor = cursor + lineLength + 2;
+        if size == 0 { return out.build(); }
+        if size < 0 || cursor + size + 2 > string.len(encoded) { return ""; }
+        out.push(string.slice(string.view(encoded), cursor, size));
+        cursor = cursor + size;
+        if string.at(encoded, cursor) != '\r' || string.at(encoded, cursor + 1) != '\n' { return ""; }
+        cursor = cursor + 2;
+    }
+    return "";
+}
+
+fun parseResponse(raw: String) Response {
+    var separator: Int = string.indexOf(string.view(raw), "\r\n\r\n");
+    if separator < 0 {
+        return emptyResponse(5);
+    }
+    var headerBlock: String = string.owned(string.slice(string.view(raw), 0, separator));
+    var body: String = string.owned(string.slice(string.view(raw), separator + 4, string.len(raw) - separator - 4));
+    var lineEnd: Int = string.indexOf(string.view(headerBlock), "\r\n");
+    if lineEnd < 0 {
+        return emptyResponse(5);
+    }
+    var statusLine: String = string.owned(string.slice(string.view(headerBlock), 0, lineEnd));
+    var headers: String = string.owned(string.slice(string.view(headerBlock), lineEnd + 2, string.len(headerBlock) - lineEnd - 2));
+    var status: Int = parseStatusCode(statusLine);
+    if status == 0 {
+        return emptyResponse(5);
+    }
+    if string.indexOf(string.view(headers), "Transfer-Encoding: chunked") >= 0 || string.indexOf(string.view(headers), "transfer-encoding: chunked") >= 0 {
+        var decoded: String = decodeChunked(body);
+        if string.len(body) > 0 && string.len(decoded) == 0 {
+            return emptyResponse(5);
+        }
+        body = decoded;
+    }
+    return Response{statusCode: status, statusLine: statusLine, headers: headers, body: body, valid: true, errorCode: 0};
+}
+
+pub fun get(url: String) Response {
+    var parsed: Url = parseUrl(url);
+    if string.len(parsed.host) == 0 {
+        return emptyResponse(1);
+    }
+    var request: String = requestText(parsed);
+    if parsed.scheme == "http" {
+        var stream: network.Stream = network.dial(parsed.host, parsed.port);
+        if !stream.isOpen() { return emptyResponse(3); }
+        if stream.sendAll(request) != string.len(request) {
+            stream.close();
+            return emptyResponse(4);
+        }
+        var raw: String = receiveAll(stream);
+        stream.close();
+        return parseResponse(raw);
+    }
+    if parsed.scheme == "https" {
+        var stream: tls.Stream = tls.dial(parsed.host, parsed.port);
+        if !stream.isOpen() { return emptyResponse(3); }
+        if stream.sendAll(request) != string.len(request) {
+            stream.close();
+            return emptyResponse(4);
+        }
+        var raw: String = receiveAllTls(stream);
+        stream.close();
+        return parseResponse(raw);
+    }
+    return emptyResponse(2);
+}
+
+pub fun isSuccess(response: Response) Bool {
+    return response.valid && response.statusCode >= 200 && response.statusCode < 300;
+}
+
+pub fun isRedirect(response: Response) Bool {
+    return response.valid && response.statusCode >= 300 && response.statusCode < 400;
+}
+
+pub fun getFollowRedirects(url: String, maxRedirects: Int) Response {
+    var current: String = url;
+    var redirects: Int = 0;
+    while redirects <= maxRedirects {
+        var response: Response = get(current);
+        if !isRedirect(response) {
+            return response;
+        }
+        var location: String = header(response, "Location");
+        if string.len(location) == 0 {
+            return emptyResponse(5);
+        }
+        current = location;
+        redirects = redirects + 1;
+    }
+    return emptyResponse(5);
+}
+
+pub fun header(response: Response, name: String) String {
+    var cursor: Int = 0;
+    var raw: String = response.headers;
+    while cursor < string.len(raw) {
+        var lineEnd: Int = string.indexOf(string.slice(string.view(raw), cursor, string.len(raw) - cursor), "\r\n");
+        if lineEnd < 0 { lineEnd = string.len(raw) - cursor; }
+        var line: String = string.owned(string.slice(string.view(raw), cursor, lineEnd));
+        var colon: Int = string.indexOf(string.view(line), ":");
+        if colon > 0 {
+            var key: String = string.owned(string.slice(string.view(line), 0, colon));
+            if string.eq(key, name) {
+                return string.trim(string.slice(string.view(line), colon + 1, string.len(line) - colon - 1));
+            }
+        }
+        cursor = cursor + lineEnd;
+        if cursor < string.len(raw) { cursor = cursor + 2; }
+    }
+    return "";
+}
