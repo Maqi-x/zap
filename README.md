@@ -8,10 +8,8 @@ Systems programming that doesn't get in your way.
 You want predictable performance. No collector work on ordinary releases. Real enums.
 Error handling that doesn't look like noise.
 
-**Zap is a systems language built for developers who know Go
-or are ready to step into systems programming.** ARC memory
-model, LLVM backend, modern syntax. Write low-level software
-without low-level frustration.
+**Zap is a memory-safe systems language with ownership-aware ARC.** Write low-level
+software without low-level frustration.
 <br>
 [Discord](https://discord.gg/cVGqffBA6m) · [Roadmap](ROADMAP.md) · [Documentation](docs/README.md)
 <br clear="left">
