@@ -24,22 +24,6 @@ jobs:
           chmod +x llvm.sh 
           sudo ./llvm.sh 21 all
 
-      - name: Debug LLVM
-        run: |
-          which clang-21
-          clang-21 --version
-          
-          which llvm-config
-          llvm-config --version
-          
-          which llvm-config-21
-          llvm-config-21 --version
-      
-          pkg-config --modversion llvm || true
-          pkg-config --modversion llvm-21 || true
-      
-          ls /usr/lib/llvm-21/lib/cmake/llvm || true
-
       - name: Build project
         run: |
           chmod +x ./build.sh
