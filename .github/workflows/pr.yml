@@ -27,6 +27,7 @@ jobs:
       - name: Build project
         run: |
           chmod +x ./build.sh
+          export PATH="/usr/lib/llvm-21/bin:$PATH"
           export CC=clang-21
           export CXX=clang++-21
           export LLVM_DIR=/usr/lib/llvm-21/lib/cmake/llvm
@@ -59,6 +60,7 @@ jobs:
       - name: Run sanitizer suite
         run: |
           chmod +x ./scripts/run_sanitizers.sh
+          export PATH="/usr/lib/llvm-21/bin:$PATH"
           export CC=clang-21
           export CXX=clang++-21
           export LLVM_DIR=/usr/lib/llvm-21/lib/cmake/llvm
