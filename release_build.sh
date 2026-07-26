@@ -1,30 +1,28 @@
 #!/usr/bin/env bash
+
 set -euo pipefail
 
 VERSION="0.4.0"
 EXTENSION_VSIX="zap-${VERSION}.vsix"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BUILD_DIR="$SCRIPT_DIR/build"
+BUILD_DIR="$SCRIPT_DIR/build-release"
 ARCH=$(uname -m)
 STAGE_DIR="$SCRIPT_DIR/zap-v${VERSION}-linux-${ARCH}"
 TAR_FILE="$SCRIPT_DIR/zap-v${VERSION}-linux-${ARCH}.tar.gz"
 
-CPU_COUNT=$(nproc 2>/dev/null || echo 1)
-BUILD_JOBS=$((CPU_COUNT > 1 ? CPU_COUNT - 1 : 1))
+echo -e "\033[1;33mConfiguring Zap compiler & LSP for release...\033[0m"
 
-echo "Configuring and building Zap compiler & LSP..."
-cmake -S "$SCRIPT_DIR" -B "$BUILD_DIR" \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_CXX_FLAGS="-O2" \
-    -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc" \
-    -DLLVM_LINK_LLVM_DYLIB=OFF
-cmake --build "$BUILD_DIR" --parallel "$BUILD_JOBS"
+rm -rf "$BUILD_DIR"
 
-echo "Compiling stdlib.o..."
-cc -c "$SCRIPT_DIR/src/stdlib.c" -o "$BUILD_DIR/stdlib.o"
+LDFLAGS="-static-libstdc++ -static-libgcc" meson setup "$BUILD_DIR" "$SCRIPT_DIR" \
+    --buildtype=release \
+    -Dinclude_lsp=true
 
-echo "Packaging VS Code extension..."
+echo -e "\033[1;33mCompiling...\033[0m"
+meson compile -C "$BUILD_DIR"
+
+echo -e "\033[1;33mPackaging VS Code extension...\033[0m"
 EXTENSION_SOURCE_DIR="$SCRIPT_DIR/src/lsp/vscode/zap"
 EXTENSION_BUILD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/zap-vscode.XXXXXX")"
 cleanup() {
@@ -43,22 +41,25 @@ tar -C "$EXTENSION_SOURCE_DIR" \
 (
   cd "$EXTENSION_BUILD_DIR"
   npm install --no-package-lock
-  ZAP_LSP_BINARY="$BUILD_DIR/zap-lsp" npm run package
+
+  ZAP_LSP_BINARY="$BUILD_DIR/src/lsp/zap-lsp" npm run package
 )
+
 test -f "$EXTENSION_BUILD_DIR/$EXTENSION_VSIX"
 
+echo -e "\033[1;33mStaging files to $STAGE_DIR...\033[0m"
 rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR"
 
-echo "Staging files to $STAGE_DIR..."
 install -m 755 "$BUILD_DIR/zapc" "$STAGE_DIR/zapc"
-install -m 755 "$BUILD_DIR/zap-lsp" "$STAGE_DIR/zap-lsp"
+install -m 755 "$BUILD_DIR/src/lsp/zap-lsp" "$STAGE_DIR/zap-lsp"
 install -m 644 "$BUILD_DIR/stdlib.o" "$STAGE_DIR/stdlib.o"
 cp -R "$SCRIPT_DIR/std" "$STAGE_DIR/std"
+
 install -m 644 "$EXTENSION_BUILD_DIR/$EXTENSION_VSIX" \
     "$STAGE_DIR/$EXTENSION_VSIX"
 
-echo "Creating archive $TAR_FILE..."
+echo -e "\033[1;33mCreating archive $TAR_FILE...\033[0m"
 tar -czf "$TAR_FILE" -C "$SCRIPT_DIR" "$(basename "$STAGE_DIR")"
 
-echo "Release build successful! Archive created at: $TAR_FILE"
+echo -e "\033[0;32mRelease build successful! Archive created at: $TAR_FILE\033[0m"
