@@ -29,6 +29,7 @@ if get_option('zap_enable_runtime_instrumentation')
 endif
 
 llvm_dep = dependency('llvm',
+                      version : '>= 21',
                       modules : ['core', 'support', 'all-targets', 'mc', 'target', 'analysis', 'passes'],
                       required : true
 )
