@@ -2,7 +2,7 @@ name: Build and test
 
 on:
   pull_request:
-    types: [opened, synchronize, labeled]
+    types: [ opened, synchronize, labeled ]
 
 jobs:
   build-and-test:
@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake build-essential python3
+        run: sudo apt-get update && sudo apt-get install -y meson ninja-build build-essential python3
 
       - name: Install LLVM
         run: |
@@ -45,7 +45,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake clang python3
+        run: sudo apt-get update && sudo apt-get install -y meson ninja-build build-essential clang python3
 
       - name: Install LLVM
         run: |
