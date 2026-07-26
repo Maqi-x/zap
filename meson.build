@@ -158,7 +158,7 @@ if get_option('build_testing')
 
     if get_option('zap_enable_runtime_instrumentation')
         test('runtime-instrumentation-ir',
-             files('scripts/check_runtime_instrumentation_ir.sh'),
+             files('tests/scripts/check_runtime_instrumentation_ir.sh'),
              args : [
                  zapc.full_path(),
                  meson.current_source_dir() / 'tests/class_arc_test.zp',
@@ -168,7 +168,7 @@ if get_option('build_testing')
         )
 
         test('runtime-ownership-counts',
-             files('scripts/run_runtime_ownership_counts.sh'),
+             files('tests/scripts/run_runtime_ownership_counts.sh'),
              args : [
                  zapc.full_path(),
                  meson.current_source_dir() / 'tests/runtime_instrumentation/ownership_counts.zp',
