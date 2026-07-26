@@ -1,0 +1,94 @@
+global var destroyed: Int = 0;
+
+class Parent {
+    priv child: Child;
+
+    pub fun setChild(child: Child) {
+        self.child = child;
+    }
+
+    pub fun value() Int {
+        return 7;
+    }
+
+    fun deinit() {
+        destroyed = destroyed + 1;
+    }
+}
+
+class Child {
+    priv parent: Parent;
+
+    pub fun setParent(parent: Parent) {
+        self.parent = parent;
+    }
+
+    fun deinit() {
+        destroyed = destroyed + 10;
+    }
+}
+
+class Observer {
+    priv target: weak Parent;
+
+    pub fun watch(target: weak Parent) {
+        self.target = target;
+    }
+
+    pub fun targetIsAlive() Bool {
+        return alive(self.target);
+    }
+
+    pub fun targetValue() Int {
+        if (!alive(self.target)) {
+            return -1;
+        }
+        var target: Parent = lock(self.target);
+        return target.value();
+    }
+}
+
+class WeakSelf {
+    priv selfReference: weak WeakSelf;
+
+    pub fun watchSelf(value: weak WeakSelf) {
+        self.selfReference = value;
+    }
+
+    fun deinit() {
+        destroyed = destroyed + 100;
+    }
+}
+
+fun makeObservedCycle(observer: Observer) Void {
+    var parent: Parent = new Parent();
+    var child: Child = new Child();
+    parent.setChild(child);
+    child.setParent(parent);
+    observer.watch(parent);
+}
+
+fun destroyWeakSelf() Void {
+    var value: WeakSelf = new WeakSelf();
+    value.watchSelf(value);
+}
+
+fun main() Int {
+    var observer: Observer = new Observer();
+    makeObservedCycle(observer);
+
+    if (destroyed != 11) {
+        return 1;
+    }
+    if (observer.targetIsAlive()) {
+        return 2;
+    }
+    if (observer.targetValue() != -1) {
+        return 3;
+    }
+    destroyWeakSelf();
+    if (destroyed != 111) {
+        return 4;
+    }
+    return 0;
+}

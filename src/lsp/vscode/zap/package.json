@@ -3,7 +3,7 @@
     "displayName": "Zap",
     "publisher": "zap-lang",
     "description": "Provides LSP for the Zap programming language",
-    "version": "0.0.1",
+    "version": "0.4.0",
     "engines": {
         "vscode": "^1.97.0"
     },
@@ -14,10 +14,12 @@
     "main": "./out/extension.js",
     "files": [
         "out/**",
-        "bin/**",
+        "bin/zap-lsp",
         "node_modules/**",
         "src/**",
         "syntaxes/**",
+        "images/**",
+        "zaplsp.schema.json",
         "language-configuration.json",
         "README.md",
         "CHANGELOG.md",
@@ -43,12 +45,12 @@
                 "zap-lsp.stdlibPath": {
                     "type": "string",
                     "default": "",
-                    "description": "Path to the Zap stdlib directory used for imports like std/io. If unset, the extension uses a std/ directory in the current workspace."
+                    "description": "Optional editor override for the Zap stdlib directory. Prefer zaplsp.json for workspace configuration."
                 },
                 "zap-lsp.corePath": {
                     "type": "string",
                     "default": "",
-                    "description": "Path to the Zap core library directory used for import \"core\". If unset, the extension asks zapc or uses a core/ directory in the current workspace."
+                    "description": "Optional editor override for the Zap core directory. Prefer zaplsp.json for workspace configuration."
                 },
                 "zap-lsp.zapcPath": {
                     "type": "string",
@@ -57,6 +59,12 @@
                 }
             }
         },
+        "jsonValidation": [
+            {
+                "fileMatch": "zaplsp.json",
+                "url": "./zaplsp.schema.json"
+            }
+        ],
         "languages": [
             {
                 "id": "zap",
@@ -68,6 +76,10 @@
                     ".zp",
                     ".zap"
                 ],
+                "icon": {
+                    "light": "./images/zap.svg",
+                    "dark": "./images/zap.svg"
+                },
                 "configuration": "./language-configuration.json"
             }
         ],

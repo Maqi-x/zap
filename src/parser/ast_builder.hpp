@@ -241,10 +241,12 @@ public:
 
   std::unique_ptr<ParameterNode>
   makeParam(const std::string &name, std::unique_ptr<TypeNode> type,
-            bool isRef = false, bool isVariadic = false,
+            bool isRef = false, bool isSink = false, bool isVariadic = false,
+            bool isNoEscape = false,
             std::unique_ptr<ExpressionNode> defaultValue = nullptr) {
-    return std::make_unique<ParameterNode>(name, std::move(type), isRef,
-                                           isVariadic, std::move(defaultValue));
+    return std::make_unique<ParameterNode>(name, std::move(type), isRef, isSink,
+                                           isNoEscape, isVariadic,
+                                           std::move(defaultValue));
   }
 
   std::unique_ptr<TypeNode> makeType(const std::string &name) {

@@ -47,6 +47,7 @@ SPECIAL_CASES = {
     "tests/enum_test.zp": {"type": "runtime", "exit": 1, "desc": "Enum test"},
     "tests/type_alias.zp": {"type": "runtime", "exit": 42, "desc": "Type aliasing (alias Name = Type)"},
     "tests/global_string_concat_test.zp": {"type": "runtime", "exit": 42, "desc": "Global var initialized with literal '+' concatenation is constant-folded"},
+    "tests/string_type_identity/main.zp": {"type": "runtime", "exit": 42, "desc": "User-defined String and StringView names do not acquire compiler intrinsic semantics"},
     "tests/failable_class_return_test.zp": {"type": "runtime", "exit": 42, "desc": "Failable function returning a class instance (success and fail paths)"},
     "tests/control_flow.zp": {"type": "runtime", "exit": 1, "desc": "Control flow return value"},
     "tests/compound_assign_test.zp": {"type": "runtime", "exit": 42, "desc": "Compound assignment (+= -= *= /= %= <<= >>= |= &= ^=) and ++/--"},
@@ -166,10 +167,25 @@ EXTRA_TESTS = [
     {
         "file": "tests/valid.zp",
         "type": "compile",
+        "desc": "Emit 32-bit freestanding LLVM IR with native Int main",
+        "compile_flags": ["--freestanding", "--target=i386-unknown-none", "-S", "-emit-llvm"],
+        "output_file": "/tmp/zap-freestanding-i386.ll",
+        "output_pattern": "define i32 @main()"
+    },
+    {
+        "file": "tests/valid.zp",
+        "type": "compile",
         "desc": "Freestanding executable link is rejected",
         "compile_flags": ["--freestanding"],
         "exit": 1,
         "stderr_pattern": "cannot link executable in freestanding mode"
+    },
+    {
+        "file": "tests/valid.zp",
+        "type": "runtime",
+        "desc": "Link output paths are passed without shell interpretation",
+        "binary_path": "/tmp/zap linker ; literal-{tid}.bin",
+        "exit": 42
     },
     {
         "file": "tests/logical_ops.zp",
@@ -214,7 +230,7 @@ EXTRA_TESTS = [
         "desc": "Emit LLVM IR for generic packed structs",
         "compile_flags": ["-S", "-emit-llvm"],
         "output_file": "/tmp/zap-generic-packed-struct.ll",
-        "output_pattern": "PackedBox$g$i32\" = type <{ i8, i32, i8 }>"
+        "output_pattern": "PackedBox$g$z1t1_n3_\" = type <{ i8, i32, i8 }>"
     },
     {
         "file": "tests/inline_asm_x86_io_test.zp",
@@ -233,11 +249,41 @@ EXTRA_TESTS = [
         "output_pattern": "Value\" = type { i32, i32 }"
     },
     {
+        "file": "tests/class_weak_test.zp",
+        "type": "compile",
+        "desc": "Emit checked ARC reference counting",
+        "compile_flags": ["-S", "-emit-llvm"],
+        "output_file": "/tmp/zap-class-weak-refcount.ll",
+        "output_patterns": [
+            "zap_arc_strong_refcount_overflow",
+            "zap_arc_weak_refcount_overflow",
+            "zap_arc_strong_refcount_underflow",
+            "zap_arc_weak_refcount_underflow",
+            "zap_runtime_alloc"
+        ]
+    },
+    {
         "file": "tests/prelude_implicit_collection_test.zp",
         "type": "compile",
         "desc": "Disabling prelude with -noprelude fails compilation",
         "compile_flags": ["-noprelude"],
         "exit": 1
+    },
+    {
+        "file": "tests/valid.zp",
+        "type": "compile",
+        "desc": "Unknown compiler flag fails without crashing",
+        "compile_flags": ["--zap-unknown-flag"],
+        "exit": 1,
+        "stderr_pattern": "unknown flag '--zap-unknown-flag'"
+    },
+    {
+        "file": "tests/valid.zp",
+        "type": "compile",
+        "desc": "Missing compiler option value fails without crashing",
+        "compile_flags": ["-o"],
+        "exit": 1,
+        "stderr_pattern": "missing value for flag '-o'"
     }
 ]
 
@@ -315,7 +361,9 @@ def execute_test(test_item, zapc_path):
     stderr_pattern = test_item.get("stderr_pattern", None)
     diagnostics = test_item.get("diagnostics", [])
     output_file = test_item.get("output_file", None)
-    output_pattern = test_item.get("output_pattern", None)
+    output_patterns = test_item.get("output_patterns", [])
+    if "output_pattern" in test_item:
+        output_patterns = [test_item["output_pattern"]] + output_patterns
     
     to_cleanup = []
     
@@ -323,7 +371,9 @@ def execute_test(test_item, zapc_path):
         if test_type == "runtime":
             # Generate a unique binary name per thread to prevent collision
             tid = threading.get_ident()
-            bin_path = f"{file_path}_{tid}.bin"
+            bin_path = test_item.get(
+                "binary_path", f"{file_path}_{tid}.bin"
+            ).format(tid=tid)
             to_cleanup.append(bin_path)
             
             # Compile step
@@ -359,11 +409,12 @@ def execute_test(test_item, zapc_path):
             if output_file:
                 if not os.path.exists(output_file):
                     return False, f"Expected output file not found: {output_file}"
-                if output_pattern:
+                if output_patterns:
                     with open(output_file, "r", encoding="utf-8", errors="replace") as f:
                         output_text = f.read()
-                    if output_pattern not in output_text:
-                        return False, f"Expected output pattern '{output_pattern}' not found in {output_file}"
+                    for output_pattern in output_patterns:
+                        if output_pattern not in output_text:
+                            return False, f"Expected output pattern '{output_pattern}' not found in {output_file}"
                     
             if stderr_pattern:
                 if stderr_pattern.lower() not in res.stderr.lower():
@@ -447,6 +498,7 @@ def main():
     parser.add_argument("-j", "--jobs", type=int, default=None, help="Number of parallel test jobs (default: CPU cores - 1)")
     parser.add_argument("-l", "--list", action="store_true", help="List discovered tests and exit")
     parser.add_argument("-v", "--verbose", action="store_true", help="Print detailed failure reasons")
+    parser.add_argument("--zapc", help="Path to a prebuilt Zap compiler instead of building ./build/zapc")
     args = parser.parse_args()
 
     # Step 1: Discover test files
@@ -491,8 +543,13 @@ def main():
         print(f"{YELLOW}No matching tests found.{NC}")
         return
 
-    # Step 2: Build the compiler
-    zapc_path = build_compiler()
+    # Step 2: Build the compiler or use an explicitly selected build.
+    if args.zapc:
+        zapc_path = args.zapc
+        if not os.path.isfile(zapc_path):
+            parser.error(f"Zap compiler not found: {zapc_path}")
+    else:
+        zapc_path = build_compiler()
 
     print("--- Zap Compiler Test Suite ---")
     total_tests = len(test_suite)

@@ -1,0 +1,10 @@
+record User {
+    name: String;
+    age: Int;
+}
+
+fun main() Int {
+    var user = User{name: "Ada", age: 30};
+    user.age = 31;
+    return 0;
+}

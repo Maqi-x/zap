@@ -387,8 +387,7 @@ public:
   BoundIndexAccess(std::unique_ptr<BoundExpression> l,
                    std::unique_ptr<BoundExpression> i,
                    std::shared_ptr<zir::Type> t)
-      : BoundExpression(std::move(t)), left(std::move(l)), index(std::move(i)) {
-  }
+      : BoundExpression(std::move(t)), left(std::move(l)), index(std::move(i)) {}
   void accept(BoundVisitor &v) override { v.visit(*this); }
   std::unique_ptr<BoundExpression> clone() const override {
     return std::make_unique<BoundIndexAccess>(left->clone(), index->clone(),

@@ -1,8 +1,12 @@
 #include "driver/driver.hpp"
 #include "ast/import_node.hpp"
 #include "codegen/llvm_codegen.hpp"
+#include "driver/process.hpp"
+#include "frontend/frontend_session.hpp"
 #include "frontend/module_loader.hpp"
 #include "ir/ir_generator.hpp"
+#include "ir/ownership_lowering.hpp"
+#include "ir/zir_verifier.hpp"
 #include "lexer/lexer.hpp"
 #include "parser/parser.hpp"
 #include "sema/binder.hpp"
@@ -14,14 +18,18 @@
 #include <cerrno>
 #include <cstring>
 #include <fstream>
+#include <functional>
 #include <iostream>
+#include <llvm/TargetParser/Host.h>
+#include <llvm/TargetParser/Triple.h>
 #include <map>
+#include <optional>
 #include <set>
 #include <string_view>
 
 namespace zap {
 bool compileSourceZIR(sema::BoundRootNode &node, std::ostream &ofoutput);
-bool compileSourceLLVMFromZIR(sema::BoundRootNode &node, std::ostream &ofoutput,
+bool compileSourceLLVMFromZIR(sema::BoundRootNode &node, std::string &output,
                               const std::string &targetTriple,
                               bool freestanding);
 std::unique_ptr<zir::Module> generateZIRModule(sema::BoundRootNode &node);
@@ -34,6 +42,38 @@ bool compileAssemblyFromZIR(sema::BoundRootNode &node,
                             int optimization_level,
                             const std::string &targetTriple, bool freestanding);
 namespace {
+
+std::optional<sema::TargetInfo>
+targetInfoForTriple(const std::string &requestedTriple) {
+  auto normalized = requestedTriple.empty()
+                        ? llvm::sys::getDefaultTargetTriple()
+                        : llvm::Triple::normalize(requestedTriple);
+  llvm::Triple triple(normalized);
+  if (triple.isArch32Bit()) {
+    return sema::TargetInfo{32};
+  }
+  if (triple.isArch64Bit()) {
+    return sema::TargetInfo{64};
+  }
+  return std::nullopt;
+}
+
+std::filesystem::path
+executableObjectPath(const std::filesystem::path &executablePath,
+                     const std::filesystem::path &sourcePath) {
+  std::error_code ec;
+  auto normalizedSource = std::filesystem::absolute(sourcePath, ec);
+  if (ec) {
+    normalizedSource = sourcePath.lexically_normal();
+  }
+
+  auto objectPath = executablePath;
+  objectPath += "." +
+                std::to_string(std::hash<std::string>{}(
+                    normalizedSource.generic_string())) +
+                ".o";
+  return objectPath;
+}
 
 bool emitRequestedTextOutputs(driver &drv, sema::BoundRootNode &node,
                               const std::filesystem::path &base_output_path) {
@@ -63,16 +103,19 @@ bool emitRequestedTextOutputs(driver &drv, sema::BoundRootNode &node,
                          : std::filesystem::path(base_output_path)
                                .replace_extension(driver::format_fileextension(
                                    args::OutputType::TEXT_LLVM));
+    std::string llvmIr;
+    if (compileSourceLLVMFromZIR(node, llvmIr, drv.get_target_triple(),
+                                 drv.is_freestanding())) {
+      return true;
+    }
+
     std::ofstream llvm_output(llvm_path, std::ios::binary);
     if (!llvm_output) {
       driver::reportError("couldn't open the provided file: ", llvm_path,
                           "\nreason: ", strerror(errno));
       return true;
     }
-    if (compileSourceLLVMFromZIR(node, llvm_output, drv.get_target_triple(),
-                                 drv.is_freestanding())) {
-      return true;
-    }
+    llvm_output << llvmIr;
   }
 
   return false;
@@ -108,84 +151,6 @@ bool readSourceFile(const std::filesystem::path &path, std::string &content) {
   return false;
 }
 
-bool loadModuleGraph(
-    const std::filesystem::path &entryPath,
-    std::map<std::string, std::unique_ptr<sema::ModuleInfo>> &modules,
-    std::set<std::string> &visiting, bool incPrelude,
-    const std::unordered_map<std::string, std::string> &importMap) {
-  auto canonicalPath = std::filesystem::weakly_canonical(entryPath);
-  auto moduleId = canonicalPath.string();
-
-  if (modules.find(moduleId) != modules.end()) {
-    return false;
-  }
-  if (visiting.count(moduleId)) {
-    driver::reportError("cyclic import detected involving ", canonicalPath);
-    return true;
-  }
-
-  visiting.insert(moduleId);
-
-  std::string source;
-  if (readSourceFile(canonicalPath, source)) {
-    return true;
-  }
-
-  DiagnosticEngine diagnostics(source, canonicalPath.string());
-  Lexer lex(diagnostics);
-  auto tokens = lex.tokenize(source);
-  Parser parser(tokens, diagnostics);
-  auto ast = parser.parse();
-
-  if (diagnostics.hadErrors() || !ast) {
-    diagnostics.printText(err());
-    return true;
-  }
-
-  diagnostics.printText(err());
-
-  auto module = std::make_unique<sema::ModuleInfo>();
-  module->moduleId = moduleId;
-  module->moduleName = canonicalPath.stem().string();
-  module->linkPath = frontend::computeLogicalModulePath(
-      canonicalPath, runtimePaths(), importMap);
-  module->sourceName = canonicalPath.string();
-  module->sourceText = source;
-  module->root = std::move(ast);
-  frontend::injectImplicitPreludeImportIfNeeded(*module, incPrelude);
-
-  for (const auto &child : module->root->children) {
-    auto importNode = dynamic_cast<ImportNode *>(child.get());
-    if (!importNode) {
-      continue;
-    }
-
-    std::vector<std::filesystem::path> importTargets;
-    std::string importError;
-    if (!frontend::resolveImportTargets(canonicalPath, *importNode,
-                                        importTargets, importMap,
-                                        runtimePaths(), &importError)) {
-      driver::reportError(importError);
-      return true;
-    }
-
-    module->imports.push_back(
-        frontend::makeResolvedImport(*importNode, importTargets));
-  }
-
-  for (const auto &import : module->imports) {
-    for (const auto &targetId : import.targetModuleIds) {
-      if (loadModuleGraph(targetId, modules, visiting, incPrelude, importMap)) {
-        return true;
-      }
-    }
-  }
-
-  visiting.erase(moduleId);
-  modules[moduleId] = std::move(module);
-  return false;
-}
-
 } // namespace
 
 driver::driver() = default;
@@ -196,48 +161,42 @@ void driver::setExecutablePath(std::filesystem::path path) {
 }
 
 bool compileLoadedModules(driver &drv, const std::filesystem::path &entryPath) {
-  std::map<std::string, std::unique_ptr<sema::ModuleInfo>> moduleMap;
-  std::set<std::string> visiting;
-  if (loadModuleGraph(entryPath, moduleMap, visiting,
-                      drv.cmdArgs.incStdlib && drv.cmdArgs.incPrelude,
-                      drv.cmdArgs.importMap)) {
+  auto targetInfo = targetInfoForTriple(drv.get_target_triple());
+  if (!targetInfo) {
+    driver::reportError("unsupported target word size for '",
+                        drv.get_target_triple(), "'");
     return true;
   }
-
-  auto entryId = std::filesystem::weakly_canonical(entryPath).string();
-  if (moduleMap.find(entryId) == moduleMap.end()) {
-    driver::reportError("failed to load entry module: ", entryPath);
+  frontend::FrontendSession session(
+      {runtimePaths(), drv.cmdArgs.importMap,
+       drv.cmdArgs.incStdlib && drv.cmdArgs.incPrelude, false, *targetInfo},
+      [](const std::filesystem::path &path) -> std::optional<std::string> {
+        std::string source;
+        return readSourceFile(path, source)
+                   ? std::nullopt
+                   : std::optional<std::string>(std::move(source));
+      });
+  auto project = session.load(entryPath);
+  for (const auto &error : project.errors) {
+    driver::reportError(error);
+  }
+  if (!project.loaded) {
+    DiagnosticTextFormatter::print(err(), project.diagnostics);
     return true;
   }
-  moduleMap[entryId]->isEntry = true;
-
-  std::string entrySource;
-  if (readSourceFile(entryPath, entrySource)) {
-    return true;
-  }
-  DiagnosticEngine diagnostics(entrySource, entryPath.string());
-
-  std::vector<sema::ModuleInfo> modules;
-  modules.reserve(moduleMap.size());
-  for (auto &[_, module] : moduleMap) {
-    diagnostics.registerSource(module->sourceName, module->sourceText);
-    modules.push_back(std::move(*module));
-  }
-
-  sema::Binder binder(diagnostics, true);
-  auto boundAst = binder.bind(modules);
-  diagnostics.printText(err());
-
-  if (!boundAst) {
+  if (!session.bind(project)) {
+    DiagnosticTextFormatter::print(err(), project.diagnostics);
     driver::reportError(entryPath, ": semantic analysis failed");
     return true;
   }
+  DiagnosticTextFormatter::print(err(), project.diagnostics);
+  auto &boundAst = project.boundRoot;
 
   if (drv.binary_output()) {
     std::filesystem::path out_path;
 
     if (drv.get_output_type() == args::OutputType::EXEC) {
-      out_path = entryPath.string() + ".o";
+      out_path = executableObjectPath(drv.get_output(), entryPath);
       drv.cleanups.emplace_back(out_path);
     } else if (drv.get_output_type() == args::OutputType::OBJECT) {
       if (drv.is_implicit_output()) {
@@ -367,7 +326,17 @@ bool driver::verifySources() {
 
 std::unique_ptr<zir::Module> generateZIRModule(sema::BoundRootNode &node) {
   zir::BoundIRGenerator irGen;
-  return irGen.generate(node);
+  auto module = irGen.generate(node);
+  if (!module) {
+    return nullptr;
+  }
+  zir::lowerDeadOwnedResults(*module);
+  auto verification = zir::ZirVerifier().verifyForCodegen(*module);
+  if (!verification) {
+    throw std::runtime_error("ZIR verification failed:\n" +
+                             verification.format());
+  }
+  return module;
 }
 
 bool compileSourceZIR(sema::BoundRootNode &node, std::ostream &ofoutput) {
@@ -386,7 +355,7 @@ bool compileSourceZIR(sema::BoundRootNode &node, std::ostream &ofoutput) {
   return false;
 }
 
-bool compileSourceLLVMFromZIR(sema::BoundRootNode &node, std::ostream &ofoutput,
+bool compileSourceLLVMFromZIR(sema::BoundRootNode &node, std::string &output,
                               const std::string &targetTriple,
                               bool freestanding) {
   try {
@@ -398,10 +367,13 @@ bool compileSourceLLVMFromZIR(sema::BoundRootNode &node, std::ostream &ofoutput,
 
     codegen::LLVMCodeGen llvmGen(targetTriple, freestanding);
     llvmGen.generate(*mod);
-    std::string ir;
-    llvm::raw_string_ostream rs(ir);
+    if (!llvmGen.verifyModule(llvm::errs())) {
+      return true;
+    }
+
+    llvm::raw_string_ostream rs(output);
     llvmGen.printIR(rs);
-    ofoutput << ir;
+    rs.flush();
   } catch (const std::exception &ex) {
     driver::reportError("LLVM text generation failed: ", ex.what());
     return true;
@@ -479,7 +451,13 @@ bool driver::compileSourceFile(const std::string &source,
     return true;
   }
 
-  sema::Binder binder(diagnostics, true);
+  auto targetInfo = targetInfoForTriple(cmdArgs.targetTriple);
+  if (!targetInfo) {
+    reportError("unsupported target word size for '", cmdArgs.targetTriple,
+                "'");
+    return true;
+  }
+  sema::Binder binder(diagnostics, true, nullptr, *targetInfo);
   auto boundAst = binder.bind(*ast);
   diagnostics.printText(err());
 
@@ -492,7 +470,7 @@ bool driver::compileSourceFile(const std::string &source,
     std::filesystem::path out_path;
 
     if (cmdArgs.output.type == args::OutputType::EXEC) {
-      out_path = source_name + ".o";
+      out_path = executableObjectPath(cmdArgs.output.path, source_name);
       cleanups.emplace_back(out_path);
     } else if (cmdArgs.output.type == args::OutputType::OBJECT) {
       if (cmdArgs.output.implicit) {
@@ -547,36 +525,46 @@ bool driver::link() {
   if (!needs_linking())
     return false;
 
-  std::string cmd = "/usr/bin/cc ";
+  const std::filesystem::path linker = "/usr/bin/cc";
+  std::vector<std::string> arguments;
 
   if (cmdArgs.incStdlib) {
     auto paths = frontend::RuntimePaths{
         executable_path, std::filesystem::path(ZAPC_CORE_DIR),
         std::filesystem::path(ZAPC_STDLIB_DIR),
         std::filesystem::path(ZAPC_STDLIB_PATH)};
-    cmd += frontend::stdlibObjectPath(paths).string() + " ";
+    arguments.push_back(frontend::stdlibObjectPath(paths).string());
   } else {
-    cmd += "-nostdlib ";
+    arguments.emplace_back("-nostdlib");
   }
 
   for (const auto &obj : cmdArgs.objects) {
-    cmd += obj.string() + " ";
+    arguments.push_back(obj.string());
   }
 
   for (const auto &arg : cmdArgs.linkerArgs) {
-    cmd += arg + " ";
+    arguments.push_back(arg);
   }
 
-  cmd += "-lm ";
-  cmd += "-o " + cmdArgs.output.path.string();
+  arguments.emplace_back("-lm");
+  arguments.emplace_back("-lssl");
+  arguments.emplace_back("-lcrypto");
+  arguments.emplace_back("-o");
+  arguments.push_back(cmdArgs.output.path.string());
 
-  int res = std::system(cmd.c_str());
-  if (res != 0) {
-    reportError("linking failed with exit code: ", res);
-    return true;
+  const auto result = process::execute(linker, arguments);
+  if (result.succeeded()) {
+    return false;
   }
-
-  return false;
+  if (result.termination == process::Termination::LaunchFailed) {
+    reportError("failed to start linker '", linker,
+                "': ", result.error.message());
+  } else if (result.termination == process::Termination::Signaled) {
+    reportError("linker terminated by signal: ", result.code);
+  } else {
+    reportError("linking failed with exit code: ", result.code);
+  }
+  return true;
 }
 
 bool driver::cleanup() {

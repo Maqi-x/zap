@@ -8,7 +8,9 @@ import tempfile
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-SERVER = ROOT / "build" / "zap-lsp"
+SERVER = pathlib.Path(
+    os.environ.get("ZAP_LSP_SERVER", ROOT / "build" / "zap-lsp")
+).resolve()
 
 
 def send(proc, payload):
@@ -34,6 +36,13 @@ def read_message(proc):
     return json.loads(proc.stdout.read(length).decode("utf-8"))
 
 
+def read_response(proc, request_id):
+    while True:
+        response = read_message(proc)
+        if response.get("id") == request_id:
+            return response
+
+
 def request(proc, method, params, request_id):
     send(
         proc,
@@ -44,18 +53,29 @@ def request(proc, method, params, request_id):
             "params": params,
         },
     )
-    while True:
-        response = read_message(proc)
-        if response.get("id") == request_id:
-            return response
+    return read_response(proc, request_id)
 
 
 def notify(proc, method, params):
     send(proc, {"jsonrpc": "2.0", "method": method, "params": params})
 
 
+def read_diagnostics(proc, expected_uri):
+    while True:
+        message = read_message(proc)
+        if message.get("method") != "textDocument/publishDiagnostics":
+            continue
+        params = message["params"]
+        if params["uri"] == expected_uri:
+            return params["diagnostics"]
+
+
 def file_uri(path):
     return pathlib.Path(path).resolve().as_uri()
+
+
+def utf16_length(text):
+    return len(text.encode("utf-16-le")) // 2
 
 
 def completion_labels(proc, uri, line, character, request_id):
@@ -97,6 +117,30 @@ def signature_help(proc, uri, line, character, request_id):
     return response["result"]
 
 
+def definition_location(proc, uri, line, character, request_id):
+    response = request(
+        proc,
+        "textDocument/definition",
+        {"textDocument": {"uri": uri}, "position": {"line": line, "character": character}},
+        request_id,
+    )
+    if "error" in response:
+        raise AssertionError(response["error"])
+    return response["result"]
+
+
+def hover(proc, uri, line, character, request_id):
+    response = request(
+        proc,
+        "textDocument/hover",
+        {"textDocument": {"uri": uri}, "position": {"line": line, "character": character}},
+        request_id,
+    )
+    if "error" in response:
+        raise AssertionError(response["error"])
+    return response["result"]
+
+
 def open_document(proc, path, text):
     uri = file_uri(path)
     pathlib.Path(path).write_text(text)
@@ -115,33 +159,132 @@ def open_document(proc, path, text):
     return uri
 
 
+def change_document(proc, uri, text, version):
+    notify(
+        proc,
+        "textDocument/didChange",
+        {
+            "textDocument": {"uri": uri, "version": version},
+            "contentChanges": [{"text": text}],
+        },
+    )
+
+
+def close_document(proc, uri):
+    notify(proc, "textDocument/didClose", {"textDocument": {"uri": uri}})
+
+
 def main():
     if not SERVER.exists():
         raise SystemExit(f"missing {SERVER}; build zap-lsp first")
 
     env = os.environ.copy()
-    env["ZAPC_CORE_DIR"] = str(ROOT / "core")
-    env["ZAPC_STDLIB_DIR"] = str(ROOT / "std")
-    proc = subprocess.Popen(
-        [str(SERVER)],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env=env,
-    )
 
-    try:
-        init = request(
-            proc,
-            "initialize",
-            {"processId": None, "rootUri": file_uri(ROOT), "capabilities": {}},
-            1,
+    with tempfile.TemporaryDirectory(prefix="zap-lsp-workspace-") as workspace_dir:
+        workspace_root = pathlib.Path(workspace_dir)
+        env["ZAPC_CORE_DIR"] = str(workspace_root / "invalid-core")
+        env["ZAPC_STDLIB_DIR"] = str(workspace_root / "invalid-std")
+        (workspace_root / "zaplsp.json").write_text(
+            json.dumps(
+                {
+                    "zapRoot": str(ROOT),
+                    "corePath": "core",
+                    "stdlibPath": "std",
+                }
+            )
         )
-        assert "capabilities" in init["result"]
-        notify(proc, "initialized", {})
+        proc = subprocess.Popen(
+            [str(SERVER)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+        )
 
-        with tempfile.TemporaryDirectory(prefix="zap-lsp-") as temp_dir:
-            temp = pathlib.Path(temp_dir)
+        try:
+            init = request(
+                proc,
+                "initialize",
+                {
+                    "processId": None,
+                    "rootUri": file_uri(workspace_root),
+                    "capabilities": {},
+                },
+                1,
+            )
+            assert "capabilities" in init["result"]
+            assert init["result"]["serverInfo"]["version"] == "0.1.0"
+            notify(proc, "initialized", {})
+            temp = workspace_root
+
+            unknown_method = request(proc, "zap/unknown", {}, 90)
+            assert unknown_method["error"]["code"] == -32601, (
+                "unknown request did not return MethodNotFound"
+            )
+            invalid_completion = request(
+                proc,
+                "textDocument/completion",
+                {"textDocument": {"uri": file_uri(temp / "missing.zp")}},
+                91,
+            )
+            assert invalid_completion["error"]["code"] == -32602, (
+                "malformed completion did not return InvalidParams"
+            )
+
+            cancellation_source = "\n".join(
+                f"fun queued{i}() Int {{ return {i}; }}" for i in range(2000)
+            )
+            cancellation_uri = open_document(
+                proc, temp / "cancellation.zp", cancellation_source
+            )
+            send(
+                proc,
+                {
+                    "jsonrpc": "2.0",
+                    "id": 92,
+                    "method": "textDocument/completion",
+                    "params": {
+                        "textDocument": {"uri": cancellation_uri},
+                        "position": {"line": 0, "character": 3},
+                    },
+                },
+            )
+            notify(proc, "$/cancelRequest", {"id": 92})
+            cancelled = read_response(proc, 92)
+            assert cancelled["error"]["code"] == -32800, (
+                "cancelled request published a normal result"
+            )
+            reused_id = request(proc, "zap/unknown", {}, 92)
+            assert reused_id["error"]["code"] == -32601, (
+                "cancellation leaked into a later request with the same id"
+            )
+
+            imported_path = temp / "broken.zp"
+            imported_path.write_text("fun broken() Int {\n")
+            imported_uri = file_uri(imported_path)
+            main_with_broken_import = """import "broken.zp";
+
+fun main() Int {
+    return 0;
+}
+"""
+            open_document(
+                proc, temp / "main_with_broken_import.zp", main_with_broken_import
+            )
+            diagnostics = read_diagnostics(proc, imported_uri)
+            assert diagnostics, "imported-file diagnostic was not published"
+
+            open_document(
+                proc,
+                imported_path,
+                """fun broken() Int {
+    return 0;
+}
+""",
+            )
+            assert read_diagnostics(proc, imported_uri) == [], (
+                "resolved diagnostics were not cleared for the imported file"
+            )
 
             loop_source = """fun main() Int {
     var values: [2]Int = {1, 2};
@@ -154,6 +297,72 @@ def main():
             loop_uri = open_document(proc, temp / "loop.zp", loop_source)
             labels = completion_labels(proc, loop_uri, 3, 9, 2)
             assert "v" in labels, "for-in item variable missing from completion"
+
+            unicode_prefix = '    var note: String = "😀"; '
+            unicode_source = f"""fun main() Int {{
+{unicode_prefix}ret
+    return 0;
+}}
+"""
+            unicode_uri = open_document(
+                proc, temp / "unicode_position.zp", unicode_source
+            )
+            labels = completion_labels(
+                proc,
+                unicode_uri,
+                1,
+                utf16_length(unicode_prefix + "ret"),
+                15,
+            )
+            assert "return" in labels, "UTF-16 cursor did not reach completion"
+
+            unicode_definition_prefix = '    var note: String = "😀"; var alias: Int = '
+            unicode_definition_source = f"""fun main() Int {{
+    var value: Int = 1;
+{unicode_definition_prefix}value;
+    return alias;
+}}
+"""
+            unicode_definition_uri = open_document(
+                proc, temp / "unicode_definition.zp", unicode_definition_source
+            )
+            value_position = utf16_length(unicode_definition_prefix) + 2
+            location = definition_location(
+                proc, unicode_definition_uri, 2, value_position, 16
+            )
+            assert location["uri"] == unicode_definition_uri
+            assert location["range"]["start"] == {"line": 1, "character": 4}, (
+                "UTF-16 cursor resolved an unexpected definition: "
+                f'{location["range"]["start"]}'
+            )
+
+            hover_result = hover(
+                proc, unicode_definition_uri, 2, value_position, 17
+            )
+            assert "var value: isize" in hover_result["contents"]["value"], (
+                "UTF-16 cursor returned unexpected hover information: "
+                f'{hover_result}'
+            )
+
+            lifecycle_invalid_source = "fun main() Int {\n"
+            lifecycle_uri = open_document(
+                proc, temp / "document_lifecycle.zp", lifecycle_invalid_source
+            )
+            assert read_diagnostics(proc, lifecycle_uri), (
+                "invalid opened document did not publish diagnostics"
+            )
+            lifecycle_valid_source = """fun main() Int {
+    return 0;
+}
+"""
+            change_document(proc, lifecycle_uri, lifecycle_valid_source, 2)
+            assert read_diagnostics(proc, lifecycle_uri) == [], (
+                "didChange did not clear resolved diagnostics"
+            )
+            close_document(proc, lifecycle_uri)
+            assert read_diagnostics(proc, lifecycle_uri) == [], (
+                "didClose did not clear document diagnostics"
+            )
 
             class_source = """class Counter {
     priv value: Int;
@@ -336,12 +545,12 @@ fun main() Int {
                 "newCounter(value: Float) Int"
             ], "newCounter was incorrectly resolved as a constructor"
 
-        request(proc, "shutdown", None, 14)
-        notify(proc, "exit", {})
-        proc.wait(timeout=5)
-    finally:
-        if proc.poll() is None:
-            proc.kill()
+            request(proc, "shutdown", None, 18)
+            notify(proc, "exit", {})
+            proc.wait(timeout=5)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
 
 
 if __name__ == "__main__":

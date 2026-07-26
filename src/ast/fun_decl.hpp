@@ -8,6 +8,8 @@
 #include "visitor.hpp"
 #include <iostream>
 #include <memory>
+#include <optional>
+#include <string>
 #include <vector>
 
 class FunDecl : public TopLevel {
@@ -19,6 +21,7 @@ public:
   std::unique_ptr<TypeNode> returnType_;
   std::unique_ptr<BodyNode> body_;
   std::unique_ptr<ExpressionNode> lambdaExpr_;
+  std::optional<std::string> resultBorrowSource_;
   bool isExtern_ = false;
   bool isStatic_ = false;
   bool isUnsafe_ = false;

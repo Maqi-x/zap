@@ -28,8 +28,10 @@ enum class OpCode {
   CondBr,
   Ret,
   Call,
-  Retain,
-  Release,
+  Copy,
+  Move,
+  Borrow,
+  Destroy,
   Alloc,
   GetElementPtr,
   Phi,
@@ -109,27 +111,42 @@ public:
   }
 };
 
+enum class StoreMode {
+  Assign,
+  Initialize,
+  RawAssign,
+  RawInitialize,
+};
+
 class StoreInst : public Instruction {
   std::shared_ptr<Value> src, dest;
-  // Emit a plain store with no ARC retain/release.
-  bool bypassArc_;
-  // Destination is freshly allocated: retain a borrowed value but do not
-  // release the (garbage) previous contents.
-  bool initStore_;
+  StoreMode mode_;
 
 public:
-  StoreInst(std::shared_ptr<Value> s, std::shared_ptr<Value> d,
-            bool bypassArc = false, bool initStore = false)
-      : src(std::move(s)), dest(std::move(d)), bypassArc_(bypassArc),
-        initStore_(initStore) {}
+  StoreInst(std::shared_ptr<Value> s, std::shared_ptr<Value> d, StoreMode mode)
+      : src(std::move(s)), dest(std::move(d)), mode_(mode) {}
   OpCode getOpCode() const override { return OpCode::Store; }
   const std::shared_ptr<Value> &getSource() const { return src; }
   const std::shared_ptr<Value> &getDestination() const { return dest; }
-  bool bypassArc() const { return bypassArc_; }
-  bool initStore() const { return initStore_; }
+  StoreMode getMode() const { return mode_; }
   std::string toString() const override {
-    return "store " + src->getTypeName() + " " + src->getName() + ", " +
-           dest->getTypeName() + " " + dest->getName();
+    const char *modeName = "invalid";
+    switch (mode_) {
+    case StoreMode::Assign:
+      modeName = "assign";
+      break;
+    case StoreMode::Initialize:
+      modeName = "initialize";
+      break;
+    case StoreMode::RawAssign:
+      modeName = "raw_assign";
+      break;
+    case StoreMode::RawInitialize:
+      modeName = "raw_initialize";
+      break;
+    }
+    return "store." + std::string(modeName) + " " + src->getTypeName() + " " +
+           src->getName() + ", " + dest->getTypeName() + " " + dest->getName();
   }
 };
 
@@ -170,6 +187,7 @@ public:
   BranchInst(std::string t) : target(std::move(t)) {}
   OpCode getOpCode() const override { return OpCode::Br; }
   const std::string &getTarget() const { return target; }
+  void setTarget(std::string value) { target = std::move(value); }
   std::string toString() const override { return "br label %" + target; }
 };
 
@@ -184,6 +202,14 @@ public:
   const std::shared_ptr<Value> &getCondition() const { return cond; }
   const std::string &getTrueLabel() const { return trueL; }
   const std::string &getFalseLabel() const { return falseL; }
+  void replaceTarget(const std::string &from, std::string to) {
+    if (trueL == from) {
+      trueL = to;
+    }
+    if (falseL == from) {
+      falseL = std::move(to);
+    }
+  }
   std::string toString() const override {
     return "br i1 " + cond->getName() + ", label %" + trueL + ", label %" +
            falseL;
@@ -191,42 +217,41 @@ public:
 };
 
 class CallInst : public Instruction {
+private:
   std::shared_ptr<Value> result;
   std::string funcName;
   std::shared_ptr<Value> calleeValue; // non-null for indirect calls
   std::vector<std::shared_ptr<Value>> args;
   std::vector<bool> argIsRef;
   std::shared_ptr<Value> variadicPack;
-  bool returnsRef_ = false;
 
 public:
   CallInst(std::shared_ptr<Value> res, std::string name,
            std::vector<std::shared_ptr<Value>> arguments,
            std::vector<bool> argumentIsRef = {},
-           std::shared_ptr<Value> pack = nullptr, bool returnsRef = false)
+           std::shared_ptr<Value> pack = nullptr)
       : result(std::move(res)), funcName(std::move(name)),
         args(std::move(arguments)), argIsRef(std::move(argumentIsRef)),
-        variadicPack(std::move(pack)), returnsRef_(returnsRef) {}
+        variadicPack(std::move(pack)) {}
   // Indirect call constructor
   CallInst(std::shared_ptr<Value> res, std::shared_ptr<Value> callee,
-           std::vector<std::shared_ptr<Value>> arguments,
-           bool returnsRef = false)
+           std::vector<std::shared_ptr<Value>> arguments)
       : result(std::move(res)), calleeValue(std::move(callee)),
-        args(std::move(arguments)), returnsRef_(returnsRef) {}
+        args(std::move(arguments)) {}
   OpCode getOpCode() const override { return OpCode::Call; }
   const std::shared_ptr<Value> &getResult() const { return result; }
   const std::string &getFunctionName() const { return funcName; }
   const std::shared_ptr<Value> &getCalleeValue() const { return calleeValue; }
   bool isIndirect() const { return calleeValue != nullptr; }
-  bool returnsRef() const { return returnsRef_; }
   const std::vector<std::shared_ptr<Value>> &getArguments() const {
     return args;
   }
   const std::vector<bool> &getArgumentIsRef() const { return argIsRef; }
   const std::shared_ptr<Value> &getVariadicPack() const { return variadicPack; }
   std::string toString() const override {
-    std::string s =
-        (result ? result->getName() + " = " : "") + "call @" + funcName + "(";
+    std::string s = result ? result->getName() + " = call " : "call ";
+    s += calleeValue ? calleeValue->getName() : "@" + funcName;
+    s += "(";
     for (size_t i = 0; i < args.size(); ++i) {
       s += args[i]->getTypeName() + " " + args[i]->getName() +
            (i < args.size() - 1 ? ", " : "");
@@ -244,7 +269,7 @@ class ReturnInst : public Instruction {
   std::shared_ptr<Value> value;
 
 public:
-  ReturnInst(std::shared_ptr<Value> v = nullptr) : value(std::move(v)) {}
+  explicit ReturnInst(std::shared_ptr<Value> v = nullptr) : value(std::move(v)) {}
   OpCode getOpCode() const override { return OpCode::Ret; }
   const std::shared_ptr<Value> &getValue() const { return value; }
   std::string toString() const override {
@@ -254,27 +279,63 @@ public:
   }
 };
 
-class RetainInst : public Instruction {
-  std::shared_ptr<Value> value;
+class CopyInst : public Instruction {
+  std::shared_ptr<Value> result;
+  std::shared_ptr<Value> source;
 
 public:
-  RetainInst(std::shared_ptr<Value> v) : value(std::move(v)) {}
-  OpCode getOpCode() const override { return OpCode::Retain; }
-  const std::shared_ptr<Value> &getValue() const { return value; }
+  CopyInst(std::shared_ptr<Value> res, std::shared_ptr<Value> src)
+      : result(std::move(res)), source(std::move(src)) {}
+  OpCode getOpCode() const override { return OpCode::Copy; }
+  const std::shared_ptr<Value> &getResult() const { return result; }
+  const std::shared_ptr<Value> &getSource() const { return source; }
   std::string toString() const override {
-    return "retain " + value->getTypeName() + " " + value->getName();
+    return result->getName() + " = copy " + source->getTypeName() + " " +
+           source->getName();
   }
 };
 
-class ReleaseInst : public Instruction {
+class MoveInst : public Instruction {
+  std::shared_ptr<Value> result;
+  std::shared_ptr<Value> source;
+
+public:
+  MoveInst(std::shared_ptr<Value> res, std::shared_ptr<Value> src)
+      : result(std::move(res)), source(std::move(src)) {}
+  OpCode getOpCode() const override { return OpCode::Move; }
+  const std::shared_ptr<Value> &getResult() const { return result; }
+  const std::shared_ptr<Value> &getSource() const { return source; }
+  std::string toString() const override {
+    return result->getName() + " = move " + source->getTypeName() + " " +
+           source->getName();
+  }
+};
+
+class BorrowInst : public Instruction {
+  std::shared_ptr<Value> result;
+  std::shared_ptr<Value> owner;
+
+public:
+  BorrowInst(std::shared_ptr<Value> res, std::shared_ptr<Value> source)
+      : result(std::move(res)), owner(std::move(source)) {}
+  OpCode getOpCode() const override { return OpCode::Borrow; }
+  const std::shared_ptr<Value> &getResult() const { return result; }
+  const std::shared_ptr<Value> &getOwner() const { return owner; }
+  std::string toString() const override {
+    return result->getName() + " = borrow " + result->getTypeName() + " " +
+           owner->getTypeName() + " " + owner->getName();
+  }
+};
+
+class DestroyInst : public Instruction {
   std::shared_ptr<Value> value;
 
 public:
-  ReleaseInst(std::shared_ptr<Value> v) : value(std::move(v)) {}
-  OpCode getOpCode() const override { return OpCode::Release; }
+  explicit DestroyInst(std::shared_ptr<Value> v) : value(std::move(v)) {}
+  OpCode getOpCode() const override { return OpCode::Destroy; }
   const std::shared_ptr<Value> &getValue() const { return value; }
   std::string toString() const override {
-    return "release " + value->getTypeName() + " " + value->getName();
+    return "destroy " + value->getTypeName() + " " + value->getName();
   }
 };
 
@@ -352,6 +413,15 @@ public:
   const std::vector<std::pair<std::string, std::shared_ptr<Value>>> &
   getIncoming() const {
     return incoming;
+  }
+  void replaceIncomingLabel(const std::string &from, std::string to) {
+    for (auto &[label, value] : incoming) {
+      (void)value;
+      if (label == from) {
+        label = std::move(to);
+        return;
+      }
+    }
   }
   std::string toString() const override {
     std::string s = result->getName() + " = phi " + result->getTypeName() + " ";

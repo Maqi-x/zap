@@ -1,0 +1,7 @@
+fun leak(text: noescape StringView) StringView {
+    return text;
+}
+
+fun main() Int {
+    return 0;
+}

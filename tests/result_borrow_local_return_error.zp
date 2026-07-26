@@ -1,0 +1,8 @@
+fun invalid(source: StringView) StringView borrows(source) {
+  var local: String = "local";
+  return local;
+}
+
+fun main() Int {
+  return 0;
+}

@@ -27,8 +27,6 @@ std::string pathToUri(const std::filesystem::path &path);
 bool readSourceFile(const std::filesystem::path &path, std::string &content);
 zap::args::CmdlineArgs findAndReadFlags(std::filesystem::path startPath);
 
-size_t offsetFromPosition(const std::string &text, int64_t line,
-                          int64_t character);
 bool containsOffset(const SourceSpan &span, size_t offset);
 bool isIdentifierChar(char ch);
 std::optional<std::string> identifierAt(const std::string &source,

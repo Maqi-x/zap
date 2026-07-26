@@ -1,0 +1,18 @@
+struct Address {
+    city: String;
+}
+
+record User {
+    address: Address;
+    scores: [2]Int;
+}
+
+fun main() Int {
+    var user = User{
+        address: Address{city: "London"},
+        scores: {10, 20},
+    };
+    user.address.city = "Paris";
+    user.scores[0] = 30;
+    return 0;
+}

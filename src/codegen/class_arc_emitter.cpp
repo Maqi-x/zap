@@ -2,13 +2,234 @@
 #include "class_layout.hpp"
 #include "llvm_codegen.hpp"
 #include <llvm/IR/BasicBlock.h>
+#include <llvm/IR/DataLayout.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Type.h>
+#include <limits>
+#include <stdexcept>
 
 namespace codegen {
 
 ClassArcEmitter::ClassArcEmitter(LLVMCodeGen &codegen) : codegen_(codegen) {}
+
+llvm::Function *
+ClassArcEmitter::getOrCreateRefcountFailureFunction(const char *name) {
+  auto it = codegen_.functionMap_.find(name);
+  if (it != codegen_.functionMap_.end()) {
+    return it->second;
+  }
+
+  auto *failureType =
+      llvm::FunctionType::get(llvm::Type::getVoidTy(codegen_.ctx_), {}, false);
+  auto *failureFn = llvm::Function::Create(
+      failureType, llvm::Function::ExternalLinkage, name, *codegen_.module_);
+  codegen_.functionMap_[name] = failureFn;
+  return failureFn;
+}
+
+llvm::Function *ClassArcEmitter::getOrCreateArcDeallocateFunction() {
+  auto existing = codegen_.functionMap_.find("zap_arc_deallocate");
+  if (existing != codegen_.functionMap_.end()) {
+    return existing->second;
+  }
+
+  auto *rawPtrTy = llvm::PointerType::getUnqual(codegen_.ctx_);
+  auto *deallocateType = llvm::FunctionType::get(
+      llvm::Type::getVoidTy(codegen_.ctx_), {rawPtrTy, rawPtrTy}, false);
+  auto *deallocateFn =
+      llvm::Function::Create(deallocateType, llvm::Function::ExternalLinkage,
+                             "zap_arc_deallocate", *codegen_.module_);
+  codegen_.functionMap_["zap_arc_deallocate"] = deallocateFn;
+  return deallocateFn;
+}
+
+llvm::Value *ClassArcEmitter::emitArcRuntimeContext() {
+  auto it = codegen_.functionMap_.find("zap_arc_default_context");
+  if (it == codegen_.functionMap_.end()) {
+    auto *rawPtrTy = llvm::PointerType::getUnqual(codegen_.ctx_);
+    auto *contextType = llvm::FunctionType::get(rawPtrTy, {}, false);
+    auto *contextFn = llvm::Function::Create(
+        contextType, llvm::Function::ExternalLinkage,
+        "zap_arc_default_context", *codegen_.module_);
+    it = codegen_.functionMap_.emplace("zap_arc_default_context", contextFn)
+             .first;
+  }
+  return codegen_.builder_.CreateCall(it->second, {}, "arc.context");
+}
+
+void ClassArcEmitter::emitRefcountFailure(const char *name) {
+  codegen_.builder_.CreateCall(getOrCreateRefcountFailureFunction(name));
+  codegen_.builder_.CreateUnreachable();
+}
+
+void ClassArcEmitter::ensureNestedClassArcSupport(
+    const std::shared_ptr<zir::Type> &type) {
+  if (!type) {
+    return;
+  }
+
+  switch (type->getKind()) {
+  case zir::TypeKind::Class:
+    ensureClassArcSupport(std::static_pointer_cast<zir::ClassType>(type));
+    return;
+  case zir::TypeKind::Record: {
+    const auto &record = static_cast<const zir::RecordType &>(*type);
+    for (const auto &field : record.getFields()) {
+      ensureNestedClassArcSupport(field.type);
+    }
+    return;
+  }
+  case zir::TypeKind::Array:
+    ensureNestedClassArcSupport(
+        static_cast<const zir::ArrayType &>(*type).getBaseType());
+    return;
+  case zir::TypeKind::TaggedUnion: {
+    const auto &taggedUnion = static_cast<const zir::TaggedUnionType &>(*type);
+    for (const auto &variant : taggedUnion.getVariants()) {
+      ensureNestedClassArcSupport(variant.payloadType);
+    }
+    return;
+  }
+  default:
+    return;
+  }
+}
+
+llvm::Function *ClassArcEmitter::emitClassTraceFunction(
+    const std::shared_ptr<zir::ClassType> &classType,
+    llvm::StructType *objectType) {
+  auto existing = codegen_.classTraceFns_.find(classType->getCodegenName());
+  if (existing != codegen_.classTraceFns_.end()) {
+    return existing->second;
+  }
+
+  auto *rawPtrTy = llvm::PointerType::getUnqual(codegen_.ctx_);
+  auto *traceTy = llvm::FunctionType::get(
+      llvm::Type::getVoidTy(codegen_.ctx_), {rawPtrTy, rawPtrTy, rawPtrTy},
+      false);
+  auto *traceHelper = llvm::Function::Create(
+      traceTy, llvm::Function::InternalLinkage,
+      "__zap_arc_trace_" + classType->getCodegenName(), *codegen_.module_);
+  codegen_.classTraceFns_[classType->getCodegenName()] = traceHelper;
+
+  auto *savedFunction = codegen_.currentFn_;
+  auto *savedBlock = codegen_.builder_.GetInsertBlock();
+  codegen_.currentFn_ = traceHelper;
+  auto *entry = llvm::BasicBlock::Create(codegen_.ctx_, "entry", traceHelper);
+  codegen_.builder_.SetInsertPoint(entry);
+
+  auto argument = traceHelper->arg_begin();
+  auto *rawObject = &*argument++;
+  rawObject->setName("object.raw");
+  auto *visitor = &*argument++;
+  visitor->setName("visitor");
+  auto *context = &*argument;
+  context->setName("context");
+
+  auto *object = codegen_.builder_.CreateBitCast(rawObject, rawPtrTy, "object");
+  for (size_t i = 0; i < classType->getFields().size(); ++i) {
+    auto *fieldAddr = codegen_.builder_.CreateStructGEP(
+        objectType, object, static_cast<unsigned>(i + kClassFieldStartIndex),
+        "field.addr");
+    emitTraceChildren(classType->getFields()[i].type, fieldAddr, visitor,
+                      context);
+  }
+  codegen_.builder_.CreateRetVoid();
+
+  codegen_.currentFn_ = savedFunction;
+  if (savedBlock) {
+    codegen_.builder_.SetInsertPoint(savedBlock);
+  }
+  return traceHelper;
+}
+
+void ClassArcEmitter::emitTraceChildren(
+    const std::shared_ptr<zir::Type> &type, llvm::Value *address,
+    llvm::Value *visitor, llvm::Value *context) {
+  if (!type || !address) {
+    return;
+  }
+
+  if (isClassType(type)) {
+    if (isWeakClassType(type)) {
+      return;
+    }
+    auto *child = codegen_.builder_.CreateLoad(codegen_.toLLVMType(*type),
+                                                address, "trace.child");
+    auto *rawPtrTy = llvm::PointerType::getUnqual(codegen_.ctx_);
+    auto *visitorTy = llvm::FunctionType::get(
+        llvm::Type::getVoidTy(codegen_.ctx_), {rawPtrTy, rawPtrTy}, false);
+    codegen_.builder_.CreateCall(visitorTy, visitor, {context, child});
+    return;
+  }
+
+  if (type->getKind() == zir::TypeKind::Record) {
+    const auto &record = static_cast<const zir::RecordType &>(*type);
+    auto *recordTy = llvm::cast<llvm::StructType>(codegen_.toLLVMType(*type));
+    for (size_t i = 0; i < record.getFields().size(); ++i) {
+      auto *fieldAddr = codegen_.builder_.CreateStructGEP(
+          recordTy, address, static_cast<unsigned>(i), "trace.field.addr");
+      emitTraceChildren(record.getFields()[i].type, fieldAddr, visitor,
+                        context);
+    }
+    return;
+  }
+
+  if (type->getKind() == zir::TypeKind::Array) {
+    const auto &array = static_cast<const zir::ArrayType &>(*type);
+    auto *arrayTy = llvm::cast<llvm::ArrayType>(codegen_.toLLVMType(*type));
+    auto *i32Ty = llvm::Type::getInt32Ty(codegen_.ctx_);
+    for (size_t i = 0; i < array.getSize(); ++i) {
+      llvm::Value *indices[] = {
+          llvm::ConstantInt::get(i32Ty, 0), llvm::ConstantInt::get(i32Ty, i)};
+      auto *elementAddr = codegen_.builder_.CreateInBoundsGEP(
+          arrayTy, address, indices, "trace.element.addr");
+      emitTraceChildren(array.getBaseType(), elementAddr, visitor, context);
+    }
+    return;
+  }
+
+  if (type->getKind() != zir::TypeKind::TaggedUnion) {
+    return;
+  }
+
+  const auto &taggedUnion = static_cast<const zir::TaggedUnionType &>(*type);
+  auto *unionTy = llvm::cast<llvm::StructType>(codegen_.toLLVMType(*type));
+  auto *tagAddr =
+      codegen_.builder_.CreateStructGEP(unionTy, address, 0, "trace.tag.addr");
+  auto *tag = codegen_.builder_.CreateLoad(llvm::Type::getInt32Ty(codegen_.ctx_),
+                                            tagAddr, "trace.tag");
+  auto *done = llvm::BasicBlock::Create(codegen_.ctx_, "trace.union.done",
+                                        codegen_.currentFn_);
+
+  for (const auto &variant : taggedUnion.getVariants()) {
+    if (!variant.payloadType) {
+      continue;
+    }
+
+    auto *active = llvm::BasicBlock::Create(codegen_.ctx_, "trace.union.active",
+                                             codegen_.currentFn_);
+    auto *next = llvm::BasicBlock::Create(codegen_.ctx_, "trace.union.next",
+                                           codegen_.currentFn_);
+    auto *matches = codegen_.builder_.CreateICmpEQ(
+        tag, llvm::ConstantInt::getSigned(llvm::Type::getInt32Ty(codegen_.ctx_),
+                                           variant.tag),
+        "trace.union.is_active");
+    codegen_.builder_.CreateCondBr(matches, active, next);
+
+    codegen_.builder_.SetInsertPoint(active);
+    auto *payloadAddr = codegen_.builder_.CreateStructGEP(
+        unionTy, address, 1, "trace.payload.addr");
+    emitTraceChildren(variant.payloadType, payloadAddr, visitor, context);
+    codegen_.builder_.CreateBr(done);
+
+    codegen_.builder_.SetInsertPoint(next);
+  }
+
+  codegen_.builder_.CreateBr(done);
+  codegen_.builder_.SetInsertPoint(done);
+}
 
 bool ClassArcEmitter::isClassType(
     const std::shared_ptr<zir::Type> &type) const {
@@ -19,30 +240,6 @@ bool ClassArcEmitter::isWeakClassType(
     const std::shared_ptr<zir::Type> &type) const {
   return isClassType(type) &&
          std::static_pointer_cast<zir::ClassType>(type)->isWeak();
-}
-
-bool ClassArcEmitter::expressionProducesOwnedClass(
-    const sema::BoundExpression *expr) const {
-  if (!expr || !isClassType(expr->type)) {
-    return false;
-  }
-  if (dynamic_cast<const sema::BoundNewExpression *>(expr)) {
-    return true;
-  }
-  if (dynamic_cast<const sema::BoundFunctionCall *>(expr)) {
-    return true;
-  }
-  if (dynamic_cast<const sema::BoundWeakLockExpression *>(expr)) {
-    return true;
-  }
-  if (auto cast = dynamic_cast<const sema::BoundCast *>(expr)) {
-    return expressionProducesOwnedClass(cast->expression.get());
-  }
-  if (auto ternary = dynamic_cast<const sema::BoundTernaryExpression *>(expr)) {
-    return expressionProducesOwnedClass(ternary->thenExpr.get()) &&
-           expressionProducesOwnedClass(ternary->elseExpr.get());
-  }
-  return false;
 }
 
 void ClassArcEmitter::emitRetainIfNeeded(
@@ -56,8 +253,17 @@ void ClassArcEmitter::emitRetainIfNeeded(
     return;
   }
 
-  auto *retainBB = llvm::BasicBlock::Create(codegen_.ctx_, "arc.retain.do",
+  auto *retainBB = llvm::BasicBlock::Create(codegen_.ctx_, "arc.retain.check",
                                             codegen_.currentFn_);
+  auto *countBB = llvm::BasicBlock::Create(codegen_.ctx_, "arc.retain.count",
+                                            codegen_.currentFn_);
+  auto *incrementBB = llvm::BasicBlock::Create(codegen_.ctx_, "arc.retain.do",
+                                                codegen_.currentFn_);
+  auto *overflowBB = llvm::BasicBlock::Create(codegen_.ctx_,
+                                               "arc.retain.overflow",
+                                               codegen_.currentFn_);
+  auto *deadBB = llvm::BasicBlock::Create(codegen_.ctx_, "arc.retain.dead",
+                                           codegen_.currentFn_);
   auto *contBB = llvm::BasicBlock::Create(codegen_.ctx_, "arc.retain.cont",
                                           codegen_.currentFn_);
   auto *isNull = codegen_.builder_.CreateICmpEQ(
@@ -69,15 +275,42 @@ void ClassArcEmitter::emitRetainIfNeeded(
   auto *objectTy =
       codegen_.structCache_.at(classType->getCodegenName() + ".obj");
   auto *typedPtr = codegen_.builder_.CreateBitCast(
-      value, llvm::PointerType::getUnqual(objectTy), "arc.retain.cast");
+      value, llvm::PointerType::getUnqual(codegen_.ctx_), "arc.retain.cast");
+  auto *aliveAddr = codegen_.builder_.CreateStructGEP(
+      objectTy, typedPtr, kClassAliveIndex, "arc.retain.alive.addr");
+  auto *alive = codegen_.builder_.CreateLoad(
+      llvm::Type::getInt8Ty(codegen_.ctx_), aliveAddr, "arc.retain.alive");
+  auto *isDead = codegen_.builder_.CreateICmpEQ(
+      alive,
+      llvm::ConstantInt::get(llvm::Type::getInt8Ty(codegen_.ctx_), 0));
+  codegen_.builder_.CreateCondBr(isDead, deadBB, countBB);
+
+  codegen_.builder_.SetInsertPoint(deadBB);
+  emitRefcountFailure("zap_arc_retain_dead_object");
+
+  codegen_.builder_.SetInsertPoint(countBB);
   auto *countAddr = codegen_.builder_.CreateStructGEP(
       objectTy, typedPtr, kClassStrongCountIndex, "arc.retain.count.addr");
   auto *count = codegen_.builder_.CreateLoad(
       llvm::Type::getInt64Ty(codegen_.ctx_), countAddr, "arc.retain.count");
+  auto *maximum = llvm::ConstantInt::getSigned(
+      llvm::Type::getInt64Ty(codegen_.ctx_), INT64_MAX);
+  auto *isOverflow = codegen_.builder_.CreateICmpSGE(
+      count, maximum, "arc.retain.overflowed");
+  codegen_.builder_.CreateCondBr(isOverflow, overflowBB, incrementBB);
+
+  codegen_.builder_.SetInsertPoint(overflowBB);
+  emitRefcountFailure("zap_arc_strong_refcount_overflow");
+
+  codegen_.builder_.SetInsertPoint(incrementBB);
   auto *next = codegen_.builder_.CreateAdd(
       count, llvm::ConstantInt::get(llvm::Type::getInt64Ty(codegen_.ctx_), 1),
       "arc.retain.next");
   codegen_.builder_.CreateStore(next, countAddr);
+#if defined(ZAP_RUNTIME_INSTRUMENTATION)
+  codegen_.emitRuntimeOwnershipEvent(
+      "zap_runtime_ownership_note_strong_retain");
+#endif
   codegen_.builder_.CreateBr(contBB);
   codegen_.builder_.SetInsertPoint(contBB);
 }
@@ -106,7 +339,7 @@ void ClassArcEmitter::emitReleaseIfNeeded(
   auto *objectTy =
       codegen_.structCache_.at(classType->getCodegenName() + ".obj");
   auto *typedPtr = codegen_.builder_.CreateBitCast(
-      value, llvm::PointerType::getUnqual(objectTy), "arc.release.cast");
+      value, llvm::PointerType::getUnqual(codegen_.ctx_), "arc.release.cast");
   auto *gcMarkAddr = codegen_.builder_.CreateStructGEP(
       objectTy, typedPtr, kClassGcMarkIndex, "arc.release.gcmark.addr");
   auto *gcMark = codegen_.builder_.CreateLoad(
@@ -127,14 +360,14 @@ void ClassArcEmitter::emitReleaseIfNeeded(
   auto *releaseAddr = codegen_.builder_.CreateStructGEP(
       objectTy, typedPtr, kClassReleaseFnIndex, "arc.release.fn.addr");
   auto *releaseFn = codegen_.builder_.CreateLoad(
-      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(codegen_.ctx_)),
+      llvm::PointerType::getUnqual(codegen_.ctx_),
       releaseAddr, "arc.release.fn");
   auto *rawObject = codegen_.builder_.CreateBitCast(
       typedPtr,
-      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(codegen_.ctx_)));
+      llvm::PointerType::getUnqual(codegen_.ctx_));
   auto *releaseTy = llvm::FunctionType::get(
       llvm::Type::getVoidTy(codegen_.ctx_),
-      {llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(codegen_.ctx_))},
+      {llvm::PointerType::getUnqual(codegen_.ctx_)},
       false);
   codegen_.builder_.CreateCall(releaseTy, releaseFn, {rawObject});
   codegen_.builder_.CreateBr(contBB);
@@ -154,8 +387,15 @@ void ClassArcEmitter::emitRetainWeakIfNeeded(
     return;
   }
 
-  auto *retainBB = llvm::BasicBlock::Create(codegen_.ctx_, "arc.weak.retain.do",
+  auto *retainBB = llvm::BasicBlock::Create(codegen_.ctx_,
+                                            "arc.weak.retain.check",
                                             codegen_.currentFn_);
+  auto *incrementBB = llvm::BasicBlock::Create(codegen_.ctx_,
+                                                "arc.weak.retain.do",
+                                                codegen_.currentFn_);
+  auto *overflowBB = llvm::BasicBlock::Create(codegen_.ctx_,
+                                               "arc.weak.retain.overflow",
+                                               codegen_.currentFn_);
   auto *contBB = llvm::BasicBlock::Create(codegen_.ctx_, "arc.weak.retain.cont",
                                           codegen_.currentFn_);
   auto *isNull = codegen_.builder_.CreateICmpEQ(
@@ -168,11 +408,21 @@ void ClassArcEmitter::emitRetainWeakIfNeeded(
   auto *objectTy =
       codegen_.structCache_.at(classType->getCodegenName() + ".obj");
   auto *typedPtr = codegen_.builder_.CreateBitCast(
-      value, llvm::PointerType::getUnqual(objectTy), "arc.weak.retain.cast");
+      value, llvm::PointerType::getUnqual(codegen_.ctx_), "arc.weak.retain.cast");
   auto *countAddr = codegen_.builder_.CreateStructGEP(
       objectTy, typedPtr, kClassWeakCountIndex, "arc.weak.count.addr");
   auto *count = codegen_.builder_.CreateLoad(
       llvm::Type::getInt64Ty(codegen_.ctx_), countAddr, "arc.weak.count");
+  auto *maximum = llvm::ConstantInt::getSigned(
+      llvm::Type::getInt64Ty(codegen_.ctx_), INT64_MAX);
+  auto *isOverflow = codegen_.builder_.CreateICmpSGE(
+      count, maximum, "arc.weak.retain.overflowed");
+  codegen_.builder_.CreateCondBr(isOverflow, overflowBB, incrementBB);
+
+  codegen_.builder_.SetInsertPoint(overflowBB);
+  emitRefcountFailure("zap_arc_weak_refcount_overflow");
+
+  codegen_.builder_.SetInsertPoint(incrementBB);
   auto *next = codegen_.builder_.CreateAdd(
       count, llvm::ConstantInt::get(llvm::Type::getInt64Ty(codegen_.ctx_), 1),
       "arc.weak.next");
@@ -193,9 +443,13 @@ void ClassArcEmitter::emitReleaseWeakIfNeeded(
   }
 
   auto *releaseBB = llvm::BasicBlock::Create(
+      codegen_.ctx_, "arc.weak.release.check", codegen_.currentFn_);
+  auto *decrementBB = llvm::BasicBlock::Create(
       codegen_.ctx_, "arc.weak.release.do", codegen_.currentFn_);
-  auto *checkFreeBB = llvm::BasicBlock::Create(
-      codegen_.ctx_, "arc.weak.release.checkfree", codegen_.currentFn_);
+  auto *underflowBB = llvm::BasicBlock::Create(
+      codegen_.ctx_, "arc.weak.release.underflow", codegen_.currentFn_);
+  auto *checkDeadBB = llvm::BasicBlock::Create(
+      codegen_.ctx_, "arc.weak.release.checkdead", codegen_.currentFn_);
   auto *freeBB = llvm::BasicBlock::Create(
       codegen_.ctx_, "arc.weak.release.free", codegen_.currentFn_);
   auto *contBB = llvm::BasicBlock::Create(
@@ -210,12 +464,22 @@ void ClassArcEmitter::emitReleaseWeakIfNeeded(
   auto *objectTy =
       codegen_.structCache_.at(classType->getCodegenName() + ".obj");
   auto *typedPtr = codegen_.builder_.CreateBitCast(
-      value, llvm::PointerType::getUnqual(objectTy), "arc.weak.release.cast");
+      value, llvm::PointerType::getUnqual(codegen_.ctx_), "arc.weak.release.cast");
   auto *weakAddr = codegen_.builder_.CreateStructGEP(
       objectTy, typedPtr, kClassWeakCountIndex, "arc.weak.release.count.addr");
   auto *weakCount =
       codegen_.builder_.CreateLoad(llvm::Type::getInt64Ty(codegen_.ctx_),
                                    weakAddr, "arc.weak.release.count");
+  auto *isUnderflow = codegen_.builder_.CreateICmpSLE(
+      weakCount, llvm::ConstantInt::get(llvm::Type::getInt64Ty(codegen_.ctx_),
+                                         0),
+      "arc.weak.release.underflowed");
+  codegen_.builder_.CreateCondBr(isUnderflow, underflowBB, decrementBB);
+
+  codegen_.builder_.SetInsertPoint(underflowBB);
+  emitRefcountFailure("zap_arc_weak_refcount_underflow");
+
+  codegen_.builder_.SetInsertPoint(decrementBB);
   auto *nextWeak = codegen_.builder_.CreateSub(
       weakCount,
       llvm::ConstantInt::get(llvm::Type::getInt64Ty(codegen_.ctx_), 1),
@@ -224,42 +488,38 @@ void ClassArcEmitter::emitReleaseWeakIfNeeded(
   auto *isWeakZero = codegen_.builder_.CreateICmpEQ(
       nextWeak,
       llvm::ConstantInt::get(llvm::Type::getInt64Ty(codegen_.ctx_), 0));
-  codegen_.builder_.CreateCondBr(isWeakZero, checkFreeBB, contBB);
+  codegen_.builder_.CreateCondBr(isWeakZero, checkDeadBB, contBB);
 
-  codegen_.builder_.SetInsertPoint(checkFreeBB);
-  auto *strongAddr = codegen_.builder_.CreateStructGEP(
-      objectTy, typedPtr, kClassStrongCountIndex,
-      "arc.weak.release.strong.addr");
-  auto *strongCount =
-      codegen_.builder_.CreateLoad(llvm::Type::getInt64Ty(codegen_.ctx_),
-                                   strongAddr, "arc.weak.release.strong");
-  auto *isStrongZero = codegen_.builder_.CreateICmpEQ(
-      strongCount,
-      llvm::ConstantInt::get(llvm::Type::getInt64Ty(codegen_.ctx_), 0));
-  codegen_.builder_.CreateCondBr(isStrongZero, freeBB, contBB);
+  codegen_.builder_.SetInsertPoint(checkDeadBB);
+  auto *aliveAddr = codegen_.builder_.CreateStructGEP(
+      objectTy, typedPtr, kClassAliveIndex, "arc.weak.release.alive.addr");
+  auto *alive = codegen_.builder_.CreateLoad(
+      llvm::Type::getInt8Ty(codegen_.ctx_), aliveAddr,
+      "arc.weak.release.alive");
+  auto *isDead = codegen_.builder_.CreateICmpEQ(
+      alive,
+      llvm::ConstantInt::get(llvm::Type::getInt8Ty(codegen_.ctx_), 0));
+  auto *gcMarkAddr = codegen_.builder_.CreateStructGEP(
+      objectTy, typedPtr, kClassGcMarkIndex, "arc.weak.release.gcmark.addr");
+  auto *gcMark = codegen_.builder_.CreateLoad(
+      llvm::Type::getInt8Ty(codegen_.ctx_), gcMarkAddr,
+      "arc.weak.release.gcmark");
+  auto *protectedBits = codegen_.builder_.CreateAnd(
+      gcMark, llvm::ConstantInt::get(llvm::Type::getInt8Ty(codegen_.ctx_),
+                                     kClassGcGarbageMask |
+                                         kClassGcFinalizingMask));
+  auto *isNotFinalizing = codegen_.builder_.CreateICmpEQ(
+      protectedBits,
+      llvm::ConstantInt::get(llvm::Type::getInt8Ty(codegen_.ctx_), 0));
+  auto *canDeallocate = codegen_.builder_.CreateAnd(isDead, isNotFinalizing);
+  codegen_.builder_.CreateCondBr(canDeallocate, freeBB, contBB);
 
   codegen_.builder_.SetInsertPoint(freeBB);
   auto *rawObject = codegen_.builder_.CreateBitCast(
       typedPtr,
-      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(codegen_.ctx_)));
-  if (codegen_.functionMap_.count("zap_arc_remove_possible_root") == 0) {
-    auto *removeTy = llvm::FunctionType::get(
-        llvm::Type::getVoidTy(codegen_.ctx_), {rawObject->getType()}, false);
-    auto *removeFn = llvm::Function::Create(
-        removeTy, llvm::Function::ExternalLinkage,
-        "zap_arc_remove_possible_root", *codegen_.module_);
-    codegen_.functionMap_["zap_arc_remove_possible_root"] = removeFn;
-  }
-  codegen_.builder_.CreateCall(
-      codegen_.functionMap_.at("zap_arc_remove_possible_root"), {rawObject});
-  if (codegen_.functionMap_.count("free") == 0) {
-    auto *freeTy = llvm::FunctionType::get(llvm::Type::getVoidTy(codegen_.ctx_),
-                                           {rawObject->getType()}, false);
-    auto *freeFn = llvm::Function::Create(
-        freeTy, llvm::Function::ExternalLinkage, "free", *codegen_.module_);
-    codegen_.functionMap_["free"] = freeFn;
-  }
-  codegen_.builder_.CreateCall(codegen_.functionMap_.at("free"), {rawObject});
+      llvm::PointerType::getUnqual(codegen_.ctx_));
+  codegen_.builder_.CreateCall(getOrCreateArcDeallocateFunction(),
+                               {emitArcRuntimeContext(), rawObject});
   codegen_.builder_.CreateBr(contBB);
 
   codegen_.builder_.SetInsertPoint(contBB);
@@ -292,7 +552,7 @@ ClassArcEmitter::emitWeakAlive(llvm::Value *value,
 
   codegen_.builder_.SetInsertPoint(nonNullBB);
   auto *typedPtr = codegen_.builder_.CreateBitCast(
-      value, llvm::PointerType::getUnqual(objectTy), "arc.weak.alive.cast");
+      value, llvm::PointerType::getUnqual(codegen_.ctx_), "arc.weak.alive.cast");
   auto *aliveAddr = codegen_.builder_.CreateStructGEP(
       objectTy, typedPtr, kClassAliveIndex, "arc.weak.alive.addr");
   auto *aliveValue = codegen_.builder_.CreateLoad(
@@ -346,7 +606,7 @@ ClassArcEmitter::emitWeakLock(llvm::Value *value,
 
   codegen_.builder_.SetInsertPoint(aliveCheckBB);
   auto *typedPtr = codegen_.builder_.CreateBitCast(
-      value, llvm::PointerType::getUnqual(objectTy), "arc.weak.lock.cast");
+      value, llvm::PointerType::getUnqual(codegen_.ctx_), "arc.weak.lock.cast");
   auto *aliveAddr = codegen_.builder_.CreateStructGEP(
       objectTy, typedPtr, kClassAliveIndex, "arc.weak.lock.alive.addr");
   auto *aliveValue = codegen_.builder_.CreateLoad(
@@ -374,14 +634,17 @@ ClassArcEmitter::emitWeakLock(llvm::Value *value,
 
 void ClassArcEmitter::emitStoreWithArc(llvm::Value *addr, llvm::Value *value,
                                        const std::shared_ptr<zir::Type> &type,
-                                       bool valueIsOwned, bool skipReleaseOld) {
+                                       zir::ValueOwnership valueOwnership,
+                                       bool skipReleaseOld) {
   if (!isClassType(type)) {
     codegen_.builder_.CreateStore(value, addr);
     return;
   }
 
   if (isWeakClassType(type)) {
-    emitRetainWeakIfNeeded(value, type);
+    if (valueOwnership != zir::ValueOwnership::OwnedWeak) {
+      emitRetainWeakIfNeeded(value, type);
+    }
     if (!skipReleaseOld) {
       auto *oldValue = codegen_.builder_.CreateLoad(codegen_.toLLVMType(*type),
                                                     addr, "arc.weak.store.old");
@@ -390,7 +653,7 @@ void ClassArcEmitter::emitStoreWithArc(llvm::Value *addr, llvm::Value *value,
     } else {
       codegen_.builder_.CreateStore(value, addr);
     }
-    if (valueIsOwned) {
+    if (valueOwnership == zir::ValueOwnership::OwnedStrong) {
       auto strongType = std::make_shared<zir::ClassType>(
           *std::static_pointer_cast<zir::ClassType>(type));
       strongType->setWeak(false);
@@ -399,7 +662,7 @@ void ClassArcEmitter::emitStoreWithArc(llvm::Value *addr, llvm::Value *value,
     return;
   }
 
-  if (!valueIsOwned) {
+  if (valueOwnership != zir::ValueOwnership::OwnedStrong) {
     emitRetainIfNeeded(value, type);
   }
   if (!skipReleaseOld) {
@@ -412,28 +675,10 @@ void ClassArcEmitter::emitStoreWithArc(llvm::Value *addr, llvm::Value *value,
   }
 }
 
-void ClassArcEmitter::emitScopeReleases() {
-  if (codegen_.scopeClassLocals_.empty()) {
-    return;
-  }
-
-  auto &locals = codegen_.scopeClassLocals_.back();
-  for (auto it = locals.rbegin(); it != locals.rend(); ++it) {
-    auto *addr = it->second;
-    auto *value = codegen_.builder_.CreateLoad(codegen_.toLLVMType(*it->first),
-                                               addr, "arc.scope.value");
-    if (isWeakClassType(it->first)) {
-      emitReleaseWeakIfNeeded(value, it->first);
-    } else {
-      emitReleaseIfNeeded(value, it->first);
-    }
-  }
-  locals.clear();
-}
-
 void ClassArcEmitter::ensureClassArcSupport(
     const std::shared_ptr<zir::ClassType> &classType) {
-  if (!classType || codegen_.classReleaseFns_.count(classType->getName())) {
+  if (!classType ||
+      codegen_.classReleaseFns_.count(classType->getCodegenName())) {
     return;
   }
 
@@ -441,7 +686,7 @@ void ClassArcEmitter::ensureClassArcSupport(
   auto *objectTy =
       codegen_.structCache_.at(classType->getCodegenName() + ".obj");
   auto *rawPtrTy =
-      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(codegen_.ctx_));
+      llvm::PointerType::getUnqual(codegen_.ctx_);
   auto *helperTy = llvm::FunctionType::get(llvm::Type::getVoidTy(codegen_.ctx_),
                                            {rawPtrTy}, false);
   auto *releaseHelper = llvm::Function::Create(
@@ -450,21 +695,18 @@ void ClassArcEmitter::ensureClassArcSupport(
   auto *destroyHelper = llvm::Function::Create(
       helperTy, llvm::Function::InternalLinkage,
       "__zap_arc_destroy_" + classType->getCodegenName(), *codegen_.module_);
-  codegen_.classReleaseFns_[classType->getName()] = releaseHelper;
-  codegen_.classDestroyFns_[classType->getName()] = destroyHelper;
+  codegen_.classReleaseFns_[classType->getCodegenName()] = releaseHelper;
+  codegen_.classDestroyFns_[classType->getCodegenName()] = destroyHelper;
 
   for (const auto &field : classType->getFields()) {
-    if (field.type && field.type->getKind() == zir::TypeKind::Class) {
-      ensureClassArcSupport(
-          std::static_pointer_cast<zir::ClassType>(field.type));
-    }
+    ensureNestedClassArcSupport(field.type);
   }
 
-  if (!codegen_.classVTables_.count(classType->getName())) {
+  if (!codegen_.classVTables_.count(classType->getCodegenName())) {
     std::vector<llvm::Constant *> entries;
     if (auto base = classType->getBase()) {
       ensureClassArcSupport(base);
-      auto *baseVTable = codegen_.classVTables_.at(base->getName());
+      auto *baseVTable = codegen_.classVTables_.at(base->getCodegenName());
       if (auto *baseInit = baseVTable->getInitializer()) {
         for (unsigned i = 0; i < baseInit->getNumOperands(); ++i) {
           entries.push_back(
@@ -473,10 +715,11 @@ void ClassArcEmitter::ensureClassArcSupport(
       }
     }
 
-    auto methodsIt = codegen_.classVirtualMethodFns_.find(classType->getName());
+    auto methodsIt =
+        codegen_.classVirtualMethodFns_.find(classType->getCodegenName());
     if (methodsIt != codegen_.classVirtualMethodFns_.end()) {
       auto *i8PtrTy =
-          llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(codegen_.ctx_));
+          llvm::PointerType::getUnqual(codegen_.ctx_);
       for (const auto &[slot, fn] : methodsIt->second) {
         if (slot >= static_cast<int>(entries.size())) {
           entries.resize(static_cast<size_t>(slot + 1),
@@ -487,78 +730,38 @@ void ClassArcEmitter::ensureClassArcSupport(
     }
 
     auto *i8PtrTy =
-        llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(codegen_.ctx_));
+        llvm::PointerType::getUnqual(codegen_.ctx_);
     auto *vtableTy =
         llvm::ArrayType::get(i8PtrTy, static_cast<uint64_t>(entries.size()));
     auto *init = llvm::ConstantArray::get(vtableTy, entries);
     auto *gv = new llvm::GlobalVariable(
         *codegen_.module_, vtableTy, true, llvm::GlobalValue::InternalLinkage,
         init, "__zap_vtable_" + classType->getCodegenName());
-    codegen_.classVTables_[classType->getName()] = gv;
+    codegen_.classVTables_[classType->getCodegenName()] = gv;
   }
 
-  if (!codegen_.classMetadataGlobals_.count(classType->getName())) {
-    std::vector<uint32_t> strongFieldOffsets;
-    auto *layout = codegen_.module_->getDataLayout().getStructLayout(objectTy);
-    for (size_t i = 0; i < classType->getFields().size(); ++i) {
-      const auto &field = classType->getFields()[i];
-      if (!field.type || field.type->getKind() != zir::TypeKind::Class ||
-          isWeakClassType(field.type)) {
-        continue;
-      }
-      strongFieldOffsets.push_back(
-          static_cast<uint32_t>(layout->getElementOffset(
-              static_cast<unsigned>(i + kClassFieldStartIndex))));
-    }
-
-    auto *i32Ty = llvm::Type::getInt32Ty(codegen_.ctx_);
-    auto *i32PtrTy = llvm::PointerType::getUnqual(i32Ty);
-    llvm::Constant *offsetPtr = llvm::ConstantPointerNull::get(i32PtrTy);
-    if (!strongFieldOffsets.empty()) {
-      std::vector<llvm::Constant *> offsetConstants;
-      for (uint32_t offset : strongFieldOffsets) {
-        offsetConstants.push_back(llvm::ConstantInt::get(i32Ty, offset));
-      }
-      auto *offsetArrayTy = llvm::ArrayType::get(i32Ty, offsetConstants.size());
-      auto *offsetArrayInit =
-          llvm::ConstantArray::get(offsetArrayTy, offsetConstants);
-      auto *offsetGlobal = new llvm::GlobalVariable(
-          *codegen_.module_, offsetArrayTy, true,
-          llvm::GlobalValue::InternalLinkage, offsetArrayInit,
-          "__zap_arc_offsets_" + classType->getCodegenName());
-      auto *zero =
-          llvm::ConstantInt::get(llvm::Type::getInt32Ty(codegen_.ctx_), 0);
-      llvm::Constant *indices[] = {zero, zero};
-      offsetPtr = llvm::ConstantExpr::getInBoundsGetElementPtr(
-          offsetArrayTy, offsetGlobal, indices);
-    }
-
+  if (!codegen_.classMetadataGlobals_.count(classType->getCodegenName())) {
+    auto *traceHelper = emitClassTraceFunction(classType, objectTy);
+    auto *i32PtrTy = llvm::PointerType::getUnqual(codegen_.ctx_);
     auto *metaTy = llvm::StructType::create(
         codegen_.ctx_, "__zap_arc_meta_" + classType->getCodegenName());
-    metaTy->setBody({i32Ty, i32PtrTy});
+    metaTy->setBody({i32PtrTy});
     auto *metaInit = llvm::ConstantStruct::get(
-        metaTy,
-        llvm::ConstantInt::get(
-            i32Ty, static_cast<uint32_t>(strongFieldOffsets.size())),
-        offsetPtr);
+        metaTy, llvm::ConstantExpr::getBitCast(traceHelper, i32PtrTy));
     auto *metaGlobal = new llvm::GlobalVariable(
         *codegen_.module_, metaTy, true, llvm::GlobalValue::InternalLinkage,
         metaInit, "__zap_arc_meta_" + classType->getCodegenName());
-    codegen_.classMetadataGlobals_[classType->getName()] = metaGlobal;
+    codegen_.classMetadataGlobals_[classType->getCodegenName()] = metaGlobal;
   }
 
   auto savedFn = codegen_.currentFn_;
-  auto savedLocals = codegen_.localValues_;
   auto savedBlock = codegen_.builder_.GetInsertBlock();
 
   codegen_.currentFn_ = destroyHelper;
-  codegen_.localValues_.clear();
   auto *destroyEntry =
       llvm::BasicBlock::Create(codegen_.ctx_, "entry", destroyHelper);
   auto *destroyReturnBB =
       llvm::BasicBlock::Create(codegen_.ctx_, "arc.ret", destroyHelper);
-  auto *destroyFreeBB =
-      llvm::BasicBlock::Create(codegen_.ctx_, "arc.free", destroyHelper);
   codegen_.builder_.SetInsertPoint(destroyEntry);
 
   auto *destroyRawObject = &*destroyHelper->arg_begin();
@@ -571,14 +774,26 @@ void ClassArcEmitter::ensureClassArcSupport(
   codegen_.builder_.CreateCondBr(destroyIsNull, destroyReturnBB, destroyBodyBB);
 
   codegen_.builder_.SetInsertPoint(destroyBodyBB);
+#if defined(ZAP_RUNTIME_INSTRUMENTATION)
+  codegen_.emitRuntimeOwnershipEvent("zap_runtime_ownership_note_destroy");
+#endif
   auto *destroyTypedObject = codegen_.builder_.CreateBitCast(
-      destroyRawObject, llvm::PointerType::getUnqual(objectTy), "object");
+      destroyRawObject, llvm::PointerType::getUnqual(codegen_.ctx_), "object");
   auto *aliveAddr = codegen_.builder_.CreateStructGEP(
       objectTy, destroyTypedObject, kClassAliveIndex, "alive.addr");
   codegen_.builder_.CreateStore(
       llvm::ConstantInt::get(llvm::Type::getInt8Ty(codegen_.ctx_), 0),
       aliveAddr);
-  auto dtorIt = codegen_.classDestructorFns_.find(classType->getName());
+  auto *gcMarkAddr = codegen_.builder_.CreateStructGEP(
+      objectTy, destroyTypedObject, kClassGcMarkIndex, "gcmark.addr");
+  auto *gcMark = codegen_.builder_.CreateLoad(
+      llvm::Type::getInt8Ty(codegen_.ctx_), gcMarkAddr, "gcmark");
+  auto *finalizingMark = codegen_.builder_.CreateOr(
+      gcMark, llvm::ConstantInt::get(llvm::Type::getInt8Ty(codegen_.ctx_),
+                                     kClassGcFinalizingMask));
+  codegen_.builder_.CreateStore(finalizingMark, gcMarkAddr);
+  auto dtorIt =
+      codegen_.classDestructorFns_.find(classType->getCodegenName());
   if (dtorIt != codegen_.classDestructorFns_.end()) {
     auto *dtorPtr = codegen_.builder_.CreateBitCast(
         destroyTypedObject, dtorIt->second->getArg(0)->getType(), "dtor.self");
@@ -587,7 +802,7 @@ void ClassArcEmitter::ensureClassArcSupport(
 
   for (size_t i = 0; i < classType->getFields().size(); ++i) {
     const auto &field = classType->getFields()[i];
-    if (!field.type || field.type->getKind() != zir::TypeKind::Class) {
+    if (!field.type || !codegen_.containsManagedValues(field.type)) {
       continue;
     }
     auto *fieldAddr = codegen_.builder_.CreateStructGEP(
@@ -595,56 +810,36 @@ void ClassArcEmitter::ensureClassArcSupport(
         static_cast<unsigned>(i + kClassFieldStartIndex));
     auto *fieldValue = codegen_.builder_.CreateLoad(
         codegen_.toLLVMType(*field.type), fieldAddr, field.name);
-    if (isWeakClassType(field.type)) {
-      emitReleaseWeakIfNeeded(fieldValue, field.type);
-    } else {
-      emitReleaseIfNeeded(fieldValue, field.type);
-    }
+    codegen_.emitManagedRelease(fieldValue, field.type);
   }
 
-  auto *weakAddr = codegen_.builder_.CreateStructGEP(
-      objectTy, destroyTypedObject, kClassWeakCountIndex, "weakcount.addr");
-  auto *weakCount = codegen_.builder_.CreateLoad(
-      llvm::Type::getInt64Ty(codegen_.ctx_), weakAddr, "weakcount");
-  auto *isWeakZero = codegen_.builder_.CreateICmpEQ(
-      weakCount,
-      llvm::ConstantInt::get(llvm::Type::getInt64Ty(codegen_.ctx_), 0));
-  codegen_.builder_.CreateCondBr(isWeakZero, destroyFreeBB, destroyReturnBB);
-
-  codegen_.builder_.SetInsertPoint(destroyFreeBB);
-  if (codegen_.functionMap_.count("zap_arc_remove_possible_root") == 0) {
-    auto *removeTy = llvm::FunctionType::get(
-        llvm::Type::getVoidTy(codegen_.ctx_), {rawPtrTy}, false);
-    auto *removeFn = llvm::Function::Create(
-        removeTy, llvm::Function::ExternalLinkage,
-        "zap_arc_remove_possible_root", *codegen_.module_);
-    codegen_.functionMap_["zap_arc_remove_possible_root"] = removeFn;
-  }
-  codegen_.builder_.CreateCall(
-      codegen_.functionMap_.at("zap_arc_remove_possible_root"),
-      {destroyRawObject});
-  if (codegen_.functionMap_.count("free") == 0) {
-    auto *freeTy = llvm::FunctionType::get(llvm::Type::getVoidTy(codegen_.ctx_),
-                                           {rawPtrTy}, false);
-    auto *freeFn = llvm::Function::Create(
-        freeTy, llvm::Function::ExternalLinkage, "free", *codegen_.module_);
-    codegen_.functionMap_["free"] = freeFn;
-  }
-  codegen_.builder_.CreateCall(codegen_.functionMap_.at("free"),
-                               {destroyRawObject});
+  auto *markAfterDrop = codegen_.builder_.CreateLoad(
+      llvm::Type::getInt8Ty(codegen_.ctx_), gcMarkAddr, "gcmark.after.drop");
+  auto *finalizedMark = codegen_.builder_.CreateAnd(
+      markAfterDrop,
+      llvm::ConstantInt::get(llvm::Type::getInt8Ty(codegen_.ctx_),
+                             static_cast<uint8_t>(~kClassGcFinalizingMask)));
+  codegen_.builder_.CreateStore(finalizedMark, gcMarkAddr);
   codegen_.builder_.CreateBr(destroyReturnBB);
 
   codegen_.builder_.SetInsertPoint(destroyReturnBB);
   codegen_.builder_.CreateRetVoid();
 
   codegen_.currentFn_ = releaseHelper;
-  codegen_.localValues_.clear();
   auto *entry = llvm::BasicBlock::Create(codegen_.ctx_, "entry", releaseHelper);
   auto *decrementedBB =
+      llvm::BasicBlock::Create(codegen_.ctx_, "arc.dec.check", releaseHelper);
+  auto *validReleaseBB =
       llvm::BasicBlock::Create(codegen_.ctx_, "arc.dec", releaseHelper);
+  auto *underflowBB = llvm::BasicBlock::Create(codegen_.ctx_,
+                                                "arc.dec.underflow",
+                                                releaseHelper);
   auto *destroyBB =
       llvm::BasicBlock::Create(codegen_.ctx_, "arc.destroy", releaseHelper);
-  bool canBeCyclic = codegen_.cyclicClasses_.count(classType->getName()) != 0;
+  auto *deallocateBB =
+      llvm::BasicBlock::Create(codegen_.ctx_, "arc.deallocate", releaseHelper);
+  bool canBeCyclic =
+      codegen_.cyclicClasses_.count(classType->getCodegenName()) != 0;
   auto *cycleBB =
       canBeCyclic
           ? llvm::BasicBlock::Create(codegen_.ctx_, "arc.cycle", releaseHelper)
@@ -662,15 +857,28 @@ void ClassArcEmitter::ensureClassArcSupport(
 
   codegen_.builder_.SetInsertPoint(decrementedBB);
   auto *typedObject = codegen_.builder_.CreateBitCast(
-      rawObject, llvm::PointerType::getUnqual(objectTy), "object");
+      rawObject, llvm::PointerType::getUnqual(codegen_.ctx_), "object");
   auto *countAddr = codegen_.builder_.CreateStructGEP(
       objectTy, typedObject, kClassStrongCountIndex, "refcount.addr");
   auto *count = codegen_.builder_.CreateLoad(
       llvm::Type::getInt64Ty(codegen_.ctx_), countAddr, "refcount");
+  auto *isUnderflow = codegen_.builder_.CreateICmpSLE(
+      count, llvm::ConstantInt::get(llvm::Type::getInt64Ty(codegen_.ctx_), 0),
+      "refcount.underflowed");
+  codegen_.builder_.CreateCondBr(isUnderflow, underflowBB, validReleaseBB);
+
+  codegen_.builder_.SetInsertPoint(underflowBB);
+  emitRefcountFailure("zap_arc_strong_refcount_underflow");
+
+  codegen_.builder_.SetInsertPoint(validReleaseBB);
   auto *nextCount = codegen_.builder_.CreateSub(
       count, llvm::ConstantInt::get(llvm::Type::getInt64Ty(codegen_.ctx_), 1),
       "refcount.next");
   codegen_.builder_.CreateStore(nextCount, countAddr);
+#if defined(ZAP_RUNTIME_INSTRUMENTATION)
+  codegen_.emitRuntimeOwnershipEvent(
+      "zap_runtime_ownership_note_strong_release");
+#endif
   auto *isZero = codegen_.builder_.CreateICmpEQ(
       nextCount,
       llvm::ConstantInt::get(llvm::Type::getInt64Ty(codegen_.ctx_), 0));
@@ -678,38 +886,52 @@ void ClassArcEmitter::ensureClassArcSupport(
                                  canBeCyclic ? cycleBB : returnBB);
 
   codegen_.builder_.SetInsertPoint(destroyBB);
+  if (codegen_.functionMap_.count("zap_arc_remove_possible_root") == 0) {
+    auto *removeTy = llvm::FunctionType::get(
+        llvm::Type::getVoidTy(codegen_.ctx_), {rawPtrTy, rawPtrTy}, false);
+    auto *removeFn = llvm::Function::Create(
+        removeTy, llvm::Function::ExternalLinkage,
+        "zap_arc_remove_possible_root", *codegen_.module_);
+    codegen_.functionMap_["zap_arc_remove_possible_root"] = removeFn;
+  }
+  codegen_.builder_.CreateCall(
+      codegen_.functionMap_.at("zap_arc_remove_possible_root"),
+      {emitArcRuntimeContext(), rawObject});
   auto *destroyAddr = codegen_.builder_.CreateStructGEP(
       objectTy, typedObject, kClassDestroyFnIndex, "destroy.addr");
   auto *destroyFn = codegen_.builder_.CreateLoad(
-      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(codegen_.ctx_)),
+      llvm::PointerType::getUnqual(codegen_.ctx_),
       destroyAddr, "destroy.fn");
   auto *destroyTy = llvm::FunctionType::get(
       llvm::Type::getVoidTy(codegen_.ctx_), {rawPtrTy}, false);
   codegen_.builder_.CreateCall(destroyTy, destroyFn, {rawObject});
+  auto *weakAddr = codegen_.builder_.CreateStructGEP(
+      objectTy, typedObject, kClassWeakCountIndex, "weakcount.addr");
+  auto *weakCount = codegen_.builder_.CreateLoad(
+      llvm::Type::getInt64Ty(codegen_.ctx_), weakAddr, "weakcount");
+  auto *isWeakZero = codegen_.builder_.CreateICmpEQ(
+      weakCount,
+      llvm::ConstantInt::get(llvm::Type::getInt64Ty(codegen_.ctx_), 0));
+  codegen_.builder_.CreateCondBr(isWeakZero, deallocateBB, returnBB);
+
+  codegen_.builder_.SetInsertPoint(deallocateBB);
+  codegen_.builder_.CreateCall(getOrCreateArcDeallocateFunction(),
+                               {emitArcRuntimeContext(), rawObject});
   codegen_.builder_.CreateBr(returnBB);
 
   if (canBeCyclic) {
     codegen_.builder_.SetInsertPoint(cycleBB);
     if (codegen_.functionMap_.count("zap_arc_add_possible_root") == 0) {
       auto *addTy = llvm::FunctionType::get(
-          llvm::Type::getVoidTy(codegen_.ctx_), {rawPtrTy}, false);
+          llvm::Type::getVoidTy(codegen_.ctx_), {rawPtrTy, rawPtrTy}, false);
       auto *addFn = llvm::Function::Create(
           addTy, llvm::Function::ExternalLinkage, "zap_arc_add_possible_root",
           *codegen_.module_);
       codegen_.functionMap_["zap_arc_add_possible_root"] = addFn;
     }
     codegen_.builder_.CreateCall(
-        codegen_.functionMap_.at("zap_arc_add_possible_root"), {rawObject});
-    if (codegen_.functionMap_.count("zap_arc_cycle_collect") == 0) {
-      auto *collectTy = llvm::FunctionType::get(
-          llvm::Type::getVoidTy(codegen_.ctx_), {}, false);
-      auto *collectFn =
-          llvm::Function::Create(collectTy, llvm::Function::ExternalLinkage,
-                                 "zap_arc_cycle_collect", *codegen_.module_);
-      codegen_.functionMap_["zap_arc_cycle_collect"] = collectFn;
-    }
-    codegen_.builder_.CreateCall(
-        codegen_.functionMap_.at("zap_arc_cycle_collect"));
+        codegen_.functionMap_.at("zap_arc_add_possible_root"),
+        {emitArcRuntimeContext(), rawObject});
     codegen_.builder_.CreateBr(returnBB);
   }
 
@@ -717,17 +939,9 @@ void ClassArcEmitter::ensureClassArcSupport(
   codegen_.builder_.CreateRetVoid();
 
   codegen_.currentFn_ = savedFn;
-  codegen_.localValues_ = std::move(savedLocals);
   if (savedBlock) {
     codegen_.builder_.SetInsertPoint(savedBlock);
   }
 }
 
-void ClassArcEmitter::ensureArcSupport(sema::BoundRootNode &root) {
-  for (const auto &rec : root.records) {
-    if (rec->type && rec->type->getKind() == zir::TypeKind::Class) {
-      codegen_.toLLVMType(*rec->type);
-    }
-  }
-}
 } // namespace codegen

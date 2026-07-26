@@ -14,7 +14,7 @@ pub fun pushChar(s: String, c: Char) String {
   return s + c;
 }
 
-pub fun owned(v: StringView) String {
+pub fun owned(v: noescape StringView) String {
   return zap_string_from_ptrlen(v.ptr, v.len);
 }
 
@@ -22,7 +22,7 @@ fun isSpace(c: Char) Bool {
   return c == ' ' || c == '\n' || c == '\r' || c == '\t';
 }
 
-pub fun trim(s: StringView) String {
+pub fun trim(s: noescape StringView) String {
   var n: Int = len(s);
   if n == 0 {
     return "";
@@ -50,7 +50,7 @@ pub struct SplitPair {
   found: Bool,
 }
 
-pub fun splitOnce(s: StringView, delim: Char) SplitPair {
+pub fun splitOnce(s: noescape StringView, delim: Char) SplitPair {
   var n: Int = len(s);
   var i: Int = 0;
   while i < n {
@@ -89,7 +89,7 @@ pub class TextBuf {
     return self.len() == 0;
   }
 
-  pub fun push(text: StringView) TextBuf {
+  pub fun push(text: noescape StringView) TextBuf {
     self.data = self.data + owned(text);
     return self;
   }
@@ -103,7 +103,7 @@ pub class TextBuf {
     return self.data;
   }
 
-  pub fun view() StringView {
+  pub fun view() StringView borrows(self) {
     return view(self.data);
   }
 }

@@ -1,39 +1,85 @@
 #pragma once
 #include <cstdint>
 #include <memory>
+#include <optional>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace zir {
 
 enum class TypeKind {
-  Void,
-  Int8,
-  Int16,
-  Int32,
-  Int64,
-  UInt8,
-  UInt16,
-  UInt32,
-  UInt64,
-  Int,  // Default Int (32-bit)
-  UInt, // Default UInt (32-bit)
-  Float,
-  Float32,
-  Float64,
-  Bool,
-  Char,
-  Pointer,
-  NullPtr,
-  Record,
-  Class,
-  Array,
-  Enum,
-  TaggedUnion,
-  FunctionPointer
+  // These values are part of the z1 type-mangling schema. Append new kinds.
+  Void = 0,
+  Int8 = 1,
+  Int16 = 2,
+  Int32 = 3,
+  Int64 = 4,
+  UInt8 = 5,
+  UInt16 = 6,
+  UInt32 = 7,
+  UInt64 = 8,
+  Int = 9,   // Native signed integer (pointer width)
+  UInt = 10, // Native unsigned integer (pointer width)
+  Float = 11,
+  Float32 = 12,
+  Float64 = 13,
+  Bool = 14,
+  Char = 15,
+  Pointer = 16,
+  NullPtr = 17,
+  Record = 18,
+  Class = 19,
+  Array = 20,
+  Enum = 21,
+  TaggedUnion = 22,
+  FunctionPointer = 23
+};
+
+enum class NumericCategory { SignedInteger, UnsignedInteger, FloatingPoint };
+
+struct NumericTypeInfo {
+  NumericCategory category;
+  uint16_t fixedBitWidth;
+  bool isNative;
+
+  uint16_t bitWidth(uint16_t nativeBitWidth) const {
+    return isNative ? nativeBitWidth : fixedBitWidth;
+  }
+};
+
+std::optional<NumericTypeInfo> numericTypeInfo(TypeKind kind);
+TypeKind canonicalPrimitiveKind(TypeKind kind);
+std::string_view primitiveIrName(TypeKind kind);
+
+enum class IntrinsicTypeKind {
+  None = 0,
+  String = 1,
+  StringView = 2,
+};
+
+// These records have a physical record ABI, but distinct semantic roles.
+// The tag prevents semantic code from inferring that role from generated names.
+enum class RecordRole {
+  User,
+  Failable,
+  VariadicView,
+  GenericParameter,
+};
+
+enum class RecordMutability {
+  Mutable,
+  Immutable,
 };
 
 class Type {
+  IntrinsicTypeKind intrinsicKind;
+
+protected:
+  explicit Type(IntrinsicTypeKind intrinsic = IntrinsicTypeKind::None)
+      : intrinsicKind(intrinsic) {}
+
 public:
   virtual ~Type() = default;
   virtual TypeKind getKind() const = 0;
@@ -44,24 +90,18 @@ public:
     return k == TypeKind::Pointer || k == TypeKind::NullPtr;
   }
   virtual bool isInteger() const {
-    auto k = getKind();
-    return k == TypeKind::Int8 || k == TypeKind::Int16 ||
-           k == TypeKind::Int32 || k == TypeKind::Int64 ||
-           k == TypeKind::UInt8 || k == TypeKind::UInt16 ||
-           k == TypeKind::UInt32 || k == TypeKind::UInt64 ||
-           k == TypeKind::Int || k == TypeKind::UInt;
+    auto info = numericTypeInfo(getKind());
+    return info && info->category != NumericCategory::FloatingPoint;
   }
   virtual bool isUnsigned() const {
-    auto k = getKind();
-    return k == TypeKind::UInt8 || k == TypeKind::UInt16 ||
-           k == TypeKind::UInt32 || k == TypeKind::UInt64 ||
-           k == TypeKind::UInt;
+    auto info = numericTypeInfo(getKind());
+    return info && info->category == NumericCategory::UnsignedInteger;
   }
   virtual bool isFloatingPoint() const {
-    auto k = getKind();
-    return k == TypeKind::Float || k == TypeKind::Float32 ||
-           k == TypeKind::Float64;
+    auto info = numericTypeInfo(getKind());
+    return info && info->category == NumericCategory::FloatingPoint;
   }
+  IntrinsicTypeKind getIntrinsicKind() const { return intrinsicKind; }
 };
 
 class PrimitiveType : public Type {
@@ -70,46 +110,7 @@ class PrimitiveType : public Type {
 public:
   PrimitiveType(TypeKind k) : kind(k) {}
   TypeKind getKind() const override { return kind; }
-  std::string toString() const override {
-    switch (kind) {
-    case TypeKind::Int8:
-      return "i8";
-    case TypeKind::Int16:
-      return "i16";
-    case TypeKind::Int32:
-      return "i32";
-    case TypeKind::Int64:
-      return "i64";
-    case TypeKind::UInt8:
-      return "u8";
-    case TypeKind::UInt16:
-      return "u16";
-    case TypeKind::UInt32:
-      return "u32";
-    case TypeKind::UInt64:
-      return "u64";
-    case TypeKind::Int:
-      return "i32";
-    case TypeKind::UInt:
-      return "u32";
-    case TypeKind::Float:
-      return "f32";
-    case TypeKind::Float32:
-      return "f32";
-    case TypeKind::Float64:
-      return "f64";
-    case TypeKind::Bool:
-      return "i1";
-    case TypeKind::Char:
-      return "i8";
-    case TypeKind::Void:
-      return "void";
-    case TypeKind::NullPtr:
-      return "null";
-    default:
-      return "unknown";
-    }
-  }
+  std::string toString() const override;
 };
 
 class PointerType : public Type {
@@ -138,14 +139,20 @@ protected:
   std::string genericBaseName;
   std::string genericCodegenBaseName;
   std::vector<std::shared_ptr<Type>> genericArguments;
+  RecordRole role = RecordRole::User;
+  RecordMutability mutability = RecordMutability::Mutable;
 
 public:
   bool hasReprC = false;
   bool isPacked = false;
 
-  RecordType(std::string n, std::string codegen = "")
-      : name(std::move(n)),
-        codegenName(codegen.empty() ? name : std::move(codegen)) {}
+  RecordType(std::string n, std::string codegen = "",
+             IntrinsicTypeKind intrinsic = IntrinsicTypeKind::None,
+             RecordRole recordRole = RecordRole::User,
+             RecordMutability recordMutability = RecordMutability::Mutable)
+      : Type(intrinsic), name(std::move(n)),
+        codegenName(codegen.empty() ? name : std::move(codegen)),
+        role(recordRole), mutability(recordMutability) {}
   TypeKind getKind() const override { return TypeKind::Record; }
   std::string toString() const override { return "%" + name; }
   bool isReferenceType() const override { return true; }
@@ -168,7 +175,14 @@ public:
   const std::vector<std::shared_ptr<Type>> &getGenericArguments() const {
     return genericArguments;
   }
+  RecordRole getRole() const { return role; }
+  RecordMutability getMutability() const { return mutability; }
+  bool hasImmutableFields() const {
+    return mutability == RecordMutability::Immutable;
+  }
   bool isGenericInstance() const { return !genericBaseName.empty(); }
+
+  void setMutability(RecordMutability value) { mutability = value; }
 
   void setGenericInstance(std::string baseName, std::string codegenBaseName,
                           std::vector<std::shared_ptr<Type>> args) {
@@ -177,6 +191,11 @@ public:
     genericArguments = std::move(args);
   }
 };
+
+inline std::shared_ptr<RecordType> makeGenericParameterType(std::string name) {
+  return std::make_shared<RecordType>(name, name, IntrinsicTypeKind::None,
+                                      RecordRole::GenericParameter);
+}
 
 class ClassType : public RecordType {
   std::shared_ptr<ClassType> base;
@@ -315,26 +334,162 @@ public:
   size_t getSize() const { return size; }
 };
 
+enum class ParameterOwnership {
+  Borrow,
+  Transfer,
+  Sink,
+};
+
+enum class ParameterEscape {
+  Unspecified,
+  NoEscape,
+};
+
+class ResultBorrowContract {
+  std::optional<size_t> sourceParameter_;
+
+  explicit ResultBorrowContract(std::optional<size_t> sourceParameter)
+      : sourceParameter_(sourceParameter) {}
+
+public:
+  ResultBorrowContract() = default;
+
+  static ResultBorrowContract fromParameter(size_t parameterIndex) {
+    return ResultBorrowContract(parameterIndex);
+  }
+
+  bool hasSource() const { return sourceParameter_.has_value(); }
+  const std::optional<size_t> &sourceParameter() const {
+    return sourceParameter_;
+  }
+
+  bool operator==(const ResultBorrowContract &other) const {
+    return sourceParameter_ == other.sourceParameter_;
+  }
+  bool operator!=(const ResultBorrowContract &other) const {
+    return !(*this == other);
+  }
+};
+
+inline bool transfersOwnership(ParameterOwnership ownership) {
+  return ownership == ParameterOwnership::Transfer ||
+         ownership == ParameterOwnership::Sink;
+}
+
+inline bool containsManagedValues(const std::shared_ptr<Type> &type);
+
 class FunctionPointerType : public Type {
   std::vector<std::shared_ptr<Type>> params;
+  std::vector<ParameterOwnership> parameterOwnership;
+  std::vector<ParameterEscape> parameterEscapes;
   std::shared_ptr<Type> returnType;
+  ResultBorrowContract resultBorrow_;
+  bool returnsRef_ = false;
 
 public:
   FunctionPointerType(std::vector<std::shared_ptr<Type>> p,
-                      std::shared_ptr<Type> r)
-      : params(std::move(p)), returnType(std::move(r)) {}
+                      std::shared_ptr<Type> r,
+                      std::vector<ParameterOwnership> ownership = {},
+                      std::vector<ParameterEscape> escape = {},
+                      ResultBorrowContract resultBorrow = {},
+                      bool returnsRef = false)
+      : params(std::move(p)), parameterOwnership(std::move(ownership)),
+        parameterEscapes(std::move(escape)), returnType(std::move(r)),
+        resultBorrow_(resultBorrow), returnsRef_(returnsRef) {
+    if (parameterOwnership.empty()) {
+      parameterOwnership.assign(params.size(), ParameterOwnership::Borrow);
+    } else if (parameterOwnership.size() != params.size()) {
+      throw std::invalid_argument(
+          "function pointer parameter ownership count mismatch");
+    }
+    if (parameterEscapes.empty()) {
+      parameterEscapes.assign(params.size(), ParameterEscape::Unspecified);
+    } else if (parameterEscapes.size() != params.size()) {
+      throw std::invalid_argument(
+          "function pointer parameter escape count mismatch");
+    }
+    if (resultBorrow_.hasSource() &&
+        *resultBorrow_.sourceParameter() >= params.size()) {
+      throw std::invalid_argument(
+          "function pointer result borrow source is out of range");
+    }
+  }
   TypeKind getKind() const override { return TypeKind::FunctionPointer; }
   std::string toString() const override {
     std::string s = "*fun(";
     for (size_t i = 0; i < params.size(); ++i) {
       if (i)
         s += ", ";
+      if (containsManagedValues(params[i])) {
+        switch (parameterOwnership[i]) {
+        case ParameterOwnership::Borrow:
+          s += "borrow ";
+          break;
+        case ParameterOwnership::Transfer:
+          s += "transfer ";
+          break;
+        case ParameterOwnership::Sink:
+          s += "sink ";
+          break;
+        }
+      }
+      if (parameterEscapes[i] == ParameterEscape::NoEscape) {
+        s += "noescape ";
+      }
       s += params[i]->toString();
     }
-    return s + ") " + returnType->toString();
+    s += ") " + returnType->toString();
+    if (returnsRef_) {
+      s += "*";
+    }
+    if (resultBorrow_.hasSource()) {
+      s += " borrows(" +
+           std::to_string(*resultBorrow_.sourceParameter()) + ")";
+    }
+    return s;
   }
   const std::vector<std::shared_ptr<Type>> &getParams() const { return params; }
+  const std::vector<ParameterOwnership> &getParameterOwnership() const {
+    return parameterOwnership;
+  }
+  const std::vector<ParameterEscape> &getParameterEscapes() const {
+    return parameterEscapes;
+  }
   const std::shared_ptr<Type> &getReturnType() const { return returnType; }
+  const ResultBorrowContract &getResultBorrow() const { return resultBorrow_; }
+  bool returnsRef() const { return returnsRef_; }
 };
+
+inline bool containsManagedValues(const std::shared_ptr<Type> &type) {
+  if (!type) {
+    return false;
+  }
+  if (type->getKind() == TypeKind::Class ||
+      type->getIntrinsicKind() == IntrinsicTypeKind::String) {
+    return true;
+  }
+  if (type->getKind() == TypeKind::Record) {
+    const auto &record = static_cast<const RecordType &>(*type);
+    for (const auto &field : record.getFields()) {
+      if (containsManagedValues(field.type)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  if (type->getKind() == TypeKind::Array) {
+    const auto &array = static_cast<const ArrayType &>(*type);
+    return containsManagedValues(array.getBaseType());
+  }
+  if (type->getKind() == TypeKind::TaggedUnion) {
+    const auto &taggedUnion = static_cast<const TaggedUnionType &>(*type);
+    for (const auto &variant : taggedUnion.getVariants()) {
+      if (containsManagedValues(variant.payloadType)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
 
 } // namespace zir

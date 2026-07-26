@@ -28,7 +28,6 @@ fun getFloat() Float {
 fun main() Int {
     var x = 42;
     if x != 42 { return 1; }
-
     var s = "hello";
     if s != "hello" { return 2; }
 

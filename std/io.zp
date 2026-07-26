@@ -6,6 +6,11 @@ pub ext fun printFloat64(f: Float64) Void;
 pub ext fun printBool(b: Bool) Void;
 pub ext fun printChar(c: Char) Void;
 pub ext fun eprintln(s: String) Void;
+pub ext fun zap_flush_stdout() Void;
 pub ext fun getln() String;
 pub ext fun printf(format: String, ...) Int;
 pub ext fun printfln(format: String, ...) Int;
+
+pub fun flush() {
+    zap_flush_stdout();
+}

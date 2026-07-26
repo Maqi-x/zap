@@ -1,0 +1,37 @@
+import "std/string";
+
+fun makeOwned() String {
+  return "borrowed";
+}
+
+fun tail(text: StringView) StringView borrows(text) {
+  return string.slice(text, 1, string.len(text) - 1);
+}
+
+fun main() Int {
+  var owner: String = makeOwned();
+  var direct: StringView = tail(owner);
+  if !string.eq(direct, "orrowed") {
+    return 1;
+  }
+
+  var fp: *fun(StringView) StringView borrows(0) = tail;
+  var indirect: StringView = fp(owner);
+  if !string.eq(indirect, "orrowed") {
+    return 2;
+  }
+
+  var temporary: StringView = tail(makeOwned());
+  if !string.eq(temporary, "orrowed") {
+    return 3;
+  }
+
+  var buffer: string.TextBuf = new string.TextBuf();
+  buffer.push("method");
+  var methodView: StringView = buffer.view();
+  if !string.eq(methodView, "method") {
+    return 4;
+  }
+
+  return 0;
+}

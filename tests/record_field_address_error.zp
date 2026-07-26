@@ -1,0 +1,9 @@
+record Counter {
+    value: Int;
+}
+
+fun main() Int {
+    var counter = Counter{value: 1};
+    var pointer = &counter.value;
+    return 0;
+}

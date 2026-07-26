@@ -381,6 +381,20 @@ JsonObject::List makeCompletionItems(const std::string &uri,
     }
 
     std::set<std::string> seenImportedMembers;
+    if (const auto *targetId = project.semanticInfo.importedModuleFor(
+            moduleIt->second->moduleId, base)) {
+      auto targetIt = project.moduleMap.find(*targetId);
+      if (targetIt != project.moduleMap.end()) {
+        std::set<std::string> visited;
+        for (const auto &symbol : collectExportedSymbolsRecursive(
+                 project, *targetIt->second, visited)) {
+          if (matchesPrefix(symbol.name, memberPrefix) &&
+              seenImportedMembers.insert(symbol.name).second) {
+            items.push_back(makeCompletionItem(symbol, "imported member"));
+          }
+        }
+      }
+    }
     for (const auto &import : moduleIt->second->imports) {
       for (const auto &targetId : import.targetModuleIds) {
         auto targetIt = project.moduleMap.find(targetId);
@@ -467,11 +481,12 @@ JsonObject::List makeCompletionItems(const std::string &uri,
       collectCompletionSymbols(uri, project, offset);
   std::set<std::string> seen;
   static constexpr const char *keywords[] = {
-      "fun",   "return", "if",    "else",  "iftype", "while",  "var",
-      "const", "import", "pub",   "priv",  "prot",   "struct", "record",
-      "class", "enum",   "alias", "ext",   "global", "break",  "continue",
-      "ref",   "as",     "new",   "self",  "where",  "unsafe", "weak",
-      "fail",  "or",     "for",   "match", "module", "impl",   "static"};
+      "fun",    "return", "if",       "else", "iftype", "while",  "var",
+      "const",  "import", "pub",      "priv", "prot",   "struct", "record",
+      "class",  "enum",   "alias",    "ext",  "global", "break",  "continue",
+      "ref",     "sink",   "noescape", "borrows", "as",     "new",
+      "self",    "where",  "unsafe",   "weak",    "fail",   "or",
+      "for",     "match",  "module",   "impl",    "static"};
   for (const char *keyword : keywords) {
     if (seen.insert(keyword).second) {
       items.push_back(makeCompletionItem(

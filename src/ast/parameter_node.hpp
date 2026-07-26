@@ -14,15 +14,18 @@ public:
   std::unique_ptr<TypeNode> type;
   std::unique_ptr<ExpressionNode> defaultValue;
   bool isRef = false;
+  bool isSink = false;
+  bool isNoEscape = false;
   bool isVariadic = false;
   Visibility visibility_ = Visibility::Private;
 
   ParameterNode(const std::string &name, std::unique_ptr<TypeNode> type,
-                bool isRef = false, bool isVariadic = false,
+                bool isRef = false, bool isSink = false,
+                bool isNoEscape = false, bool isVariadic = false,
                 std::unique_ptr<ExpressionNode> defaultValue = nullptr)
       : name(name), type(std::move(type)),
-        defaultValue(std::move(defaultValue)), isRef(isRef),
-        isVariadic(isVariadic) {}
+        defaultValue(std::move(defaultValue)), isRef(isRef), isSink(isSink),
+        isNoEscape(isNoEscape), isVariadic(isVariadic) {}
 
   void accept(Visitor &v) override { v.visit(*this); }
 };

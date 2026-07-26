@@ -67,18 +67,13 @@ function detectWorkspaceZapcPath() {
     }
     return "";
 }
-function resolveZapcPath(context) {
+function resolveZapcPath() {
     const config = vscode_1.workspace.getConfiguration("zap-lsp");
     const configuredZapcPath = (config.get("zapcPath") || "").trim();
     if (configuredZapcPath && isExecutableFile(configuredZapcPath)) {
         return configuredZapcPath;
     }
-    const exeName = process.platform === "win32" ? "zapc.exe" : "zapc";
-    const bundledZapcPath = context.asAbsolutePath(path.join("bin", exeName));
-    if (isExecutableFile(bundledZapcPath)) {
-        return bundledZapcPath;
-    }
-    return detectWorkspaceZapcPath();
+    return detectWorkspaceZapcPath() || "zapc";
 }
 function queryStdlibPathFromZapc(zapcPath) {
     if (!zapcPath) {
@@ -156,41 +151,157 @@ function resolveCorePath(zapcPath) {
     }
     return detectWorkspaceCorePath();
 }
+function configUriForFirstWorkspace() {
+    var _a;
+    const folder = (_a = vscode_1.workspace.workspaceFolders) === null || _a === void 0 ? void 0 : _a[0];
+    return folder ? vscode_1.Uri.joinPath(folder.uri, "zaplsp.json") : undefined;
+}
+function configExists(configUri) {
+    return __awaiter(this, void 0, void 0, function* () {
+        if (!configUri) {
+            return false;
+        }
+        try {
+            const stat = yield vscode_1.workspace.fs.stat(configUri);
+            return (stat.type & vscode_1.FileType.File) !== 0;
+        }
+        catch (_a) {
+            return false;
+        }
+    });
+}
+function makeConfiguration(paths) {
+    const coreParent = path.dirname(paths.corePath);
+    const stdlibParent = path.dirname(paths.stdlibPath);
+    if (coreParent === stdlibParent &&
+        path.basename(paths.corePath) === "core" &&
+        path.basename(paths.stdlibPath) === "std") {
+        return {
+            zapRoot: coreParent,
+            corePath: "core",
+            stdlibPath: "std",
+        };
+    }
+    return {
+        corePath: paths.corePath,
+        stdlibPath: paths.stdlibPath,
+    };
+}
+function writeConfiguration(configUri, paths) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            const contents = `${JSON.stringify(makeConfiguration(paths), null, 2)}\n`;
+            yield vscode_1.workspace.fs.writeFile(configUri, Buffer.from(contents, "utf8"));
+            vscode_1.window.showInformationMessage(`Created ${configUri.fsPath}`);
+            return true;
+        }
+        catch (error) {
+            vscode_1.window.showErrorMessage(`Could not create zaplsp.json: ${String(error)}`);
+            return false;
+        }
+    });
+}
+function selectZapInstallation() {
+    return __awaiter(this, void 0, void 0, function* () {
+        const selected = yield vscode_1.window.showOpenDialog({
+            canSelectFiles: false,
+            canSelectFolders: true,
+            canSelectMany: false,
+            openLabel: "Select Zap Installation",
+        });
+        if (!(selected === null || selected === void 0 ? void 0 : selected[0])) {
+            return undefined;
+        }
+        const root = selected[0].fsPath;
+        const corePath = path.join(root, "core");
+        const stdlibPath = path.join(root, "std");
+        if (!isValidCoreDir(corePath) || !isValidStdlibDir(stdlibPath)) {
+            vscode_1.window.showErrorMessage("The selected directory must contain core/core.zp and std/prelude.zp.");
+            return undefined;
+        }
+        return {
+            corePath: fs.realpathSync(corePath),
+            stdlibPath: fs.realpathSync(stdlibPath),
+        };
+    });
+}
+function offerWorkspaceConfiguration(context, detectedPaths) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const configUri = configUriForFirstWorkspace();
+        if (!configUri) {
+            return false;
+        }
+        if (yield configExists(configUri)) {
+            return true;
+        }
+        if (!vscode_1.workspace.isTrusted) {
+            return false;
+        }
+        const promptKey = `zaplsp.prompted:${configUri.toString()}`;
+        if (context.workspaceState.get(promptKey)) {
+            return false;
+        }
+        const createAction = detectedPaths.corePath && detectedPaths.stdlibPath
+            ? "Create Configuration"
+            : undefined;
+        const selectAction = "Select Zap Installation";
+        const choices = createAction
+            ? [createAction, selectAction, "Not Now"]
+            : [selectAction, "Not Now"];
+        const choice = yield vscode_1.window.showInformationMessage("This Zap workspace has no zaplsp.json. Create one to configure core and stdlib paths?", ...choices);
+        if (createAction && choice === createAction) {
+            const created = yield writeConfiguration(configUri, detectedPaths);
+            yield context.workspaceState.update(promptKey, created);
+            return created;
+        }
+        if (choice === selectAction) {
+            const selectedPaths = yield selectZapInstallation();
+            if (!selectedPaths) {
+                return false;
+            }
+            const created = yield writeConfiguration(configUri, selectedPaths);
+            yield context.workspaceState.update(promptKey, created);
+            return created;
+        }
+        yield context.workspaceState.update(promptKey, true);
+        return false;
+    });
+}
 function activate(context) {
     return __awaiter(this, void 0, void 0, function* () {
         const config = vscode_1.workspace.getConfiguration("zap-lsp");
         const configuredPath = (config.get("path") || "").trim();
         const bundledServerPath = context.asAbsolutePath(path.join("bin", "zap-lsp"));
         const lspPath = configuredPath || bundledServerPath;
-        const zapcPath = resolveZapcPath(context);
+        const zapcPath = resolveZapcPath();
         const corePath = resolveCorePath(zapcPath);
         const stdlibPath = resolveStdlibPath(zapcPath);
-        const env = Object.assign({}, process.env);
+        const hasWorkspaceConfiguration = yield offerWorkspaceConfiguration(context, { corePath, stdlibPath });
         if (!configuredPath && fs.existsSync(bundledServerPath)) {
             fs.chmodSync(bundledServerPath, 0o755);
-        }
-        if (corePath) {
-            env.ZAPC_CORE_DIR = corePath;
-        }
-        if (stdlibPath) {
-            env.ZAPC_STDLIB_DIR = stdlibPath;
         }
         const outputChannel = vscode_1.window.createOutputChannel("Zap LSP");
         const serverOptions = {
             run: {
                 command: lspPath,
                 transport: node_1.TransportKind.stdio,
-                options: { env },
             },
             debug: {
                 command: lspPath,
                 transport: node_1.TransportKind.stdio,
-                options: { env },
             },
         };
+        const configuredCorePath = (config.get("corePath") || "").trim();
+        const configuredStdlibPath = (config.get("stdlibPath") || "").trim();
         const clientOptions = {
             documentSelector: [{ scheme: "file", language: "zap" }],
             outputChannel,
+            initializationOptions: {
+                corePath: configuredCorePath ||
+                    (!hasWorkspaceConfiguration ? corePath : undefined),
+                stdlibPath: configuredStdlibPath ||
+                    (!hasWorkspaceConfiguration ? stdlibPath : undefined),
+            },
         };
         client = new node_1.LanguageClient("zap-lsp", "Zap LSP", serverOptions, clientOptions);
         try {

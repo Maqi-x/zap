@@ -110,6 +110,11 @@ ParseResult parse(const std::vector<std::string_view> &cmdline,
   for (size_t i = 1; i < cmdline.size(); i++) {
     std::string_view original(cmdline[i]);
 
+    if (original.empty()) {
+      args.inputs.emplace_back(original);
+      continue;
+    }
+
     if (original[0] == '-') {
       constexpr std::string_view targetPrefix = "--target=";
       if (original.rfind(targetPrefix, 0) == 0) {
@@ -149,8 +154,11 @@ ParseResult parse(const std::vector<std::string_view> &cmdline,
   }
 #include "flags.inc"
 #undef ZAP_FLAG
-        reportError("unknown flag '", original, "' encountered");
-        ok = false;
+        if (!maybeConf) {
+          reportError("unknown flag '", original, "' encountered");
+          ok = false;
+          continue;
+        }
       match_found:
         argsvec.emplace_back(original, original.substr(offset),
                              maybeConf->getType());
@@ -186,7 +194,6 @@ ParseResult parse(const std::vector<std::string_view> &cmdline,
   args.freestanding = holder.has(ArgTypes::Freestanding);
   args.incStdlib = !args.freestanding && !holder.has(ArgTypes::NoStdlib);
   args.incPrelude = !args.freestanding && !holder.has(ArgTypes::NoPrelude);
-
   bool emitS = holder.has(ArgTypes::CompileOnlyS);
   bool compileOnly = holder.has(ArgTypes::CompileOnly);
   bool emitLLVM = holder.has(ArgTypes::EmitLLVM);

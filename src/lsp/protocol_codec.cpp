@@ -1,0 +1,62 @@
+#include "lsp/protocol_codec.hpp"
+
+#include "lsp/protocol_utils.hpp"
+
+namespace zap::lsp {
+
+std::optional<TextDocumentPosition>
+decodeTextDocumentPosition(const JsonObject &request) {
+  auto uri = getStringField(request, {"params", "textDocument", "uri"});
+  auto line = getIntegerField(request, {"params", "position", "line"});
+  auto character =
+      getIntegerField(request, {"params", "position", "character"});
+  if (!uri || !line || !character || *line < 0 || *character < 0) {
+    return std::nullopt;
+  }
+  return TextDocumentPosition{std::move(*uri), *line, *character};
+}
+
+std::optional<OpenDocumentParams> decodeOpenDocument(const JsonObject &request) {
+  auto uri = getStringField(request, {"params", "textDocument", "uri"});
+  auto text = getStringField(request, {"params", "textDocument", "text"});
+  auto version = getIntegerField(request, {"params", "textDocument", "version"});
+  if (!uri || !text || !version) {
+    return std::nullopt;
+  }
+  return OpenDocumentParams{std::move(*uri), std::move(*text), *version};
+}
+
+std::optional<ChangeDocumentParams>
+decodeChangeDocument(const JsonObject &request) {
+  auto uri = getStringField(request, {"params", "textDocument", "uri"});
+  auto version = getIntegerField(request, {"params", "textDocument", "version"});
+  const JsonObject *changes = getPath(request, {"params", "contentChanges"});
+  if (!uri || !version || !changes || !changes->isList() ||
+      changes->getAsList().empty()) {
+    return std::nullopt;
+  }
+  auto text = getStringField(changes->getAsList().back(), {"text"});
+  if (!text) {
+    return std::nullopt;
+  }
+  return ChangeDocumentParams{std::move(*uri), std::move(*text), *version};
+}
+
+std::optional<std::string> decodeCloseDocument(const JsonObject &request) {
+  return getStringField(request, {"params", "textDocument", "uri"});
+}
+
+std::optional<InitializeParams> decodeInitialize(const JsonObject &request) {
+  const JsonObject *params = getField(request, "params");
+  if (!params || !params->isObject()) {
+    return std::nullopt;
+  }
+  return InitializeParams{
+      getStringField(request, {"params", "rootUri"}),
+      getStringField(request, {"params", "rootPath"}),
+      getStringField(request, {"params", "initializationOptions", "corePath"}),
+      getStringField(request, {"params", "initializationOptions", "stdlibPath"}),
+  };
+}
+
+} // namespace zap::lsp

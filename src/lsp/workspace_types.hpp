@@ -2,6 +2,7 @@
 
 #include "sema/module_info.hpp"
 #include "sema/semantic_info.hpp"
+#include "lsp/source_manager.hpp"
 #include "utils/diagnostics.hpp"
 #include <cstdint>
 #include <filesystem>
@@ -9,16 +10,10 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace zap::lsp {
-
-struct DocumentState {
-  std::string uri;
-  std::filesystem::path path;
-  std::string text;
-  int64_t version = 0;
-};
 
 struct AnalysisResult {
   std::unordered_map<std::string, std::vector<zap::Diagnostic>>
@@ -28,8 +23,19 @@ struct AnalysisResult {
 struct ProjectState {
   std::map<std::string, std::unique_ptr<sema::ModuleInfo>> moduleMap;
   std::unordered_map<std::string, std::string> uriByModuleId;
+  std::unordered_set<std::string> dependencyModuleIds;
   sema::SemanticInfo semanticInfo;
   AnalysisResult analysis;
+};
+
+struct SemanticSnapshot {
+  int64_t documentVersion = 0;
+  ProjectState project;
+};
+
+struct SemanticQuery {
+  SourceManager::Snapshot document;
+  std::shared_ptr<const ProjectState> project;
 };
 
 struct LspSignature {

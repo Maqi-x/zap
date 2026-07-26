@@ -45,6 +45,8 @@ class VariableSymbol : public Symbol {
 public:
   bool is_const = false;
   bool is_ref = false;
+  bool is_sink = false;
+  bool is_noescape = false;
   bool is_variadic_pack = false;
   bool is_external = false;
   std::shared_ptr<zir::Type> variadic_element_type = nullptr;
@@ -72,9 +74,11 @@ public:
   bool isStatic = false;
   bool isConstructor = false;
   bool isDestructor = false;
+  bool isExternal = false;
   bool returnsRef = false;
+  zir::ResultBorrowContract resultBorrow;
   int vtableSlot = -1;
-  std::string ownerTypeName;
+  std::string ownerTypeCodegenName;
 
   FunctionSymbol(std::string n,
                  std::vector<std::shared_ptr<VariableSymbol>> params,

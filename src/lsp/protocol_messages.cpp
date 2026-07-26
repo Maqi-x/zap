@@ -1,5 +1,6 @@
 #include "lsp/protocol_messages.hpp"
 
+#include "lsp/position_codec.hpp"
 #include <algorithm>
 
 namespace zap::lsp {
@@ -12,6 +13,19 @@ JsonObject makeResponse(const JsonObject *id, JsonObject result) {
   return JsonObject(std::move(object));
 }
 
+JsonObject makeErrorResponse(const JsonObject *id, int64_t code,
+                             std::string message) {
+  JsonObject::Object error;
+  error.emplace("code", JsonObject(code));
+  error.emplace("message", JsonObject(std::move(message)));
+
+  JsonObject::Object response;
+  response.emplace("jsonrpc", JsonObject("2.0"));
+  response.emplace("id", id ? *id : JsonObject(nullptr));
+  response.emplace("error", JsonObject(std::move(error)));
+  return JsonObject(std::move(response));
+}
+
 JsonObject makeNotification(std::string method, JsonObject params) {
   JsonObject::Object object;
   object.emplace("jsonrpc", JsonObject("2.0"));
@@ -20,20 +34,17 @@ JsonObject makeNotification(std::string method, JsonObject params) {
   return JsonObject(std::move(object));
 }
 
-JsonObject makeRange(const zap::DiagnosticRange &range) {
+JsonObject makeRange(std::string_view source, size_t startOffset,
+                     size_t endOffset) {
+  const LspPosition startPosition = positionFromOffset(source, startOffset);
+  const LspPosition endPosition = positionFromOffset(source, endOffset);
   JsonObject::Object start;
-  start.emplace("line", JsonObject(static_cast<int64_t>(
-                            range.start.line > 0 ? range.start.line - 1 : 0)));
-  start.emplace("character",
-                JsonObject(static_cast<int64_t>(
-                    range.start.column > 0 ? range.start.column - 1 : 0)));
+  start.emplace("line", JsonObject(startPosition.line));
+  start.emplace("character", JsonObject(startPosition.character));
 
   JsonObject::Object end;
-  end.emplace("line", JsonObject(static_cast<int64_t>(
-                          range.end.line > 0 ? range.end.line - 1 : 0)));
-  end.emplace("character",
-              JsonObject(static_cast<int64_t>(
-                  range.end.column > 0 ? range.end.column - 1 : 0)));
+  end.emplace("line", JsonObject(endPosition.line));
+  end.emplace("character", JsonObject(endPosition.character));
 
   JsonObject::Object object;
   object.emplace("start", JsonObject(std::move(start)));
@@ -41,14 +52,12 @@ JsonObject makeRange(const zap::DiagnosticRange &range) {
   return JsonObject(std::move(object));
 }
 
-JsonObject makeLocation(const std::string &uri, const SourceSpan &span) {
-  zap::DiagnosticRange range{{span.line, span.column, span.offset},
-                             {span.line,
-                              span.column + std::max<size_t>(span.length, 1),
-                              span.offset + span.length}};
+JsonObject makeLocation(const std::string &uri, std::string_view source,
+                        const SourceSpan &span) {
   JsonObject::Object object;
   object.emplace("uri", JsonObject(uri));
-  object.emplace("range", makeRange(range));
+  object.emplace("range",
+                 makeRange(source, span.offset, span.offset + span.length));
   return JsonObject(std::move(object));
 }
 
@@ -131,7 +140,9 @@ int64_t toLspSeverity(zap::DiagnosticLevel level) {
 
 JsonObject makeDiagnostic(const zap::Diagnostic &diagnostic) {
   JsonObject::Object object;
-  object.emplace("range", makeRange(diagnostic.range));
+  object.emplace("range",
+                 makeRange(diagnostic.sourceText, diagnostic.range.start.offset,
+                           diagnostic.range.end.offset));
   object.emplace("severity", JsonObject(toLspSeverity(diagnostic.level)));
   object.emplace("source", JsonObject("zap-lsp"));
   object.emplace("message", JsonObject(diagnostic.message));

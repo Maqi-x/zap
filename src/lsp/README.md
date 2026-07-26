@@ -1,104 +1,51 @@
-# Zap LSP
+# Zap LSP 0.1.0
 
-The repository now contains:
+`zap-lsp` provides diagnostics, completion, definition, hover, signature help,
+UTF-16 positions, document synchronization, and request cancellation over
+standard LSP stdio transport.
 
-- `build/zap-lsp`: the language server binary
-- `src/lsp/vscode/zap`: the VS Code extension source
-- `src/lsp/nvim`: a small Neovim runtime with syntax + LSP config
+## Build the server
 
-## Neovim
-
-Add `src/lsp/nvim` to `runtimepath`. That gives you:
-
-- filetype detection for `*.zp`
-- syntax highlighting
-- `omnifunc` wired to LSP
-- a reusable `lspconfig` config module
-
-Full Neovim instructions:
-
-- [src/lsp/nvim/README.md](/home/funcieq/zap/src/lsp/nvim/README.md)
-
-Quick install from this repo:
+From the repository root:
 
 ```bash
-./src/lsp/nvim/install-lazy.sh
+cmake -S . -B build
+cmake --build build --target zap-lsp -j2
 ```
 
-For plain `init.lua` setups:
+The binary is written to `build/zap-lsp`.
 
-```bash
-./src/lsp/nvim/install-init.lua.sh
-```
+## Configure a workspace
 
-On Neovim 0.11+, opening a `.zp` file is enough.
-No extra plugin is required for diagnostics, completion, go to definition, and syntax highlighting.
+The server reads an optional `zaplsp.json` from the workspace. Paths may be
+absolute or relative to `zapRoot`:
 
-Version check:
-
-```bash
-nvim --version | head -n 1
-```
-
-You want `NVIM v0.11.x` or newer for the built-in setup path.
-
-Example with `lazy.nvim`:
-
-```lua
+```json
 {
-  dir = "/path/to/zap/src/lsp/nvim",
-  name = "zap.nvim",
-  config = function()
-    vim.opt.runtimepath:append("/path/to/zap/src/lsp/nvim")
-  end,
+  "zapRoot": "/opt/zap",
+  "corePath": "core",
+  "stdlibPath": "std"
 }
 ```
 
-Manual example without a plugin manager:
+When `zapRoot` is omitted, relative paths are resolved from the directory that
+contains `zaplsp.json`. The server uses the installed Zap `core` and `std`; it
+does not require a private copy for each editor.
 
-```lua
-vim.opt.runtimepath:append("/path/to/zap/src/lsp/nvim")
-```
+## Build and install the VS Code extension
 
-The runtime auto-configures:
-
-- `*.zp` -> `filetype=zap`
-- syntax highlighting
-- built-in LSP on Neovim 0.11+
-- `gd` for definition
-- diagnostics
-- completion via LSP/omnifunc
-
-Server lookup order:
-
-1. `zap-lsp` from `PATH`
-2. repo-local `build/zap-lsp`
-
-Stdlib lookup order:
-
-1. `<project-root>/std`
-2. repo-local `std`
-
-Quick sanity checks inside Neovim:
-
-```vim
-:set filetype?
-:echo exists(':ZapNvimInfo')
-:ZapNvimInfo
-```
-
-Expected:
-
-- `filetype=zap`
-- `exists(':ZapNvimInfo')` returns `1`
-
-## VS Code
-
-From `src/lsp/vscode/zap`:
+Build `zap-lsp` first, then run:
 
 ```bash
+cd src/lsp/vscode/zap
 npm install
 npm run package
 ```
 
-That creates a `.vsix` you can install with `Install from VSIX...`.
+Install the generated `.vsix` with **Extensions → … → Install from VSIX…**.
+The package bundles the server binary, but not `zapc`, `core`, or `std`.
+
+If a workspace has no `zaplsp.json`, the extension offers to create one from a
+detected Zap installation. Use `zap-lsp.path` only to override the bundled
+server, and `zap-lsp.zapcPath` when `zapc` is not available in the workspace or
+`PATH`.

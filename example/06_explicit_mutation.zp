@@ -1,0 +1,22 @@
+struct Balance {
+    available: Int;
+    reserved: Int;
+}
+
+fun reserve(ref balance: Balance, amount: Int) Bool {
+    if amount > balance.available {
+        return false;
+    }
+    balance.available = balance.available - amount;
+    balance.reserved = balance.reserved + amount;
+    return true;
+}
+
+fun main() Int {
+    var balance = Balance{available: 100, reserved: 0};
+
+    if reserve(ref balance, 35) {
+        println("Reserved: " + toString(balance.reserved));
+    }
+    return 0;
+}

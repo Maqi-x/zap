@@ -1,0 +1,43 @@
+class Animal {
+    pub fun value() Int {
+        return 42;
+    }
+}
+
+class Dog : Animal {}
+class Cat : Animal {}
+
+fun chooseNumber(flag: Bool) {
+    if flag {
+        return 120 as Int16;
+    }
+    return 7 as UInt8;
+}
+
+fun chooseAnimal(flag: Bool) {
+    return flag ? new Dog() : new Cat();
+}
+
+fun main() Int {
+    var first: Int16 = chooseNumber(true);
+    var second: Int16 = chooseNumber(false);
+    if first != (120 as Int16) || second != (7 as Int16) {
+        return 1;
+    }
+
+    var numeric: Float64 = true ? (3 as Int) : (4.0 as Float64);
+    if numeric != (3.0 as Float64) {
+        return 2;
+    }
+
+    var values = {120 as Int16, 7 as UInt8};
+    if values[0] != (120 as Int16) || values[1] != (7 as Int16) {
+        return 3;
+    }
+
+    if chooseAnimal(true).value() != 42 ||
+       chooseAnimal(false).value() != 42 {
+        return 4;
+    }
+    return 0;
+}

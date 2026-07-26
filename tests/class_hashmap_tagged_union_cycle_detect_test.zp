@@ -1,0 +1,51 @@
+import "std/collection" as collection;
+
+global var destroyed: Int = 0;
+
+enum ChildLink {
+    Empty,
+    Occupied(Child),
+}
+
+class Parent {
+    priv children: collection.HashMap<ChildLink>;
+
+    fun init() {
+        self.children = new collection.HashMap<ChildLink>();
+    }
+
+    pub fun setChild(child: Child) {
+        self.children.put("child", ChildLink.Occupied(child));
+    }
+
+    fun deinit() {
+        destroyed = destroyed + 1;
+    }
+}
+
+class Child {
+    priv parent: Parent;
+
+    pub fun setParent(parent: Parent) {
+        self.parent = parent;
+    }
+
+    fun deinit() {
+        destroyed = destroyed + 10;
+    }
+}
+
+fun makeCycle() Void {
+    var parent: Parent = new Parent();
+    var child: Child = new Child();
+    parent.setChild(child);
+    child.setParent(parent);
+}
+
+fun main() Int {
+    makeCycle();
+    if destroyed != 11 {
+        return 1;
+    }
+    return 0;
+}

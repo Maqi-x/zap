@@ -1,0 +1,26 @@
+global var destroyed: Int = 0;
+
+class Node {
+    priv next: Node;
+
+    pub fun makeCycle() {
+        self.next = self;
+    }
+
+    fun deinit() {
+        destroyed = destroyed + 1;
+    }
+}
+
+fun makeCycle() Void {
+    var node: Node = new Node();
+    node.makeCycle();
+}
+
+fun main() Int {
+    makeCycle();
+    if (destroyed != 1) {
+        return 1;
+    }
+    return 0;
+}

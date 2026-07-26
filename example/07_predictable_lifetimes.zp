@@ -1,0 +1,25 @@
+global var closedHandles: Int = 0;
+
+class NativeHandle {
+    priv name: String;
+
+    fun init(name: String) {
+        self.name = name;
+    }
+
+    fun deinit() {
+        closedHandles = closedHandles + 1;
+        println("Closed " + self.name);
+    }
+}
+
+fun processRequest() {
+    var handle = new NativeHandle("request.log");
+    println("Writing request data.");
+}
+
+fun main() Int {
+    processRequest();
+    println("Handles closed: " + toString(closedHandles));
+    return 0;
+}

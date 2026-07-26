@@ -1,0 +1,35 @@
+@error
+enum CheckoutError {
+    EmptyCart,
+    NotEnoughStock,
+}
+
+fun reserveStock(available: Int, requested: Int) Int!CheckoutError {
+    if requested == 0 {
+        fail CheckoutError.EmptyCart;
+    }
+    if requested > available {
+        fail CheckoutError.NotEnoughStock;
+    }
+    return available - requested;
+}
+
+fun checkout(available: Int, requested: Int) Int!CheckoutError {
+    var remaining = reserveStock(available, requested)?;
+    println("Order reserved.");
+    return remaining;
+}
+
+fun main() Int {
+    var remaining = checkout(8, 3) or err {
+        if err == CheckoutError.EmptyCart {
+            eprintln("Add at least one item before checkout.");
+        } else {
+            eprintln("The requested quantity is not available.");
+        }
+        return 1;
+    };
+
+    println("Items left in stock: " + toString(remaining));
+    return 0;
+}

@@ -1,0 +1,7 @@
+import "types.zp" as text;
+
+fun main() Int {
+  var owned: text.String = text.String { value: 19 };
+  var view: text.StringView = text.StringView { value: 23 };
+  return owned.value + view.value;
+}

@@ -1,0 +1,31 @@
+class Notification {
+    prot recipient: String;
+
+    fun init(recipient: String) {
+        self.recipient = recipient;
+    }
+
+    pub fun send() String {
+        return "Notification for " + self.recipient;
+    }
+}
+
+class EmailNotification : Notification {
+    fun init(recipient: String) {
+        self.recipient = recipient;
+    }
+
+    pub fun send() String {
+        return "Email sent to " + self.recipient;
+    }
+}
+
+fun dispatch(notification: Notification) {
+    println(notification.send());
+}
+
+fun main() Int {
+    var notification: Notification = new EmailNotification("team@zap.dev");
+    dispatch(notification);
+    return 0;
+}

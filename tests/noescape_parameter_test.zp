@@ -1,0 +1,35 @@
+ext fun observe(text: noescape StringView);
+
+fun inspect(text: noescape StringView) Int {
+    return text.len;
+}
+
+fun inspect(value: Int) Int {
+    return value;
+}
+
+fun makeOwned() String {
+    return "temporary";
+}
+
+fun apply(f: *fun(noescape StringView) Int,
+          text: noescape StringView) Int {
+    return f(text);
+}
+
+fun main() Int {
+    if inspect(makeOwned()) != 9 {
+        return 1;
+    }
+
+    var callback: *fun(noescape StringView) Int = inspect;
+    if callback(makeOwned()) != 9 {
+        return 2;
+    }
+
+    if apply(inspect, makeOwned()) != 9 {
+        return 3;
+    }
+
+    return 0;
+}

@@ -1,8 +1,0 @@
-name  = "shop"
-out   = "build/"
-entry = "main.zp"
-
-[imports]
-"@models"   = "./src/models"
-"@utils"    = "./src/utils"
-"@services" = "./src/services"

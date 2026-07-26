@@ -1,0 +1,7 @@
+global var saved: StringView;
+
+fun main() Int {
+    var owner: String = "local";
+    saved = owner;
+    return 0;
+}

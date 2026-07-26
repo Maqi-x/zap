@@ -1,0 +1,210 @@
+import "std/collection" as collection;
+
+ext fun zap_runtime_ownership_reset_counters() Void;
+ext fun zap_runtime_ownership_copy_operations() UInt64;
+ext fun zap_runtime_ownership_drop_operations() UInt64;
+ext fun zap_runtime_ownership_destroy_calls() UInt64;
+
+class Node {
+}
+
+enum NodeSlot {
+    Empty,
+    Occupied(Node),
+}
+
+struct NodeSlots {
+    values: [2]NodeSlot;
+}
+
+struct NodePair {
+    first: Node,
+    second: Node,
+}
+
+class Cell<T> {
+    value: T;
+
+    fun init(value: T) {
+        self.value = value;
+    }
+}
+
+class Chain<T> {
+    head: Cell<T>;
+
+    fun init() {
+        self.head = null;
+    }
+
+    pub fun push(value: T) {
+        self.head = new Cell<T>(value);
+    }
+}
+
+@error
+class Failure {
+}
+
+fun exercise() Void {
+    zap_runtime_ownership_reset_counters();
+
+    var source: Node = new Node();
+    var destination: Node;
+    destination = source;
+}
+
+fun exerciseBranch(left: Bool) Void {
+    zap_runtime_ownership_reset_counters();
+
+    var source: Node = new Node();
+    var destination: Node;
+    if left {
+        destination = source;
+    } else {
+        destination = source;
+    }
+}
+
+fun exerciseLoop(iterations: Int) Void {
+    zap_runtime_ownership_reset_counters();
+
+    var source: Node = new Node();
+    var destination: Node;
+    var i: Int = 0;
+    while i < iterations {
+        destination = source;
+        i = i + 1;
+    }
+}
+
+fun exerciseFailure() Void!Failure {
+    zap_runtime_ownership_reset_counters();
+    fail new Failure();
+    return;
+}
+
+fun observeFailure() Void {
+    exerciseFailure() or err {
+        return;
+    };
+}
+
+fun failNode() Node!Failure {
+    fail new Failure();
+    return new Node();
+}
+
+fun exercisePartialAggregate() Void!Failure {
+    zap_runtime_ownership_reset_counters();
+
+    var ignored: NodePair = NodePair {
+        first: new Node(),
+        second: failNode()?,
+    };
+    return;
+}
+
+fun observePartialAggregate() Void {
+    exercisePartialAggregate() or err {
+        return;
+    };
+}
+
+fun exerciseNestedAggregate() Void {
+    zap_runtime_ownership_reset_counters();
+
+    var node: Node = new Node();
+    var source: NodeSlots = NodeSlots {
+        values: { NodeSlot.Occupied(node), NodeSlot.Empty() }
+    };
+    var destination: NodeSlots;
+    destination = source;
+}
+
+fun exerciseGenericContainer() Void {
+    zap_runtime_ownership_reset_counters();
+
+    var node: Node = new Node();
+    var source: Chain<NodeSlot> = new Chain<NodeSlot>();
+    source.push(NodeSlot.Occupied(node));
+
+    var destination: Chain<NodeSlot>;
+    destination = source;
+}
+
+fun exerciseHashMap() Void {
+    var first: Node = new Node();
+    var source: collection.HashMap<NodeSlot> =
+        new collection.HashMap<NodeSlot>();
+    source.put("node", NodeSlot.Occupied(first));
+
+    zap_runtime_ownership_reset_counters();
+
+    var replacement: Node = new Node();
+    source.put("node", NodeSlot.Occupied(replacement));
+
+    var destination: collection.HashMap<NodeSlot>;
+    destination = source;
+}
+
+fun hasCounts(copy: UInt64, drop: UInt64, destroy: UInt64) Bool {
+    return zap_runtime_ownership_copy_operations() == copy &&
+           zap_runtime_ownership_drop_operations() == drop &&
+           zap_runtime_ownership_destroy_calls() == destroy;
+}
+
+fun main() Int {
+    exercise();
+
+    if !hasCounts(1, 2, 1) {
+        return 1;
+    }
+
+    exerciseBranch(true);
+    if !hasCounts(1, 2, 1) {
+        return 2;
+    }
+
+    exerciseBranch(false);
+    if !hasCounts(1, 2, 1) {
+        return 3;
+    }
+
+    exerciseLoop(0);
+    if !hasCounts(0, 2, 1) {
+        return 4;
+    }
+
+    exerciseLoop(1);
+    if !hasCounts(1, 2, 1) {
+        return 5;
+    }
+
+    observeFailure();
+    if !hasCounts(0, 3, 1) {
+        return 6;
+    }
+
+    observePartialAggregate();
+    if !hasCounts(0, 7, 2) {
+        return 7;
+    }
+
+    exerciseNestedAggregate();
+    if !hasCounts(4, 7, 1) {
+        return 8;
+    }
+
+    exerciseGenericContainer();
+    if !hasCounts(7, 7, 3) {
+        return 9;
+    }
+
+    exerciseHashMap();
+    if !hasCounts(10, 15, 4) {
+        return 10;
+    }
+
+    return 0;
+}

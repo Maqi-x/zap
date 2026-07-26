@@ -1,0 +1,13 @@
+fun deliver(message: sink String) {
+    println("Delivering: " + message);
+}
+
+fun main() Int {
+    var trustedMessage = "stable source semantics";
+
+    deliver(trustedMessage);
+    println("Still available: " + trustedMessage);
+
+    deliver("temporary values transfer efficiently");
+    return 0;
+}

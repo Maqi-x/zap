@@ -1,6 +1,7 @@
 # Zap Roadmap
 
 ## Zap v0.3.0
+
 - [x] tagged unions
 - ~~[ ] traits~~
 - [x] type inference

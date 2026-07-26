@@ -5,7 +5,7 @@
 </p>
 Systems programming that doesn't get in your way.
 
-You want predictable performance. No GC pauses. Real enums.
+You want predictable performance. No collector work on ordinary releases. Real enums.
 Error handling that doesn't look like noise.
 
 **Zap is a systems language built for developers who know Go
@@ -21,7 +21,7 @@ without low-level frustration.
 
 
 <ul>
-<li><b>deterministic memory management</b>: Even though Zap has automatic memory management, it deletes objects exactly when they are no longer needed.</li>
+<li><b>predictable memory management</b>: ordinary ARC releases are immediate; unreachable cycles are reclaimed at controlled safe points.</li>
 <li><b>productivity</b>: Zap allows you to use an object-oriented approach, has a very fast compile-time, and has its own <a href="https://github.com/thezaplang/thor">build tool</a>
 <li><b>performance</b>: Zap, thanks to being free from the bloat of other languages, has a very fast compile time, and, thanks to LLVM and its own IR, the resulting application is really efficient.</li>
 </ul>
@@ -32,7 +32,7 @@ without low-level frustration.
 
 If you know what ARC is, you probably also know that when two objects point to each other, ARC will never delete them even though they are not needed.
 Swift added `weak` to prevent this. We also added weak in Zap, but it often happens that you simply don't see that there is a cycle somewhere.
-Zap solves this problem thanks to its Cycle Collector, i.e., it is actually a garbage collector operating on objects causing the cycle, REST OF OBJECTS ARE NOT AFFECTED (cycle collector can be disabled if someone needs it!)
+Zap detects candidate cycles after ARC releases and reclaims confirmed unreachable cycles at controlled safe points. The collector traces the candidate graph, so cycle destruction is not promised at the same instant as an ordinary ARC release.
 
 ---
 
@@ -67,14 +67,13 @@ fun main() Int {
 
 ---
 
-## Documentation
+## Examples
 
-Start here: **[docs/README.md](docs/README.md)**
+The curated [example gallery](example/README.md) contains small, runnable
+programs for safe domain modeling, local error handling, collections,
+predictable ARC lifetimes, C FFI, isolated `unsafe`, modules, and more.
 
-Highlights:
-- Language guide: variables, functions, control flow, data structures, classes, memory
-- Generics coverage: function/type generics, constraints (`where`), and compile-time `iftype` (see docs sections and tests)
-- Diagnostic code reference: **[docs/diagnostic_codes.md](docs/diagnostic_codes.md)**
+---
 
 ## Contributing
 

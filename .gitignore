@@ -1,6 +1,8 @@
 # Build artifacts
 /build/
 doc_doxygen/
+/zap-*-linux-*/
+/zap-*-linux-*.tar.gz
 
 # Editor files
 .vscode/
@@ -79,7 +81,7 @@ CLAUDE.md
 .gemini-*
 .claude
 src/lsp/vscode/zap/bin/zap-lsp
-src/lsp/vscode/zap/zap-0.0.1.vsix
+src/lsp/vscode/zap/zap-*.vsix
 src/lsp/vscode/zap/stdlib
 
 #tmps
@@ -89,3 +91,9 @@ src/lsp/vscode/zap/stdlib
 bugs/
 playground/
 bench/
+/zap-website/
+zapup/
+
+# Local audit notes
+raport.md
+TODO.md

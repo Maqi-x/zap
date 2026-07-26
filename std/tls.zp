@@ -1,0 +1,41 @@
+import "std/string" as string;
+
+pub ext fun zap_tls_connect(host: String, port: Int) Int;
+pub ext fun zap_tls_send(handle: Int, data: String) Int;
+pub ext fun zap_tls_recv(handle: Int, maxLen: Int) String;
+pub ext fun zap_tls_close(handle: Int) Int;
+pub ext fun zap_tls_last_error() Int;
+
+pub class Stream {
+    priv handle: Int;
+
+    fun init(handle: Int) {
+        self.handle = handle;
+    }
+
+    pub fun isOpen() Bool { return self.handle != 0; }
+    pub fun handleValue() Int { return self.handle; }
+
+    pub fun sendAll(data: String) Int {
+        if self.handle == 0 { return -1; }
+        return zap_tls_send(self.handle, data);
+    }
+
+    pub fun recv(maxLen: Int) String {
+        if self.handle == 0 { return ""; }
+        return zap_tls_recv(self.handle, maxLen);
+    }
+
+    pub fun close() Int {
+        if self.handle == 0 { return 0; }
+        var result: Int = zap_tls_close(self.handle);
+        if result == 0 { self.handle = 0; }
+        return result;
+    }
+}
+
+pub fun dial(host: String, port: Int) Stream {
+    return new Stream(zap_tls_connect(host, port));
+}
+
+pub fun lastErrorCode() Int { return zap_tls_last_error(); }

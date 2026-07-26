@@ -1,9 +1,13 @@
 #pragma once
 
-#include "../sema/bound_nodes.hpp"
+#include "../ir/value.hpp"
+#include <cstdint>
 #include <memory>
+#include <vector>
 
 namespace llvm {
+class Function;
+class StructType;
 class Value;
 }
 
@@ -16,7 +20,6 @@ public:
 
   bool isClassType(const std::shared_ptr<zir::Type> &type) const;
   bool isWeakClassType(const std::shared_ptr<zir::Type> &type) const;
-  bool expressionProducesOwnedClass(const sema::BoundExpression *expr) const;
   void emitRetainIfNeeded(llvm::Value *value,
                           const std::shared_ptr<zir::Type> &type);
   void emitReleaseIfNeeded(llvm::Value *value,
@@ -31,12 +34,23 @@ public:
                             const std::shared_ptr<zir::Type> &type);
   void emitStoreWithArc(llvm::Value *addr, llvm::Value *value,
                         const std::shared_ptr<zir::Type> &type,
-                        bool valueIsOwned, bool skipReleaseOld = false);
-  void emitScopeReleases();
-  void ensureArcSupport(sema::BoundRootNode &root);
+                        zir::ValueOwnership valueOwnership,
+                        bool skipReleaseOld = false);
   void ensureClassArcSupport(const std::shared_ptr<zir::ClassType> &classType);
 
 private:
+  llvm::Function *getOrCreateRefcountFailureFunction(const char *name);
+  llvm::Function *getOrCreateArcDeallocateFunction();
+  llvm::Value *emitArcRuntimeContext();
+  void emitRefcountFailure(const char *name);
+  void ensureNestedClassArcSupport(const std::shared_ptr<zir::Type> &type);
+  llvm::Function *emitClassTraceFunction(
+      const std::shared_ptr<zir::ClassType> &classType,
+      llvm::StructType *objectType);
+  void emitTraceChildren(const std::shared_ptr<zir::Type> &type,
+                         llvm::Value *address, llvm::Value *visitor,
+                         llvm::Value *context);
+
   LLVMCodeGen &codegen_;
 };
 } // namespace codegen

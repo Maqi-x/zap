@@ -33,3 +33,27 @@ jobs:
         run: |
           chmod +x ./run_tests.sh
           ./run_tests.sh
+
+  sanitizers:
+    if: contains(github.event.pull_request.labels.*.name, 'run-ci')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake clang python3
+
+      - name: Install LLVM
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 21
+
+      - name: Run sanitizer suite
+        run: |
+          chmod +x ./scripts/run_sanitizers.sh
+          ./scripts/run_sanitizers.sh

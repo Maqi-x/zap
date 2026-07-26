@@ -34,6 +34,8 @@
 #include "../utils/diagnostics.hpp"
 #include "ast_builder.hpp"
 #include <memory>
+#include <optional>
+#include <string>
 #include <vector>
 
 namespace zap {
@@ -70,6 +72,7 @@ private:
   AttributeNode parseSingleAttribute();
   std::unique_ptr<FunDecl> parseFunDecl(bool isUnsafe = false);
   std::unique_ptr<ExtDecl> parseExtDecl();
+  std::optional<std::string> parseResultBorrowSource();
   std::unique_ptr<ImportNode> parseImportDecl();
   std::unique_ptr<BodyNode> parseBody();
   std::unique_ptr<UnsafeBlockNode> parseUnsafeBlock();

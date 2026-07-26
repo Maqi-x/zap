@@ -1,21 +1,8 @@
 #include "ir/failable_type.hpp"
-#include <cctype>
+#include "ir/type_identity.hpp"
 
 namespace zir {
 namespace {
-
-std::string sanitizeFailableTypeName(const std::string &value) {
-  std::string out;
-  out.reserve(value.size());
-  for (char ch : value) {
-    if (std::isalnum(static_cast<unsigned char>(ch))) {
-      out.push_back(ch);
-    } else {
-      out.push_back('_');
-    }
-  }
-  return out;
-}
 
 std::shared_ptr<RecordType>
 asFailableRecord(const std::shared_ptr<Type> &type) {
@@ -24,7 +11,7 @@ asFailableRecord(const std::shared_ptr<Type> &type) {
   }
 
   auto record = std::static_pointer_cast<RecordType>(type);
-  if (record->getName().rfind(kFailableTypePrefix, 0) != 0) {
+  if (record->getRole() != RecordRole::Failable) {
     return nullptr;
   }
 
@@ -54,11 +41,13 @@ getFailableTypeLayout(const std::shared_ptr<Type> &type) {
 std::shared_ptr<RecordType>
 makeFailableRecordType(const std::shared_ptr<Type> &valueType,
                        const std::shared_ptr<Type> &errorType) {
-  auto suffix = sanitizeFailableTypeName(
-      (valueType ? valueType->toString() : "<?>") + std::string("$") +
-      (errorType ? errorType->toString() : "<?>"));
-  auto typeName = std::string(kFailableTypePrefix) + suffix;
-  auto type = std::make_shared<RecordType>(typeName, typeName);
+  auto suffix = (valueType ? typeMangleKey(valueType) : "missing") +
+                std::string("$") +
+                (errorType ? typeMangleKey(errorType) : "missing");
+  auto typeName = std::string("failable$") + suffix;
+  auto type = std::make_shared<RecordType>(typeName, typeName,
+                                           IntrinsicTypeKind::None,
+                                           RecordRole::Failable);
   type->addField("ok", std::make_shared<PrimitiveType>(TypeKind::Bool));
   type->addField("value", valueType);
   type->addField("error", errorType);

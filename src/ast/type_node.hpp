@@ -3,6 +3,7 @@
 #include "node.hpp"
 #include "visitor.hpp"
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -20,7 +21,11 @@ public:
   bool isFailable = false;
   bool isFunPtr = false;
   std::vector<std::unique_ptr<TypeNode>> funPtrParams;
+  std::vector<bool> funPtrParamSinks;
+  std::vector<bool> funPtrParamNoEscapes;
   std::unique_ptr<TypeNode> funPtrReturn;
+  bool funPtrReturnsRef = false;
+  std::optional<std::string> funPtrResultBorrowSource;
   std::unique_ptr<TypeNode> errorType;
   std::unique_ptr<ExpressionNode> arraySize; // nullptr for non-array types
   std::unique_ptr<TypeNode>

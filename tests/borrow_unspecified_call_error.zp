@@ -1,0 +1,8 @@
+fun unspecified(view: StringView) {
+}
+
+fun main() Int {
+  var owner: String = "local";
+  unspecified(owner);
+  return 0;
+}

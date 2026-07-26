@@ -1,0 +1,5 @@
+fun main() Int {
+    var view = "'";
+    view = view + 'x';
+    return 0;
+}

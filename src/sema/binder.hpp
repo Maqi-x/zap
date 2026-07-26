@@ -1,11 +1,14 @@
 #pragma once
 #include "../ast/nodes.hpp"
 #include "../ast/visitor.hpp"
+#include "../ir/type_identity.hpp"
 #include "../utils/diagnostics.hpp"
 #include "bound_nodes.hpp"
+#include "conversion.hpp"
 #include "module_info.hpp"
 #include "semantic_info.hpp"
 #include "symbol_table.hpp"
+#include "target_info.hpp"
 #include <map>
 #include <memory>
 #include <optional>
@@ -18,7 +21,6 @@
 namespace sema {
 
 std::string sanitizeTypeName(const std::string &value);
-std::string abiTypeKey(const std::shared_ptr<zir::Type> &type);
 bool isStringType(const std::shared_ptr<zir::Type> &type);
 bool isFailableType(const std::shared_ptr<zir::Type> &type);
 std::shared_ptr<zir::Type>
@@ -54,6 +56,7 @@ bool sameFunctionSignature(const FunctionSymbol &lhs,
                            const FunctionSymbol &rhs);
 bool stmtAlwaysReturns(const BoundStatement *stmt);
 bool blockAlwaysReturns(const BoundBlock *block);
+bool accessesImmutableRecordField(const BoundExpression &expression);
 std::unique_ptr<BoundExpression>
 deriveValueExpressionFromBlock(const BoundBlock &block);
 std::unique_ptr<BoundExpression>
@@ -62,7 +65,7 @@ deriveValueExpressionFromIf(const BoundIfStatement &stmt);
 class Binder : public Visitor {
 public:
   Binder(zap::DiagnosticEngine &diag, bool allowUnsafe = true,
-         SemanticInfo *semanticInfo = nullptr);
+         SemanticInfo *semanticInfo = nullptr, TargetInfo targetInfo = {});
   std::unique_ptr<BoundRootNode> bind(RootNode &root);
   std::unique_ptr<BoundRootNode> bind(std::vector<ModuleInfo> &modules);
   std::unique_ptr<BoundRootNode> bind(std::vector<ModuleInfo *> modules);
@@ -115,6 +118,7 @@ public:
 private:
   zap::DiagnosticEngine &_diag;
   SemanticInfo *semanticInfo_ = nullptr;
+  TargetInfo targetInfo_;
   std::shared_ptr<SymbolTable> currentScope_;
   std::shared_ptr<SymbolTable> builtinScope_;
   std::unique_ptr<BoundRootNode> boundRoot_;
@@ -123,6 +127,8 @@ private:
   std::stack<std::unique_ptr<BoundStatement>> statementStack_;
   std::unique_ptr<BoundBlock> currentBlock_;
   std::vector<std::shared_ptr<zir::Type>> expectedExpressionTypes_;
+  mutable zir::TypeInterner typeInterner_;
+  mutable ConversionClassifier conversions_{typeInterner_, targetInfo_};
 
   int loopDepth_ = 0;
   size_t syntheticLoopCounter_ = 0;
@@ -135,6 +141,7 @@ private:
   void popScope();
 
   std::shared_ptr<FunctionSymbol> currentFunction_ = nullptr;
+  std::shared_ptr<FunctionSymbol> stringIndexFunction_ = nullptr;
   std::string currentModuleId_;
 
   struct ModuleState {
@@ -184,18 +191,6 @@ private:
   std::unordered_map<std::string, ClassInfo> classInfos_;
   std::vector<std::string> currentClassStack_;
 
-  struct PairHash {
-    size_t operator()(const std::pair<const zir::Type *, const zir::Type *> &p)
-        const noexcept {
-      size_t h1 = std::hash<const void *>{}(p.first);
-      size_t h2 = std::hash<const void *>{}(p.second);
-      return h1 ^ (h2 * 2654435761u); // Knuth's multiplicative constant,
-                                      // spreads bits to reduce collisions
-    }
-  };
-  mutable std::unordered_map<std::pair<const zir::Type *, const zir::Type *>,
-                             bool, PairHash>
-      canConvertCache_;
   std::unordered_map<const TypeNode *, std::shared_ptr<zir::Type>>
       mapTypeCache_;
 
@@ -219,8 +214,8 @@ private:
   foldConstantBinary(const BoundBinaryExpression *binary);
   std::string makeSyntheticLoopName(std::string_view prefix);
   std::unique_ptr<BoundExpression>
-  wrapInCast(std::unique_ptr<BoundExpression> expr,
-             std::shared_ptr<zir::Type> targetType);
+  applyConversion(std::unique_ptr<BoundExpression> expr,
+                  const Conversion &conversion);
   std::unique_ptr<BoundExpression>
   buildBinaryExpression(std::unique_ptr<BoundExpression> left,
                         const std::string &op,
@@ -237,6 +232,11 @@ private:
   std::string renderTypeForUser(const std::shared_ptr<zir::Type> &type) const;
   std::string functionSignatureKey(const FunctionSymbol &function) const;
   std::string renderFunctionSignature(const FunctionSymbol &function) const;
+  zir::ResultBorrowContract resolveResultBorrowContract(
+      const std::optional<std::string> &source,
+      const std::vector<std::shared_ptr<VariableSymbol>> &parameters,
+      const std::shared_ptr<zir::Type> &returnType, bool returnsRef,
+      SourceSpan span);
   std::shared_ptr<FunctionSymbol>
   findFunctionBySignature(const std::shared_ptr<Symbol> &symbol,
                           const FunctionSymbol &prototype) const;
@@ -277,13 +277,7 @@ private:
   std::shared_ptr<zir::Type> currentExpectedExpressionType() const;
   bool bindSizeOfBuiltinCall(FunCall &node);
   bool bindWeakBuiltinCall(FunCall &node);
-  int conversionCost(std::shared_ptr<zir::Type> from,
-                     std::shared_ptr<zir::Type> to) const;
-  bool isSignedIntegerType(std::shared_ptr<zir::Type> type) const;
-  bool isUnsignedIntegerType(std::shared_ptr<zir::Type> type) const;
   int typeBitWidth(std::shared_ptr<zir::Type> type) const;
-  std::string describeConversion(std::shared_ptr<zir::Type> from,
-                                 std::shared_ptr<zir::Type> to) const;
   std::unique_ptr<BoundBlock> bindBody(BodyNode *body, bool createScope);
   void initializeBuiltins();
   void predeclareModuleTypes(ModuleState &module);
@@ -299,10 +293,6 @@ private:
   bool isUnsafeActive() const;
   void requireUnsafeEnabled(SourceSpan span, const std::string &feature);
   void requireUnsafeContext(SourceSpan span, const std::string &feature);
-  bool canConvert(std::shared_ptr<zir::Type> from,
-                  std::shared_ptr<zir::Type> to) const;
-  std::shared_ptr<zir::Type> getPromotedType(std::shared_ptr<zir::Type> t1,
-                                             std::shared_ptr<zir::Type> t2);
   std::shared_ptr<zir::Type>
   getCVariadicArgumentType(std::shared_ptr<zir::Type> type);
 

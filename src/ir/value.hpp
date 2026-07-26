@@ -14,16 +14,40 @@ enum class ValueKind {
   ArrayConstant,
   GlobalAddress,
   Argument,
+  FunctionReference,
   Global
 };
 
+enum class ValueOwnership {
+  Borrowed,
+  OwnedStrong,
+  OwnedWeak,
+  Owned = OwnedStrong,
+};
+
+inline bool isOwned(ValueOwnership ownership) {
+  return ownership != ValueOwnership::Borrowed;
+}
+
+inline ValueOwnership ownedForType(const std::shared_ptr<Type> &type) {
+  if (type && type->getKind() == TypeKind::Class &&
+      std::static_pointer_cast<ClassType>(type)->isWeak()) {
+    return ValueOwnership::OwnedWeak;
+  }
+  return ValueOwnership::OwnedStrong;
+}
+
 class Value {
+  ValueOwnership ownership_ = ValueOwnership::Borrowed;
+
 public:
   virtual ~Value() = default;
   virtual ValueKind getKind() const = 0;
   virtual std::string getName() const = 0;
   virtual std::shared_ptr<Type> getType() const = 0;
   std::string getTypeName() const { return getType()->toString(); }
+  ValueOwnership getOwnership() const { return ownership_; }
+  void setOwnership(ValueOwnership ownership) { ownership_ = ownership; }
 };
 
 class GlobalAddress : public Value {
@@ -114,14 +138,20 @@ class Argument : public Value {
   bool isRef_;
   bool isVariadicPack_;
   std::shared_ptr<Type> variadicElementType_;
+  ParameterOwnership parameterOwnership_;
+  ParameterEscape parameterEscape_;
 
 public:
   Argument(std::string n, std::shared_ptr<Type> t, bool isRef = false,
            bool isVariadicPack = false,
-           std::shared_ptr<Type> variadicElementType = nullptr)
+           std::shared_ptr<Type> variadicElementType = nullptr,
+           ParameterOwnership parameterOwnership = ParameterOwnership::Borrow,
+           ParameterEscape parameterEscape = ParameterEscape::Unspecified)
       : name(std::move(n)), type(std::move(t)), isRef_(isRef),
         isVariadicPack_(isVariadicPack),
-        variadicElementType_(std::move(variadicElementType)) {}
+        variadicElementType_(std::move(variadicElementType)),
+        parameterOwnership_(parameterOwnership),
+        parameterEscape_(parameterEscape) {}
   ValueKind getKind() const override { return ValueKind::Argument; }
   std::string getName() const override { return "%" + name; }
   std::shared_ptr<Type> getType() const override { return type; }
@@ -131,6 +161,24 @@ public:
   const std::shared_ptr<Type> &getVariadicElementType() const {
     return variadicElementType_;
   }
+  ParameterOwnership getParameterOwnership() const {
+    return parameterOwnership_;
+  }
+  ParameterEscape getParameterEscape() const { return parameterEscape_; }
+};
+
+class FunctionReference : public Value {
+  std::string linkName;
+  std::shared_ptr<FunctionPointerType> type;
+
+public:
+  FunctionReference(std::string name, std::shared_ptr<FunctionPointerType> type)
+      : linkName(std::move(name)), type(std::move(type)) {}
+
+  ValueKind getKind() const override { return ValueKind::FunctionReference; }
+  std::string getName() const override { return "@" + linkName; }
+  std::shared_ptr<Type> getType() const override { return type; }
+  const std::string &getLinkName() const { return linkName; }
 };
 
 class Global : public Value {

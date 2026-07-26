@@ -16,11 +16,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo -e "${YELLOW}Building Zap compiler...${NC}"
 
-# Configure git hooks path if in git repo
-if [ -d "$SCRIPT_DIR/.git" ]; then
-  git config core.hooksPath .githooks
-fi
-
 # Create build directory if it doesn't exist
 if [ ! -d "$SCRIPT_DIR/build" ]; then
   echo -e "${YELLOW}Creating build directory...${NC}"
@@ -38,7 +33,7 @@ fi
 
 # Run CMake to generate build files
 echo -e "${YELLOW}Running CMake...${NC}"
-cmake ..
+cmake .. -DCMAKE_BUILD_TYPE=Release
 
 # Build the project
 echo -e "${YELLOW}Compiling...${NC}"

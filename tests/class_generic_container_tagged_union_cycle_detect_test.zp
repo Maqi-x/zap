@@ -1,0 +1,69 @@
+global var destroyed: Int = 0;
+
+enum ChildLink {
+    Empty,
+    Occupied(Child),
+}
+
+class Cell<T> {
+    priv value: T;
+
+    fun init(value: T) {
+        self.value = value;
+    }
+}
+
+class Chain<T> {
+    priv head: Cell<T>;
+
+    fun init() {
+        self.head = null;
+    }
+
+    pub fun push(value: T) {
+        self.head = new Cell<T>(value);
+    }
+}
+
+class Parent {
+    priv children: Chain<ChildLink>;
+
+    fun init() {
+        self.children = new Chain<ChildLink>();
+    }
+
+    pub fun setChild(child: Child) {
+        self.children.push(ChildLink.Occupied(child));
+    }
+
+    fun deinit() {
+        destroyed = destroyed + 1;
+    }
+}
+
+class Child {
+    priv parent: Parent;
+
+    pub fun setParent(parent: Parent) {
+        self.parent = parent;
+    }
+
+    fun deinit() {
+        destroyed = destroyed + 10;
+    }
+}
+
+fun makeCycle() Void {
+    var parent: Parent = new Parent();
+    var child: Child = new Child();
+    parent.setChild(child);
+    child.setParent(parent);
+}
+
+fun main() Int {
+    makeCycle();
+    if destroyed != 11 {
+        return 1;
+    }
+    return 0;
+}

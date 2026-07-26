@@ -1,0 +1,32 @@
+enum Role {
+    Reader,
+    Editor,
+    Administrator,
+}
+
+record Session {
+    userId: Int;
+    role: Role;
+    active: Bool;
+}
+
+fun canPublish(session: Session) Bool {
+    if !session.active {
+        return false;
+    }
+    return session.role == Role.Editor ||
+           session.role == Role.Administrator;
+}
+
+fun main() Int {
+    var session = Session{
+        userId: 42,
+        role: Role.Editor,
+        active: true,
+    };
+
+    if canPublish(session) {
+        println("Publish access granted to user " + toString(session.userId));
+    }
+    return 0;
+}

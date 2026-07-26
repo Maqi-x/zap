@@ -1,4 +1,4 @@
-#include "../utils/string_type_utils.hpp"
+#include "../ir/string_type.hpp"
 #include "class_arc_emitter.hpp"
 #include "llvm_codegen.hpp"
 
@@ -9,6 +9,20 @@ bool isStringLikeStruct(llvm::Type *ty) {
   return st && st->getNumElements() == 2;
 }
 } // namespace
+
+#if defined(ZAP_RUNTIME_INSTRUMENTATION)
+void LLVMCodeGen::emitRuntimeOwnershipEvent(const char *name) {
+  auto it = functionMap_.find(name);
+  if (it == functionMap_.end()) {
+    auto *eventType = llvm::FunctionType::get(
+        llvm::Type::getVoidTy(ctx_), {}, false);
+    auto *eventFn = llvm::Function::Create(
+        eventType, llvm::Function::ExternalLinkage, name, *module_);
+    it = functionMap_.emplace(name, eventFn).first;
+  }
+  builder_.CreateCall(it->second);
+}
+#endif
 
 bool LLVMCodeGen::isClassType(const std::shared_ptr<zir::Type> &type) const {
   return arcEmitter_->isClassType(type);
@@ -21,20 +35,188 @@ bool LLVMCodeGen::isWeakClassType(
 
 bool LLVMCodeGen::isOwnedStringType(
     const std::shared_ptr<zir::Type> &type) const {
-  return zap::text::isStringType(type) && !zap::text::isStringViewType(type);
+  return zir::isIntrinsicStringType(type) &&
+         !zir::isIntrinsicStringViewType(type);
 }
 
-bool LLVMCodeGen::expressionProducesOwnedClass(
-    const sema::BoundExpression *expr) const {
-  return arcEmitter_->expressionProducesOwnedClass(expr);
+bool LLVMCodeGen::containsManagedValues(
+    const std::shared_ptr<zir::Type> &type) const {
+  return zir::containsManagedValues(type);
 }
 
-bool LLVMCodeGen::expressionProducesOwnedString(
-    const sema::BoundExpression *expr) const {
-  if (!expr || !isOwnedStringType(expr->type)) {
-    return false;
+void LLVMCodeGen::emitManagedRetain(
+    llvm::Value *value, const std::shared_ptr<zir::Type> &type) {
+  if (!value || !type) {
+    return;
   }
-  return dynamic_cast<const sema::BoundLiteral *>(expr) == nullptr;
+  if (isOwnedStringType(type)) {
+    (void)emitStringRetainIfNeeded(value, type);
+    return;
+  }
+  if (isWeakClassType(type)) {
+    emitRetainWeakIfNeeded(value, type);
+    return;
+  }
+  if (isClassType(type)) {
+    emitRetainIfNeeded(value, type);
+    return;
+  }
+  if (type->getKind() == zir::TypeKind::Record) {
+    const auto &record = static_cast<const zir::RecordType &>(*type);
+    for (size_t i = 0; i < record.getFields().size(); ++i) {
+      const auto &field = record.getFields()[i];
+      if (containsManagedValues(field.type)) {
+        emitManagedRetain(
+            builder_.CreateExtractValue(value, {static_cast<unsigned>(i)}),
+            field.type);
+      }
+    }
+  } else if (type->getKind() == zir::TypeKind::Array) {
+    const auto &array = static_cast<const zir::ArrayType &>(*type);
+    if (!containsManagedValues(array.getBaseType())) {
+      return;
+    }
+    for (size_t i = 0; i < array.getSize(); ++i) {
+      emitManagedRetain(builder_.CreateExtractValue(
+                            value, {static_cast<unsigned>(i)}),
+                        array.getBaseType());
+    }
+  } else if (type->getKind() == zir::TypeKind::TaggedUnion) {
+    emitManagedForActiveTaggedUnion(
+        value, std::static_pointer_cast<zir::TaggedUnionType>(type),
+        &LLVMCodeGen::emitManagedRetain);
+  }
+}
+
+void LLVMCodeGen::emitManagedRelease(
+    llvm::Value *value, const std::shared_ptr<zir::Type> &type) {
+  if (!value || !type) {
+    return;
+  }
+  if (isOwnedStringType(type)) {
+    emitStringReleaseIfNeeded(value, type);
+    return;
+  }
+  if (isWeakClassType(type)) {
+    emitReleaseWeakIfNeeded(value, type);
+    return;
+  }
+  if (isClassType(type)) {
+    emitReleaseIfNeeded(value, type);
+    return;
+  }
+  if (type->getKind() == zir::TypeKind::Record) {
+    const auto &record = static_cast<const zir::RecordType &>(*type);
+    for (size_t i = record.getFields().size(); i > 0; --i) {
+      const auto &field = record.getFields()[i - 1];
+      if (containsManagedValues(field.type)) {
+        emitManagedRelease(builder_.CreateExtractValue(
+                               value, {static_cast<unsigned>(i - 1)}),
+                           field.type);
+      }
+    }
+  } else if (type->getKind() == zir::TypeKind::Array) {
+    const auto &array = static_cast<const zir::ArrayType &>(*type);
+    if (!containsManagedValues(array.getBaseType())) {
+      return;
+    }
+    for (size_t i = array.getSize(); i > 0; --i) {
+      emitManagedRelease(builder_.CreateExtractValue(
+                             value, {static_cast<unsigned>(i - 1)}),
+                         array.getBaseType());
+    }
+  } else if (type->getKind() == zir::TypeKind::TaggedUnion) {
+    emitManagedForActiveTaggedUnion(
+        value, std::static_pointer_cast<zir::TaggedUnionType>(type),
+        &LLVMCodeGen::emitManagedRelease);
+  }
+}
+
+void LLVMCodeGen::emitManagedForActiveTaggedUnion(
+    llvm::Value *value, const std::shared_ptr<zir::TaggedUnionType> &type,
+    void (LLVMCodeGen::*operation)(llvm::Value *,
+                                   const std::shared_ptr<zir::Type> &)) {
+  if (!value || !type || !containsManagedValues(type)) {
+    return;
+  }
+
+  auto *unionTy = llvm::cast<llvm::StructType>(toLLVMType(*type));
+  auto *storage = createEntryAlloca(currentFn_, "arc.union.addr", unionTy);
+  builder_.CreateStore(value, storage);
+  auto *tagAddr =
+      builder_.CreateStructGEP(unionTy, storage, 0, "arc.union.tag.addr");
+  auto *tag = builder_.CreateLoad(llvm::Type::getInt32Ty(ctx_), tagAddr,
+                                  "arc.union.tag");
+  auto *done = llvm::BasicBlock::Create(ctx_, "arc.union.done", currentFn_);
+
+  for (const auto &variant : type->getVariants()) {
+    if (!containsManagedValues(variant.payloadType)) {
+      continue;
+    }
+
+    auto *active =
+        llvm::BasicBlock::Create(ctx_, "arc.union.active", currentFn_);
+    auto *next = llvm::BasicBlock::Create(ctx_, "arc.union.next", currentFn_);
+    auto *isActive = builder_.CreateICmpEQ(
+        tag, llvm::ConstantInt::getSigned(llvm::Type::getInt32Ty(ctx_),
+                                           variant.tag),
+        "arc.union.is_active");
+    builder_.CreateCondBr(isActive, active, next);
+
+    builder_.SetInsertPoint(active);
+    auto *payloadAddr = builder_.CreateStructGEP(
+        unionTy, storage, 1, "arc.union.payload.addr");
+    auto *payload = builder_.CreateLoad(toLLVMType(*variant.payloadType),
+                                        payloadAddr, "arc.union.payload");
+    (this->*operation)(payload, variant.payloadType);
+    builder_.CreateBr(done);
+
+    builder_.SetInsertPoint(next);
+  }
+
+  builder_.CreateBr(done);
+  builder_.SetInsertPoint(done);
+}
+
+void LLVMCodeGen::emitOwnershipRelease(
+    llvm::Value *value, const std::shared_ptr<zir::Type> &type,
+    zir::ValueOwnership ownership) {
+  if (ownership == zir::ValueOwnership::OwnedStrong &&
+      isWeakClassType(type)) {
+    auto strongType = std::make_shared<zir::ClassType>(
+        *std::static_pointer_cast<zir::ClassType>(type));
+    strongType->setWeak(false);
+    emitReleaseIfNeeded(value, strongType);
+    return;
+  }
+  emitManagedRelease(value, type);
+}
+
+void LLVMCodeGen::emitArcCollectionSafePoint() {
+  // ZIR lowering calls this only after local releases on a non-destructor
+  // return, so collection cannot reenter through an active destructor.
+  auto *rawPtrTy = llvm::PointerType::getUnqual(ctx_);
+  auto contextIt = functionMap_.find("zap_arc_default_context");
+  if (contextIt == functionMap_.end()) {
+    auto *contextTy = llvm::FunctionType::get(rawPtrTy, {}, false);
+    auto *contextFn = llvm::Function::Create(
+        contextTy, llvm::Function::ExternalLinkage, "zap_arc_default_context",
+        *module_);
+    contextIt = functionMap_.emplace("zap_arc_default_context", contextFn)
+                    .first;
+  }
+  auto it = functionMap_.find("zap_arc_collect_at_safepoint");
+  if (it == functionMap_.end()) {
+    auto *safePointTy = llvm::FunctionType::get(
+        llvm::Type::getVoidTy(ctx_), {rawPtrTy}, false);
+    auto *safePointFn = llvm::Function::Create(
+        safePointTy, llvm::Function::ExternalLinkage,
+        "zap_arc_collect_at_safepoint", *module_);
+    it = functionMap_.emplace("zap_arc_collect_at_safepoint", safePointFn)
+             .first;
+  }
+  auto *context = builder_.CreateCall(contextIt->second, {}, "arc.context");
+  builder_.CreateCall(it->second, {context});
 }
 
 void LLVMCodeGen::emitRetainIfNeeded(llvm::Value *value,
@@ -124,12 +306,14 @@ llvm::Value *LLVMCodeGen::emitWeakLock(llvm::Value *value,
 
 void LLVMCodeGen::emitStoreWithArc(llvm::Value *addr, llvm::Value *value,
                                    const std::shared_ptr<zir::Type> &type,
-                                   bool valueIsOwned, bool skipReleaseOld) {
+                                   zir::ValueOwnership valueOwnership,
+                                   bool skipReleaseOld) {
   if (isOwnedStringType(type)) {
-    emitStoreWithStringArc(addr, value, type, valueIsOwned, skipReleaseOld);
+    emitStoreWithStringArc(addr, value, type, zir::isOwned(valueOwnership),
+                           skipReleaseOld);
     return;
   }
-  arcEmitter_->emitStoreWithArc(addr, value, type, valueIsOwned,
+  arcEmitter_->emitStoreWithArc(addr, value, type, valueOwnership,
                                 skipReleaseOld);
 }
 
@@ -147,25 +331,9 @@ void LLVMCodeGen::emitStoreWithStringArc(llvm::Value *addr, llvm::Value *value,
   builder_.CreateStore(storedValue, addr);
 }
 
-void LLVMCodeGen::emitScopeReleases() {
-  arcEmitter_->emitScopeReleases();
-  if (scopeStringLocals_.empty()) {
-    return;
-  }
-  auto &locals = scopeStringLocals_.back();
-  for (auto it = locals.rbegin(); it != locals.rend(); ++it) {
-    auto *value = builder_.CreateLoad(toLLVMType(*it->first), it->second,
-                                      "str.scope.release");
-    emitStringReleaseIfNeeded(value, it->first);
-  }
-}
-
 void LLVMCodeGen::ensureClassArcSupport(
     const std::shared_ptr<zir::ClassType> &classType) {
   arcEmitter_->ensureClassArcSupport(classType);
 }
 
-void LLVMCodeGen::ensureArcSupport(sema::BoundRootNode &root) {
-  arcEmitter_->ensureArcSupport(root);
-}
 } // namespace codegen

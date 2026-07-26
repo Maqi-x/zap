@@ -11,7 +11,29 @@ Syntax highlighting and LSP support for Zap.
 
 The packaged `.vsix` bundles `zap-lsp`.
 
-The extension asks `zapc --print-core-path` and `zapc --print-stdlib-path` for the library directories used for imports like `core` and `std/io`. Set `zap-lsp.zapcPath` when the compiler is outside the workspace, or set `zap-lsp.corePath` / `zap-lsp.stdlibPath` to override discovery entirely.
+When a workspace has no `zaplsp.json`, the extension offers to create it from
+the detected Zap installation or lets you select the installation directory.
+The extension does not bundle its own copy of `core`, `stdlib`, or `zapc`.
+
+The server reads `zaplsp.json` directly, so the configuration is shared with
+other LSP clients:
+
+```json
+{
+  "zapRoot": "/opt/zap",
+  "corePath": "core",
+  "stdlibPath": "std"
+}
+```
+
+Relative `corePath` and `stdlibPath` values use `zapRoot` as their base. When
+`zapRoot` is omitted, they are resolved relative to `zaplsp.json`.
+
+For initial discovery, the extension asks `zapc --print-core-path` and
+`zapc --print-stdlib-path`. Set `zap-lsp.zapcPath` when the compiler is outside
+the workspace or `PATH`. The `zap-lsp.corePath` and `zap-lsp.stdlibPath`
+settings remain explicit editor-local overrides and take precedence over the
+workspace file.
 
 ## Optional Server Override
 
@@ -25,7 +47,7 @@ Example:
 }
 ```
 
-Example stdlib override setting (optional):
+Example editor-local override (optional):
 
 ```json
 {
@@ -87,5 +109,6 @@ After updating settings, run **Developer: Reload Window**.
 
 ## Notes
 
-- The server currently provides diagnostics.
+- The server provides diagnostics, completion, definition, hover, and signature help.
+- Requests can be cancelled while another analysis is running; cancelled requests return the standard LSP cancellation error.
 - The extension starts the server over stdio, so it also works in VSCodium.

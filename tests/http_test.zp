@@ -1,0 +1,14 @@
+import "std/http";
+
+fun main() Int {
+    var url: http.Url = http.parseUrl("http://api.example.test:8080/repos/zap?latest=true");
+    if url.scheme != "http" || url.host != "api.example.test" || url.port != 8080 || url.path != "/repos/zap?latest=true" {
+        return 1;
+    }
+
+    var invalid: http.Url = http.parseUrl("https://api.example.test/releases/latest");
+    if invalid.host != "api.example.test" {
+        return 2;
+    }
+    return 0;
+}

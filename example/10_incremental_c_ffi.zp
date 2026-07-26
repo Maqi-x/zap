@@ -1,0 +1,40 @@
+@repr("C")
+struct LegacyJob {
+    id: Int32,
+    priority: Int32
+}
+
+ext fun qsort(
+    base: *Void,
+    count: Int,
+    elementSize: Int,
+    compare: *fun(*Void, *Void) Int32
+) Void;
+
+// qsort calls this Zap function using the C ABI.
+@extern("C")
+fun compareJobs(left: *Void, right: *Void) Int32 {
+    unsafe {
+        var a: LegacyJob = *(left as *LegacyJob);
+        var b: LegacyJob = *(right as *LegacyJob);
+
+        if a.priority < b.priority { return -1; }
+        if a.priority > b.priority { return 1; }
+    }
+    return 0;
+}
+
+fun main() Int {
+    var jobs: [3]LegacyJob;
+    jobs[0] = LegacyJob { id: 101, priority: 30 };
+    jobs[1] = LegacyJob { id: 102, priority: 10 };
+    jobs[2] = LegacyJob { id: 103, priority: 20 };
+
+    unsafe {
+        var comparator: *fun(*Void, *Void) Int32 = compareJobs;
+        qsort(&jobs[0] as *Void, 3, sizeof(LegacyJob), comparator);
+    }
+
+    println("Highest priority job: " + toString(jobs[0].id as Int));
+    return 0;
+}

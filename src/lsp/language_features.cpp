@@ -65,10 +65,16 @@ std::string renderParameter(const ParameterNode *param) {
     return "";
   }
   std::string prefix = param->isRef ? "ref " : "";
-  if (param->isVariadic) {
-    return prefix + param->name + ": ..." + renderType(param->type.get());
+  std::string typePrefix = param->isSink ? "sink " : "";
+  if (param->isNoEscape) {
+    typePrefix += "noescape ";
   }
-  return prefix + param->name + ": " + renderType(param->type.get());
+  if (param->isVariadic) {
+    return prefix + param->name + ": " + typePrefix + "..." +
+           renderType(param->type.get());
+  }
+  return prefix + param->name + ": " + typePrefix +
+         renderType(param->type.get());
 }
 
 std::optional<LspSignature> signatureForNode(const Node *node) {
@@ -120,6 +126,9 @@ std::optional<LspSignature> signatureForNode(const Node *node) {
       label += params[i];
     }
     label += ") " + renderType(fun->returnType_.get());
+    if (fun->resultBorrowSource_) {
+      label += " borrows(" + *fun->resultBorrowSource_ + ")";
+    }
     label += renderConstraints(fun->genericConstraints_);
     return LspSignature{std::move(label), std::move(params)};
   }
@@ -139,6 +148,9 @@ std::optional<LspSignature> signatureForNode(const Node *node) {
       label += params[i];
     }
     label += ") " + renderType(ext->returnType_.get());
+    if (ext->resultBorrowSource_) {
+      label += " borrows(" + *ext->resultBorrowSource_ + ")";
+    }
     return LspSignature{std::move(label), std::move(params)};
   }
   return std::nullopt;
@@ -711,6 +723,29 @@ std::vector<LspSignature> resolveSignatures(const std::string &source,
   }
   const sema::ModuleInfo &module = *moduleIt->second;
 
+  if (auto function = project.semanticInfo.callAt(moduleId, offset)) {
+    if (auto declaration = project.semanticInfo.declarationFor(function)) {
+      if (auto signature = signatureForNode(declaration)) {
+        return {*signature};
+      }
+    }
+    std::vector<std::string> parameters;
+    std::string label = function->name + "(";
+    for (size_t i = 0; i < function->parameters.size(); ++i) {
+      const auto &parameter = function->parameters[i];
+      if (i != 0) {
+        label += ", ";
+      }
+      const auto renderedType = parameter->type ? parameter->type->toString()
+                                                : std::string("?");
+      parameters.push_back(parameter->name + ": " + renderedType);
+      label += parameters.back();
+    }
+    label += ") " + (function->returnType ? function->returnType->toString()
+                                             : std::string("Void"));
+    return {LspSignature{std::move(label), std::move(parameters)}};
+  }
+
   if (call->isConstructor) {
     auto cls = resolveClassByTypeName(project, module, call->callee);
     return findConstructorSignatures(cls, project, module);
@@ -862,6 +897,27 @@ std::optional<HoverInfo> hoverForNode(const Node *node) {
   return std::nullopt;
 }
 
+std::optional<HoverInfo> semanticHoverFor(const sema::SemanticInfo &semanticInfo,
+                                          const Node *node) {
+  auto symbol = semanticInfo.symbolFor(node);
+  if (!symbol) {
+    return std::nullopt;
+  }
+  auto type = semanticInfo.typeFor(node);
+  if (!type) {
+    type = symbol->type;
+  }
+  if (!type) {
+    return std::nullopt;
+  }
+  const char *kind = "var";
+  if (auto variable = std::dynamic_pointer_cast<sema::VariableSymbol>(symbol)) {
+    kind = variable->is_const ? "const" : "var";
+  }
+  return HoverInfo{"zap", std::string(kind) + " " + symbol->name + ": " +
+                               type->toString()};
+}
+
 std::optional<HoverInfo> findTopLevelHover(const sema::ModuleInfo &module,
                                            std::string_view name,
                                            bool publicOnly = false) {
@@ -985,6 +1041,13 @@ std::optional<HoverInfo> resolveHover(const std::string &source,
   auto name = identifierAt(source, offset);
   if (!name) {
     return std::nullopt;
+  }
+
+  auto visible = findVisibleSymbolInfo(*module.root, offset, *name);
+  if (visible.node) {
+    if (auto hover = semanticHoverFor(project.semanticInfo, visible.node)) {
+      return hover;
+    }
   }
 
   std::set<std::string> visited;
@@ -1149,14 +1212,10 @@ std::vector<LspSymbol> collectImportedSymbols(const ProjectState &project,
   return symbols;
 }
 
-std::optional<LspSymbol> resolveDefinition(const Workspace &workspace,
+std::optional<LspSymbol> resolveDefinition(const std::string &source,
                                            const std::string &uri,
                                            const ProjectState &project,
                                            size_t offset) {
-  const DocumentState *document = workspace.document(uri);
-  if (!document) {
-    return std::nullopt;
-  }
   auto path = uriToPath(uri);
   if (!path) {
     return std::nullopt;
@@ -1168,13 +1227,31 @@ std::optional<LspSymbol> resolveDefinition(const Workspace &workspace,
   }
   const sema::ModuleInfo &module = *moduleIt->second;
 
-  if (auto qualified = qualifiedIdentifierAtOffset(document->text, offset)) {
+  if (auto qualified = qualifiedIdentifierAtOffset(source, offset)) {
     const auto &[base, rest] = *qualified;
     if (!rest.empty()) {
       std::string memberName = rest;
       size_t dot = memberName.rfind('.');
       if (dot != std::string::npos) {
         memberName = memberName.substr(dot + 1);
+      }
+      if (const auto *targetId =
+              project.semanticInfo.importedModuleFor(module.moduleId, base)) {
+        auto targetIt = project.moduleMap.find(*targetId);
+        auto targetUri = project.uriByModuleId.find(*targetId);
+        if (targetIt != project.moduleMap.end() &&
+            targetUri != project.uriByModuleId.end()) {
+          std::set<std::string> visited;
+          auto symbols = collectExportedSymbolsRecursive(
+              project, *targetIt->second, visited);
+          auto symbol = std::find_if(symbols.begin(), symbols.end(),
+                                     [&](const LspSymbol &candidate) {
+                                       return candidate.name == memberName;
+                                     });
+          if (symbol != symbols.end()) {
+            return *symbol;
+          }
+        }
       }
       for (const auto &import : module.imports) {
         for (const auto &targetId : import.targetModuleIds) {
@@ -1221,9 +1298,39 @@ std::optional<LspSymbol> resolveDefinition(const Workspace &workspace,
     }
   }
 
-  auto name = identifierAt(document->text, offset);
+  auto name = identifierAt(source, offset);
   if (!name) {
     return std::nullopt;
+  }
+
+  auto visible = findVisibleSymbolInfo(*module.root, offset, *name);
+  if (visible.node) {
+    auto symbol = project.semanticInfo.symbolFor(visible.node);
+    auto declaration = project.semanticInfo.declarationFor(symbol);
+    if (symbol && declaration) {
+      return *makeSymbol(uri, symbol->name, declaration->span, 6,
+                         symbol->visibility);
+    }
+  }
+
+  if (auto symbol =
+          project.semanticInfo.declarationNamed(*name, module.moduleName)) {
+    if (auto declaration = project.semanticInfo.declarationFor(symbol)) {
+      return *makeSymbol(uri, symbol->name, declaration->span, 3,
+                         symbol->visibility);
+    }
+  }
+
+  if (const auto *imported =
+          project.semanticInfo.importedSymbolFor(module.moduleId, *name)) {
+    if (auto declaration =
+            project.semanticInfo.declarationFor(imported->symbol)) {
+      auto targetUri = project.uriByModuleId.find(imported->targetModuleId);
+      if (targetUri != project.uriByModuleId.end()) {
+        return *makeSymbol(targetUri->second, imported->symbol->name,
+                           declaration->span, 3, imported->symbol->visibility);
+      }
+    }
   }
 
   auto locals = collectLocalSymbols(*module.root, offset, uri);

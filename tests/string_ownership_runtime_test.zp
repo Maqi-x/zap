@@ -1,0 +1,61 @@
+global var GLOBAL_TEXT: String = "global";
+
+struct Holder {
+    text: String;
+}
+
+fun identity(value: String) String {
+    return value;
+}
+
+fun makeOwned() String {
+    return "temporary";
+}
+
+fun makeHolder(value: String) Holder {
+    return Holder { text: value };
+}
+
+fun main() Int {
+    var first: String = "alpha";
+    var copy: String = first;
+
+    first = "beta";
+    if copy != "alpha" || first != "beta" {
+        return 1;
+    }
+
+    var returned: String = identity(first);
+    if returned != "beta" {
+        return 2;
+    }
+
+    var temporary: String = makeOwned();
+    if temporary != "temporary" {
+        return 3;
+    }
+
+    var temporaryView: StringView = makeOwned();
+    if temporaryView != "temporary" {
+        return 4;
+    }
+
+    var empty: String = "";
+    if empty != "" {
+        return 5;
+    }
+
+    var globalCopy: String = identity(GLOBAL_TEXT);
+    if globalCopy != "global" {
+        return 6;
+    }
+
+    var holder: Holder = makeHolder("record");
+    var holderCopy: Holder = holder;
+    holder = makeHolder("changed");
+    if holder.text != "changed" || holderCopy.text != "record" {
+        return 7;
+    }
+
+    return 0;
+}

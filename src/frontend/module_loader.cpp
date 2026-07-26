@@ -25,10 +25,15 @@ currentExecutablePath(const std::filesystem::path &argv0Hint) {
 }
 
 std::filesystem::path stdlibRootPath(const RuntimePaths &paths) {
-  if (const char *configured = std::getenv("ZAPC_STDLIB_DIR")) {
-    if (*configured != '\0') {
-      return std::filesystem::path(configured);
+  if (paths.environmentOverrides == EnvironmentOverrides::Allow) {
+    if (const char *configured = std::getenv("ZAPC_STDLIB_DIR")) {
+      if (*configured != '\0') {
+        return std::filesystem::path(configured);
+      }
     }
+  }
+  if (paths.stdlibDirOverride) {
+    return *paths.stdlibDirOverride;
   }
 
   if (auto exePath = currentExecutablePath(paths.executablePath)) {
@@ -43,10 +48,15 @@ std::filesystem::path stdlibRootPath(const RuntimePaths &paths) {
 }
 
 std::filesystem::path coreRootPath(const RuntimePaths &paths) {
-  if (const char *configured = std::getenv("ZAPC_CORE_DIR")) {
-    if (*configured != '\0') {
-      return std::filesystem::path(configured);
+  if (paths.environmentOverrides == EnvironmentOverrides::Allow) {
+    if (const char *configured = std::getenv("ZAPC_CORE_DIR")) {
+      if (*configured != '\0') {
+        return std::filesystem::path(configured);
+      }
     }
+  }
+  if (paths.coreDirOverride) {
+    return *paths.coreDirOverride;
   }
 
   if (auto exePath = currentExecutablePath(paths.executablePath)) {
@@ -61,9 +71,11 @@ std::filesystem::path coreRootPath(const RuntimePaths &paths) {
 }
 
 std::filesystem::path stdlibObjectPath(const RuntimePaths &paths) {
-  if (const char *configured = std::getenv("ZAPC_STDLIB_PATH")) {
-    if (*configured != '\0') {
-      return std::filesystem::path(configured);
+  if (paths.environmentOverrides == EnvironmentOverrides::Allow) {
+    if (const char *configured = std::getenv("ZAPC_STDLIB_PATH")) {
+      if (*configured != '\0') {
+        return std::filesystem::path(configured);
+      }
     }
   }
 

@@ -1,0 +1,10 @@
+record Counter {
+    value: Int;
+}
+
+fun main() Int {
+    var counter = Counter{value: 1};
+    var reference: ref Int = counter.value;
+    reference = 2;
+    return 0;
+}

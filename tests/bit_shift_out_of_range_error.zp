@@ -1,18 +1,18 @@
 fun main() Int {
-    var x: Int = 1;
-    var y: UInt = 1;
+    var x: Int32 = 1;
+    var y: UInt32 = 1;
 
-    // Int is 32-bit in Zap, so shift amount 32 is out of range.
-    var badIntEqWidth: Int = x << 32;
+    // Fixed-width Int32 rejects shifts equal to its width.
+    var badIntEqWidth: Int32 = x << 32;
 
     // Shift amount greater than width is also out of range.
-    var badIntGtWidth: Int = x >> 40;
+    var badIntGtWidth: Int32 = x >> 40;
 
-    // UInt is also 32-bit, so 32 is out of range.
-    var badUIntEqWidth: UInt = y << 32;
+    // Fixed-width UInt32 follows the same rule.
+    var badUIntEqWidth: UInt32 = y << 32;
 
     // And larger values remain out of range.
-    var badUIntGtWidth: UInt = y >> 64;
+    var badUIntGtWidth: UInt32 = y >> 64;
 
     return badIntEqWidth + badIntGtWidth + (badUIntEqWidth as Int) + (badUIntGtWidth as Int);
 }
