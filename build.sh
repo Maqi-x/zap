@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Build script for Zap compiler
-# Creates build directory and compiles the project using CMake
+# Creates build directory and compiles the project using Meson
 
 set -e # Exit on error
 
@@ -13,37 +13,39 @@ NC='\033[0m' # No Color
 
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BUILD_DIR="$SCRIPT_DIR/build"
+
+if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+  echo "Usage: ./build.sh [args...]"
+  echo ""
+  echo "Builds the Zap compiler using Meson."
+  echo "Any additional arguments are passed directly to 'meson compile'."
+  echo "Examples:"
+  echo "  ./build.sh          (Standard build)"
+  echo "  ./build.sh --clean  (Clean the build directory)"
+  echo "  ./build.sh zapc     (Build only the zapc target)"
+  exit 0
+fi
 
 echo -e "${YELLOW}Building Zap compiler...${NC}"
 
-# Create build directory if it doesn't exist
-if [ ! -d "$SCRIPT_DIR/build" ]; then
-  echo -e "${YELLOW}Creating build directory...${NC}"
-  mkdir -p "$SCRIPT_DIR/build"
+# Configure the build directory if it hasn't been set up yet.
+# Checking for build.ninja is safer than checking the directory,
+# which prevents failures if an empty 'build' folder was created manually.
+if [ ! -f "$BUILD_DIR/build.ninja" ]; then
+  echo -e "${YELLOW}Setting up build directory...${NC}"
+  meson setup "$BUILD_DIR" "$SCRIPT_DIR" --buildtype=release
 fi
-
-# Change to build directory
-cd "$SCRIPT_DIR/build"
-
-CPU_COUNT=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || echo 1)
-BUILD_JOBS=$((CPU_COUNT - 1))
-if [ "$BUILD_JOBS" -lt 1 ]; then
-  BUILD_JOBS=1
-fi
-
-# Run CMake to generate build files
-echo -e "${YELLOW}Running CMake...${NC}"
-cmake .. -DCMAKE_BUILD_TYPE=Release
 
 # Build the project
 echo -e "${YELLOW}Compiling...${NC}"
-cmake --build . --config Release --parallel "$BUILD_JOBS"
+meson compile -C "$BUILD_DIR" "$@"
 
 # Check if build was successful
-if [ -f "$SCRIPT_DIR/build/zapc" ]; then
+if [ -f "$BUILD_DIR/zapc" ]; then
   echo -e "${GREEN}Build successful!${NC}"
-  echo -e "${GREEN}Executable: $SCRIPT_DIR/build/zapc${NC}"
+  echo -e "${GREEN}Executable: $BUILD_DIR/zapc${NC}"
 else
-  echo -e "${RED}Build failed!${NC}"
+  echo -e "${RED}Build failed! (zapc executable not found)${NC}"
   exit 1
 fi
