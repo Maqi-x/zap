@@ -331,15 +331,10 @@ std::unique_ptr<zir::Module> generateZIRModule(sema::BoundRootNode &node) {
     return nullptr;
   }
   zir::lowerDeadOwnedResults(*module);
-  auto verification = zir::ZirVerifier().verify(*module);
+  auto verification = zir::ZirVerifier().verifyForCodegen(*module);
   if (!verification) {
     throw std::runtime_error("ZIR verification failed:\n" +
                              verification.format());
-  }
-  auto obligations = zir::ZirVerifier().verifyOwnershipObligations(*module);
-  if (!obligations) {
-    throw std::runtime_error("ownership obligation verification failed:\n" +
-                             obligations.format());
   }
   return module;
 }

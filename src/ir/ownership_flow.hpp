@@ -95,11 +95,13 @@ private:
 
   const Module &module_;
   const Function &function_;
-  BlockEdges predecessors_;
-  BlockEdges successors_;
+  const BlockEdges &predecessors_;
+  const BlockEdges &successors_;
   std::unordered_set<const BasicBlock *> reachable_;
   OwnershipEdgeStates edgeStates_;
   ReturnStates returnStates_;
+  std::vector<OwnershipTransferViolation> violations_;
+  bool analyzed_ = false;
 };
 
 } // namespace zir

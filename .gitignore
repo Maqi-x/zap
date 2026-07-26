@@ -1,6 +1,8 @@
 # Build artifacts
 /build/
 doc_doxygen/
+/zap-*-linux-*/
+/zap-*-linux-*.tar.gz
 
 # Editor files
 .vscode/

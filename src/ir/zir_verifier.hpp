@@ -54,6 +54,7 @@ private:
 class ZirVerifier {
 public:
   VerificationResult verify(const Module &module) const;
+  VerificationResult verifyForCodegen(const Module &module) const;
   VerificationResult verifyOwnershipObligations(const Module &module) const;
 };
 

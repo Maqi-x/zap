@@ -282,8 +282,14 @@ bool OwnershipLiveness::isLiveOnEdge(
 
 OwnershipLiveness analyzeOwnershipLiveness(const Module &module,
                                            const Function &function) {
-  OwnershipLiveness result;
   const ControlFlowGraph cfg(function);
+  return analyzeOwnershipLiveness(module, function, cfg);
+}
+
+OwnershipLiveness analyzeOwnershipLiveness(const Module &module,
+                                           const Function &function,
+                                           const ControlFlowGraph &cfg) {
+  OwnershipLiveness result;
   result.borrowProvenance_ = analyzeBorrowProvenance(module, function, cfg);
 
   bool changed = true;

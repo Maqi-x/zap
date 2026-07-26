@@ -9,7 +9,7 @@ const vsce = require("@vscode/vsce/out/package.js");
 
 async function stageBundledServer(cwd) {
     const repoRoot = path.resolve(cwd, "..", "..", "..", "..");
-    const serverSource = path.join(repoRoot, "build", "zap-lsp");
+    const serverSource = process.env.ZAP_LSP_BINARY || path.join(repoRoot, "build", "zap-lsp");
     const serverTarget = path.join(cwd, "bin", "zap-lsp");
 
     await fs.promises.access(serverSource, fs.constants.R_OK);

@@ -11,6 +11,7 @@
 #include <llvm/IR/Type.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/MC/TargetRegistry.h>
+#include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/raw_ostream.h>
@@ -175,6 +176,38 @@ llvm::CodeGenOptLevel toCodeGenOptLevel(int optimizationLevel) {
   return llvm::CodeGenOptLevel::None;
 }
 
+llvm::OptimizationLevel toOptimizationLevel(int optimizationLevel) {
+  if (optimizationLevel <= 1) {
+    return llvm::OptimizationLevel::O1;
+  }
+  if (optimizationLevel == 2) {
+    return llvm::OptimizationLevel::O2;
+  }
+  return llvm::OptimizationLevel::O3;
+}
+
+void optimizeModule(llvm::Module &module, int optimizationLevel) {
+  if (optimizationLevel <= 0) {
+    return;
+  }
+
+  llvm::LoopAnalysisManager loopAnalysisManager;
+  llvm::FunctionAnalysisManager functionAnalysisManager;
+  llvm::CGSCCAnalysisManager cgsccAnalysisManager;
+  llvm::ModuleAnalysisManager moduleAnalysisManager;
+  llvm::PassBuilder passBuilder;
+  passBuilder.registerModuleAnalyses(moduleAnalysisManager);
+  passBuilder.registerCGSCCAnalyses(cgsccAnalysisManager);
+  passBuilder.registerFunctionAnalyses(functionAnalysisManager);
+  passBuilder.registerLoopAnalyses(loopAnalysisManager);
+  passBuilder.crossRegisterProxies(loopAnalysisManager, functionAnalysisManager,
+                                   cgsccAnalysisManager, moduleAnalysisManager);
+
+  auto pipeline = passBuilder.buildPerModuleDefaultPipeline(
+      toOptimizationLevel(optimizationLevel));
+  pipeline.run(module, moduleAnalysisManager);
+}
+
 } // namespace
 LLVMCodeGen::LLVMCodeGen(std::string targetTriple, bool freestanding)
     : builder_(ctx_),
@@ -225,15 +258,14 @@ void LLVMCodeGen::finalizeClassStruct(const zir::ClassType &ct) {
     return;
   }
   auto *i8PtrTy = llvm::PointerType::getUnqual(ctx_);
-  std::vector<llvm::Type *> fieldTypes = {
-      llvm::Type::getInt64Ty(ctx_),
-      llvm::Type::getInt64Ty(ctx_),
-      llvm::Type::getInt8Ty(ctx_),
-      llvm::Type::getInt8Ty(ctx_),
-      i8PtrTy,
-      i8PtrTy,
-      i8PtrTy,
-      llvm::PointerType::getUnqual(ctx_)};
+  std::vector<llvm::Type *> fieldTypes = {llvm::Type::getInt64Ty(ctx_),
+                                          llvm::Type::getInt64Ty(ctx_),
+                                          llvm::Type::getInt8Ty(ctx_),
+                                          llvm::Type::getInt8Ty(ctx_),
+                                          i8PtrTy,
+                                          i8PtrTy,
+                                          i8PtrTy,
+                                          llvm::PointerType::getUnqual(ctx_)};
   fieldTypes.reserve(kClassHeaderFieldCount + ct.getFields().size());
   for (const auto &f : ct.getFields()) {
     fieldTypes.push_back(toLLVMAggregateFieldType(f.type));
@@ -358,6 +390,8 @@ bool LLVMCodeGen::emitObjectFile(const std::string &path,
     return false;
   }
 
+  optimizeModule(*module_, optimization_level);
+
   std::error_code ec;
   llvm::raw_fd_ostream dest(path, ec, llvm::sys::fs::OF_None);
   if (ec) {
@@ -402,6 +436,8 @@ bool LLVMCodeGen::emitAssemblyFile(const std::string &path,
   if (!verifyModule(llvm::errs())) {
     return false;
   }
+
+  optimizeModule(*module_, optimization_level);
 
   std::error_code ec;
   llvm::raw_fd_ostream dest(path, ec, llvm::sys::fs::OF_None);
@@ -518,8 +554,7 @@ llvm::Type *LLVMCodeGen::toLLVMType(const zir::Type &ty) {
       auto *structTy = llvm::StructType::create(ctx_, cacheKey);
       structCache_[cacheKey] = structTy;
       std::vector<llvm::Type *> fieldTypes;
-      fieldTypes.push_back(
-          llvm::PointerType::getUnqual(ctx_));
+      fieldTypes.push_back(llvm::PointerType::getUnqual(ctx_));
       fieldTypes.push_back(llvm::Type::getInt64Ty(ctx_));
       structTy->setBody(fieldTypes, rt.isPacked);
       return structTy;
@@ -580,10 +615,11 @@ llvm::AllocaInst *LLVMCodeGen::createEntryAlloca(llvm::Function *fn,
   return entry.CreateAlloca(ty, nullptr, name);
 }
 
-llvm::Value *LLVMCodeGen::emitStringConversion(
-    llvm::Value *source, const std::shared_ptr<zir::Type> &sourceType,
-    const std::shared_ptr<zir::Type> &targetType,
-    const llvm::Twine &namePrefix) {
+llvm::Value *
+LLVMCodeGen::emitStringConversion(llvm::Value *source,
+                                  const std::shared_ptr<zir::Type> &sourceType,
+                                  const std::shared_ptr<zir::Type> &targetType,
+                                  const llvm::Twine &namePrefix) {
   auto *targetLLVMType = toLLVMType(*targetType);
   auto *ptr = builder_.CreateExtractValue(source, {0}, namePrefix + ".ptr");
   auto *len = builder_.CreateExtractValue(source, {1}, namePrefix + ".len");
@@ -603,8 +639,7 @@ llvm::Value *LLVMCodeGen::emitStringConversion(
   }
 
   llvm::Value *result = llvm::UndefValue::get(targetLLVMType);
-  result =
-      builder_.CreateInsertValue(result, ptr, {0}, namePrefix + ".ptr.i");
+  result = builder_.CreateInsertValue(result, ptr, {0}, namePrefix + ".ptr.i");
   return builder_.CreateInsertValue(result, len, {1}, namePrefix + ".len.i");
 }
 

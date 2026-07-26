@@ -33,7 +33,7 @@ fi
 
 # Run CMake to generate build files
 echo -e "${YELLOW}Running CMake...${NC}"
-cmake ..
+cmake .. -DCMAKE_BUILD_TYPE=Release
 
 # Build the project
 echo -e "${YELLOW}Compiling...${NC}"

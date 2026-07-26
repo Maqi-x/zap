@@ -2,6 +2,8 @@
 
 #include "function.hpp"
 
+#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -30,8 +32,8 @@ private:
   BlockEdges predecessors_;
   BlockEdges successors_;
   std::unordered_set<const BasicBlock *> reachable_;
-  std::unordered_map<const BasicBlock *, std::unordered_set<const BasicBlock *>>
-      dominators_;
+  std::unordered_map<const BasicBlock *, size_t> reachableBlockIndices_;
+  std::vector<std::vector<uint64_t>> dominators_;
 };
 
 } // namespace zir

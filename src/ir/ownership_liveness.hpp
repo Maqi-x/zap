@@ -11,6 +11,7 @@
 namespace zir {
 
 class Module;
+class ControlFlowGraph;
 
 class OwnershipLiveness {
 public:
@@ -36,10 +37,16 @@ private:
   BorrowProvenance borrowProvenance_;
 
   friend OwnershipLiveness analyzeOwnershipLiveness(const Module &module,
-                                                     const Function &function);
+                                                    const Function &function);
+  friend OwnershipLiveness
+  analyzeOwnershipLiveness(const Module &module, const Function &function,
+                           const ControlFlowGraph &cfg);
 };
 
 OwnershipLiveness analyzeOwnershipLiveness(const Module &module,
                                            const Function &function);
+OwnershipLiveness analyzeOwnershipLiveness(const Module &module,
+                                           const Function &function,
+                                           const ControlFlowGraph &cfg);
 
 } // namespace zir

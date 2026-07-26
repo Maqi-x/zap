@@ -160,6 +160,10 @@ OwnershipFlowAnalysis::stateOnEdge(const BasicBlock &source,
 }
 
 std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
+  if (analyzed_) {
+    return violations_;
+  }
+
   edgeStates_.clear();
   returnStates_.clear();
   const auto ownedValues = collectOwnedValues(function_);
@@ -281,8 +285,7 @@ std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
         }
         case OpCode::Store: {
           const auto &store = static_cast<const StoreInst &>(*instruction);
-          if (store.getSource() &&
-              isOwned(store.getSource()->getOwnership())) {
+          if (store.getSource() && isOwned(store.getSource()->getOwnership())) {
             transition(states, store.getSource(), block, i, "store", moved);
           }
           break;
@@ -381,7 +384,9 @@ std::vector<OwnershipTransferViolation> OwnershipFlowAnalysis::analyze() {
       }
     }
   }
-  return violations;
+  violations_ = std::move(violations);
+  analyzed_ = true;
+  return violations_;
 }
 
 std::vector<OwnershipExitObligation>
@@ -452,9 +457,9 @@ OwnershipFlowAnalysis::analyzeOwnershipClosurePlans() {
         const auto successors = successors_.find(source);
         const bool requiresEdgeSplit =
             successors != successors_.end() && successors->second.size() > 1;
-        plan.destroyPlacements.push_back(
-            {OwnershipDestroyPlacementKind::OnEdge, source, destination,
-             std::nullopt, requiresEdgeSplit});
+        plan.destroyPlacements.push_back({OwnershipDestroyPlacementKind::OnEdge,
+                                          source, destination, std::nullopt,
+                                          requiresEdgeSplit});
       };
 
       for (const auto &exit : plan.liveExits) {

@@ -95,8 +95,7 @@ bool transfersOwnership(const Module &module, const Instruction &instruction,
   }
   case OpCode::Ret: {
     const auto &ret = static_cast<const ReturnInst &>(instruction);
-    return ret.getValue() == value &&
-           isOwned(ret.getValue()->getOwnership());
+    return ret.getValue() == value && isOwned(ret.getValue()->getOwnership());
   }
   case OpCode::Cast: {
     const auto &cast = static_cast<const CastInst &>(instruction);
@@ -122,17 +121,51 @@ bool transfersOwnership(const Module &module, const Instruction &instruction,
   }
 }
 
-bool wasOwnershipTransferredBefore(
-    const Module &module,
-    const std::vector<std::unique_ptr<Instruction>> &instructions,
-    size_t instructionIndex, const std::shared_ptr<Value> &value) {
-  for (size_t i = 0; i < instructionIndex; ++i) {
-    if (instructions[i] &&
-        transfersOwnership(module, *instructions[i], value)) {
-      return true;
+void collectTransferredValues(const Module &module,
+                              const Instruction &instruction,
+                              std::unordered_set<const Value *> &values) {
+  switch (instruction.getOpCode()) {
+  case OpCode::Store: {
+    const auto &store = static_cast<const StoreInst &>(instruction);
+    if (store.getSource() && isOwned(store.getSource()->getOwnership())) {
+      values.insert(store.getSource().get());
     }
+    return;
   }
-  return false;
+  case OpCode::Ret: {
+    const auto &ret = static_cast<const ReturnInst &>(instruction);
+    if (ret.getValue() && isOwned(ret.getValue()->getOwnership())) {
+      values.insert(ret.getValue().get());
+    }
+    return;
+  }
+  case OpCode::Cast: {
+    const auto &cast = static_cast<const CastInst &>(instruction);
+    if (cast.getSource() && cast.getResult() &&
+        isOwned(cast.getResult()->getOwnership())) {
+      values.insert(cast.getSource().get());
+    }
+    return;
+  }
+  case OpCode::Call: {
+    const auto &call = static_cast<const CallInst &>(instruction);
+    for (size_t i = 0; i < call.getArguments().size(); ++i) {
+      if (call.getArguments()[i] && callTransfersOwnership(module, call, i)) {
+        values.insert(call.getArguments()[i].get());
+      }
+    }
+    return;
+  }
+  case OpCode::Move:
+    values.insert(static_cast<const MoveInst &>(instruction).getSource().get());
+    return;
+  case OpCode::Destroy:
+    values.insert(
+        static_cast<const DestroyInst &>(instruction).getValue().get());
+    return;
+  default:
+    return;
+  }
 }
 
 struct PendingEdgeClosure {
@@ -335,6 +368,7 @@ void lowerDeadOwnedResults(Module &module) {
       std::vector<std::pair<size_t, std::shared_ptr<Value>>> destroys;
       std::vector<std::shared_ptr<Value>> ownedResults;
       std::unordered_set<const Value *> seenResults;
+      std::unordered_set<const Value *> transferredBefore;
       for (size_t i = 0; i < instructions.size(); ++i) {
         if (!instructions[i]) {
           continue;
@@ -357,10 +391,11 @@ void lowerDeadOwnedResults(Module &module) {
         for (const auto &value : ownedResults) {
           if (liveness.isLastUse(*blockOwner, i, value) &&
               !transfersOwnership(module, *instructions[i], value) &&
-              !wasOwnershipTransferredBefore(module, instructions, i, value)) {
+              transferredBefore.count(value.get()) == 0) {
             destroys.emplace_back(destroyInsertionIndex(*blockOwner, i), value);
           }
         }
+        collectTransferredValues(module, *instructions[i], transferredBefore);
       }
       std::sort(destroys.begin(), destroys.end(),
                 [](const auto &lhs, const auto &rhs) {
@@ -409,6 +444,12 @@ void lowerDeadOwnedResults(Module &module) {
           continue;
         }
         std::vector<std::shared_ptr<Value>> destroys;
+        std::unordered_set<const Value *> transferredValues;
+        for (const auto &use : source.getInstructions()) {
+          if (use) {
+            collectTransferredValues(module, *use, transferredValues);
+          }
+        }
         for (const auto &instruction : source.getInstructions()) {
           if (!instruction) {
             continue;
@@ -418,14 +459,7 @@ void lowerDeadOwnedResults(Module &module) {
               liveness.isLiveOnEdge(source, *destination, value)) {
             continue;
           }
-          bool transferred = false;
-          for (const auto &use : source.getInstructions()) {
-            if (use && transfersOwnership(module, *use, value)) {
-              transferred = true;
-              break;
-            }
-          }
-          if (!transferred) {
+          if (transferredValues.count(value.get()) == 0) {
             destroys.push_back(value);
           }
         }

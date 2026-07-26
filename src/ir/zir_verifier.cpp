@@ -43,8 +43,10 @@ std::string VerificationResult::format() const {
   return output.str();
 }
 
-VerificationResult ZirVerifier::verify(const Module &module) const {
-  VerificationResult result;
+namespace {
+
+std::vector<VerificationError> verifyModule(const Module &module,
+                                            bool includeOwnershipObligations) {
   std::vector<VerificationError> errors;
   std::unordered_set<std::string> symbols;
   TypeInterner typeInterner;
@@ -75,8 +77,8 @@ VerificationResult ZirVerifier::verify(const Module &module) const {
       }
       return;
     }
-    verifier_detail::verifyDefinedFunction(module, *function, errors,
-                                           typeInterner);
+    verifier_detail::verifyDefinedFunction(
+        module, *function, errors, typeInterner, includeOwnershipObligations);
   };
 
   for (const auto &function : module.getExternalFunctions()) {
@@ -85,7 +87,20 @@ VerificationResult ZirVerifier::verify(const Module &module) const {
   for (const auto &function : module.getFunctions()) {
     registerFunction(function, false);
   }
-  result.errors_ = std::move(errors);
+  return errors;
+}
+
+} // namespace
+
+VerificationResult ZirVerifier::verify(const Module &module) const {
+  VerificationResult result;
+  result.errors_ = verifyModule(module, false);
+  return result;
+}
+
+VerificationResult ZirVerifier::verifyForCodegen(const Module &module) const {
+  VerificationResult result;
+  result.errors_ = verifyModule(module, true);
   return result;
 }
 
@@ -125,8 +140,8 @@ ZirVerifier::verifyOwnershipObligations(const Module &module) const {
              obligation.instructionIndex,
              "owned value may remain live at function exit: " +
                  plan.value->getName() + " (defined in " + definition + "; " +
-                 "state: " + formatOwnershipFlowState(obligation.state) +
-                 "; " + placement + ")"});
+                 "state: " + formatOwnershipFlowState(obligation.state) + "; " +
+                 placement + ")"});
       }
     }
   }

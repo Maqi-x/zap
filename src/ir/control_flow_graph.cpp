@@ -1,5 +1,6 @@
 #include "control_flow_graph.hpp"
 
+#include <algorithm>
 #include <deque>
 
 namespace zir {
@@ -53,40 +54,55 @@ ControlFlowGraph::ControlFlowGraph(const Function &function) {
       }
     }
   }
-  for (const auto *block : reachable_) {
-    dominators_[block] = reachable_;
-  }
   const auto *entry = function.getBlocks().front().get();
-  dominators_[entry] = {entry};
+  for (const auto &blockOwner : function.getBlocks()) {
+    if (blockOwner && isReachable(*blockOwner)) {
+      reachableBlockIndices_.emplace(blockOwner.get(),
+                                     reachableBlockIndices_.size());
+    }
+  }
+
+  const size_t blockCount = reachableBlockIndices_.size();
+  const size_t wordCount = (blockCount + 63) / 64;
+  const std::vector<uint64_t> allDominators(wordCount, ~uint64_t{0});
+  dominators_.assign(blockCount, allDominators);
+
+  const auto entryIndex = reachableBlockIndices_.at(entry);
+  std::fill(dominators_[entryIndex].begin(), dominators_[entryIndex].end(),
+            uint64_t{0});
+  dominators_[entryIndex][entryIndex / 64] |= uint64_t{1} << (entryIndex % 64);
+
   bool changed = true;
   while (changed) {
     changed = false;
-    for (const auto *block : reachable_) {
+    for (const auto &blockOwner : function.getBlocks()) {
+      if (!blockOwner || !isReachable(*blockOwner)) {
+        continue;
+      }
+      const auto *block = blockOwner.get();
       if (block == entry) {
         continue;
       }
-      std::unordered_set<const BasicBlock *> dominators;
+      std::vector<uint64_t> dominators(wordCount);
       bool firstPredecessor = true;
       for (const auto *predecessor : predecessors_.at(block)) {
         if (!isReachable(*predecessor)) {
           continue;
         }
+        const auto predecessorIndex = reachableBlockIndices_.at(predecessor);
         if (firstPredecessor) {
-          dominators = dominators_.at(predecessor);
+          dominators = dominators_[predecessorIndex];
           firstPredecessor = false;
           continue;
         }
-        for (auto it = dominators.begin(); it != dominators.end();) {
-          if (dominators_.at(predecessor).count(*it) == 0) {
-            it = dominators.erase(it);
-          } else {
-            ++it;
-          }
+        for (size_t word = 0; word < wordCount; ++word) {
+          dominators[word] &= dominators_[predecessorIndex][word];
         }
       }
-      dominators.insert(block);
-      if (dominators_[block] != dominators) {
-        dominators_[block] = std::move(dominators);
+      const auto blockIndex = reachableBlockIndices_.at(block);
+      dominators[blockIndex / 64] |= uint64_t{1} << (blockIndex % 64);
+      if (dominators_[blockIndex] != dominators) {
+        dominators_[blockIndex] = std::move(dominators);
         changed = true;
       }
     }
@@ -104,9 +120,15 @@ bool ControlFlowGraph::isReachable(const BasicBlock &block) const {
 
 bool ControlFlowGraph::dominates(const BasicBlock &dominator,
                                  const BasicBlock &block) const {
-  const auto dominators = dominators_.find(&block);
-  return dominators != dominators_.end() &&
-         dominators->second.count(&dominator) != 0;
+  const auto dominatorIndex = reachableBlockIndices_.find(&dominator);
+  const auto blockIndex = reachableBlockIndices_.find(&block);
+  if (dominatorIndex == reachableBlockIndices_.end() ||
+      blockIndex == reachableBlockIndices_.end()) {
+    return false;
+  }
+  const auto index = dominatorIndex->second;
+  return (dominators_[blockIndex->second][index / 64] &
+          (uint64_t{1} << (index % 64))) != 0;
 }
 
 } // namespace zir

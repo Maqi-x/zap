@@ -26,9 +26,11 @@ class FunctionVerifier {
 public:
   FunctionVerifier(const Module &module, const Function &function,
                    std::vector<VerificationError> &errors,
-                   TypeInterner &typeInterner)
+                   TypeInterner &typeInterner, bool includeOwnershipObligations)
       : module_(module), function_(function), errors_(errors),
-        typeInterner_(typeInterner), cfg_(function) {}
+        typeInterner_(typeInterner),
+        includeOwnershipObligations_(includeOwnershipObligations),
+        cfg_(function) {}
 
   void verify() {
     verifySignature();
@@ -43,8 +45,7 @@ public:
     verifyInstructions();
     auto borrowErrors =
         verifier_detail::verifyBorrowContracts(module_, function_, cfg_);
-    errors_.insert(errors_.end(),
-                   std::make_move_iterator(borrowErrors.begin()),
+    errors_.insert(errors_.end(), std::make_move_iterator(borrowErrors.begin()),
                    std::make_move_iterator(borrowErrors.end()));
     verifyOwnershipTransfers();
   }
@@ -59,6 +60,7 @@ private:
   const Function &function_;
   std::vector<VerificationError> &errors_;
   TypeInterner &typeInterner_;
+  bool includeOwnershipObligations_;
   std::unordered_map<const Value *, DefinitionSite> definitions_;
   std::unordered_map<std::string, const Value *> valueNames_;
   ControlFlowGraph cfg_;
@@ -280,8 +282,11 @@ private:
                 violation.value->getName() + " (state: " +
                 formatOwnershipFlowState(violation.priorState) + ")");
     }
+    if (includeOwnershipObligations_) {
+      verifyOwnershipClosurePlans(analysis);
+    }
 
-    const auto liveness = analyzeOwnershipLiveness(module_, function_);
+    const auto liveness = analyzeOwnershipLiveness(module_, function_, cfg_);
     for (const auto &blockOwner : function_.getBlocks()) {
       if (!blockOwner) {
         continue;
@@ -299,6 +304,46 @@ private:
                 "cannot destroy a String owner while one of its borrowed "
                 "StringViews is still live");
         }
+      }
+    }
+  }
+
+  void verifyOwnershipClosurePlans(OwnershipFlowAnalysis &analysis) {
+    for (const auto &plan : analysis.analyzeOwnershipClosurePlans()) {
+      std::string definition = "function argument";
+      if (plan.definition.block) {
+        definition = "block %" + plan.definition.block->label;
+        if (plan.definition.instructionIndex) {
+          definition += " instruction " +
+                        std::to_string(*plan.definition.instructionIndex);
+        }
+      }
+      for (const auto &obligation : plan.liveExits) {
+        std::string placement = "no safe destroy placement determined";
+        for (const auto &candidate : plan.destroyPlacements) {
+          if (candidate.destination != obligation.block ||
+              (candidate.kind == OwnershipDestroyPlacementKind::BeforeReturn &&
+               candidate.instructionIndex != obligation.instructionIndex)) {
+            continue;
+          }
+          if (candidate.kind == OwnershipDestroyPlacementKind::BeforeReturn) {
+            placement = "suggested destroy before return";
+          } else {
+            placement = "suggested destroy on edge %" +
+                        candidate.source->label + " -> %" +
+                        candidate.destination->label;
+            if (candidate.requiresEdgeSplit) {
+              placement += " (split critical edge)";
+            }
+          }
+          break;
+        }
+        error(VerificationErrorCode::OwnershipViolation, obligation.block,
+              obligation.instructionIndex,
+              "owned value may remain live at function exit: " +
+                  plan.value->getName() + " (defined in " + definition +
+                  "; state: " + formatOwnershipFlowState(obligation.state) +
+                  "; " + placement + ")");
       }
     }
   }
@@ -738,9 +783,8 @@ private:
     }
     for (size_t i = 0; i < call.getArguments().size(); ++i) {
       const auto &argument = call.getArguments()[i];
-      const bool transfers =
-          i < parameterOwnership.size() &&
-          transfersOwnership(parameterOwnership[i]);
+      const bool transfers = i < parameterOwnership.size() &&
+                             transfersOwnership(parameterOwnership[i]);
       if (transfers && !ownsManagedValue(argument)) {
         error(VerificationErrorCode::InvalidCall, &block, index,
               "call transfer argument must be owned: " + std::to_string(i));
@@ -841,8 +885,11 @@ private:
 
 void verifier_detail::verifyDefinedFunction(
     const Module &module, const Function &function,
-    std::vector<VerificationError> &errors, TypeInterner &typeInterner) {
-  FunctionVerifier(module, function, errors, typeInterner).verify();
+    std::vector<VerificationError> &errors, TypeInterner &typeInterner,
+    bool includeOwnershipObligations) {
+  FunctionVerifier(module, function, errors, typeInterner,
+                   includeOwnershipObligations)
+      .verify();
 }
 
 } // namespace zir
