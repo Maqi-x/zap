@@ -1,15 +1,7 @@
 # Zap Roadmap
 
-## Zap v0.3.0
+## Zap v0.4.1
 
-- [x] tagged unions
-- ~~[ ] traits~~
-- [x] type inference
-- [x] new faster cycle collector
-- [x] ARC upgrade
-- ~~[ ] package registry~~
-- [x] stdlib cleanup
-- ~~[ ] first ZIR optimalizations~~
-- [x] inline asm
-- ~~[ ] Windows support~~
-- [x] mutation operators
+- [ ] all functions/methods that are not used but are imported are not included in ZIR
+- [ ] split stdlib.c into more files
+- [ ] 
