@@ -9,8 +9,8 @@ standard LSP stdio transport.
 From the repository root:
 
 ```bash
-cmake -S . -B build
-cmake --build build --target zap-lsp -j2
+meson setup build -Dinclude_lsp=true
+meson compile -C build zap-lsp
 ```
 
 The binary is written to `build/zap-lsp`.

@@ -5,20 +5,21 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd "$script_dir/.." && pwd)"
 build_dir="${ZAP_SANITIZER_BUILD_DIR:-$repo_dir/build-sanitize}"
 
-cmake -S "$repo_dir" -B "$build_dir" \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DCMAKE_C_COMPILER="${CC:-clang}" \
-  -DCMAKE_CXX_COMPILER="${CXX:-clang++}" \
-  -DINCLUDE_LSP=OFF \
-  -DZAP_ENABLE_SANITIZERS=ON \
-  -DZAP_ENABLE_RUNTIME_INSTRUMENTATION=ON
-cmake --build "$build_dir" --parallel
+CC="${CC:-clang}" CXX="${CXX:-clang++}" meson setup "$build_dir" "$repo_dir" \
+  --buildtype=debug \
+  -Dinclude_lsp=false \
+  -Dzap_enable_sanitizers=true \
+  -Dzap_enable_runtime_instrumentation=true \
+  --reconfigure
+
+meson compile -C "$build_dir"
 
 leak_detection="${ZAP_DETECT_LEAKS:-1}"
 export ASAN_OPTIONS="detect_leaks=$leak_detection:halt_on_error=1:abort_on_error=1"
 export UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1"
 
-ctest --test-dir "$build_dir" --output-on-failure
+meson test -C "$build_dir" --print-errorlogs
+
 cd "$repo_dir"
 python3 run_tests.py --zapc "$build_dir/zapc" -j 1 \
   tests/string_ownership_runtime_test.zp \
