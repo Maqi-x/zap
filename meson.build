@@ -157,24 +157,22 @@ if get_option('build_testing')
     test('runtime-instrumentation', runtime_test)
 
     if get_option('zap_enable_runtime_instrumentation')
-        cmake = find_program('cmake', required : true)
-
-        test('runtime-instrumentation-ir', cmake,
+        test('runtime-instrumentation-ir',
+             files('scripts/check_runtime_instrumentation_ir.sh'),
              args : [
-                 '-DZAPC=' + zapc.full_path(),
-                 '-DINPUT=' + meson.current_source_dir() / 'tests/class_arc_test.zp',
-                 '-DOUTPUT=' + meson.current_build_dir() / 'runtime-instrumentation.ll',
-                 '-P', meson.current_source_dir() / 'tests/cmake/check_runtime_instrumentation_ir.cmake'
+                 zapc.full_path(),
+                 meson.current_source_dir() / 'tests/class_arc_test.zp',
+                 meson.current_build_dir() / 'runtime-instrumentation.ll'
              ],
              depends : zapc
         )
 
-        test('runtime-ownership-counts', cmake,
+        test('runtime-ownership-counts',
+             files('scripts/run_runtime_ownership_counts.sh'),
              args : [
-                 '-DZAPC=' + zapc.full_path(),
-                 '-DINPUT=' + meson.current_source_dir() / 'tests/runtime_instrumentation/ownership_counts.zp',
-                 '-DOUTPUT=' + meson.current_build_dir() / 'runtime-ownership-counts-test',
-                 '-P', meson.current_source_dir() / 'tests/cmake/run_runtime_ownership_counts.cmake'
+                 zapc.full_path(),
+                 meson.current_source_dir() / 'tests/runtime_instrumentation/ownership_counts.zp',
+                 meson.current_build_dir() / 'runtime-ownership-counts-test'
              ],
              depends : zapc
         )
