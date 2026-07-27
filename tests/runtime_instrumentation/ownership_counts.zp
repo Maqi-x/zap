@@ -182,12 +182,12 @@ fun main() Int {
     }
 
     observeFailure();
-    if !hasCounts(0, 3, 1) {
+    if !hasCounts(1, 3, 1) {
         return 6;
     }
 
     observePartialAggregate();
-    if !hasCounts(0, 7, 2) {
+    if !hasCounts(2, 7, 2) {
         return 7;
     }
 
