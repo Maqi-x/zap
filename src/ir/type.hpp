@@ -166,6 +166,7 @@ public:
   }
 
   const std::vector<Field> &getFields() const { return fields; }
+  void clearFields() { fields.clear(); }
   const std::string &getName() const { return name; }
   const std::string &getCodegenName() const { return codegenName; }
   const std::string &getGenericBaseName() const { return genericBaseName; }
@@ -310,6 +311,7 @@ public:
   const std::string &getCodegenName() const { return codegenName; }
   const std::vector<Variant> &getVariants() const { return variants; }
   void setVariants(std::vector<Variant> v) { variants = std::move(v); }
+  void clearVariants() { variants.clear(); }
 
   const Variant *findVariant(const std::string &variantName) const {
     for (const auto &variant : variants) {

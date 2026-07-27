@@ -720,6 +720,22 @@ public:
 
 class BoundRootNode : public BoundNode {
 public:
+  ~BoundRootNode() override {
+    for (const auto &record : records) {
+      if (record && record->type) {
+        record->type->clearFields();
+      }
+    }
+    for (const auto &taggedUnion : taggedUnions) {
+      if (taggedUnion && taggedUnion->type) {
+        taggedUnion->type->clearVariants();
+      }
+    }
+    for (const auto &type : genericTypes) {
+      type->clearFields();
+    }
+  }
+
   std::vector<std::unique_ptr<BoundRecordDeclaration>> records;
   std::vector<std::unique_ptr<BoundEnumDeclaration>> enums;
   std::vector<std::unique_ptr<BoundTaggedUnionDeclaration>> taggedUnions;
@@ -727,6 +743,11 @@ public:
   std::vector<std::unique_ptr<BoundFunctionDeclaration>> functions;
   std::vector<std::unique_ptr<BoundExternalFunctionDeclaration>>
       externalFunctions;
+  // Generic instances do not necessarily have a source declaration, but their
+  // fields can recursively refer to the same instantiated type. Keep them
+  // alive for semantic analysis and codegen, then release their field graph
+  // when this compilation unit is discarded.
+  std::vector<std::shared_ptr<zir::RecordType>> genericTypes;
   void accept(BoundVisitor &v) override { v.visit(*this); }
 };
 

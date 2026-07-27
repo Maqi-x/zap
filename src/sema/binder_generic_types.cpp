@@ -169,6 +169,7 @@ std::shared_ptr<TypeSymbol> Binder::instantiateGenericTypeSymbol(
   instantiatedSymbol->genericArguments = {genericBindings.begin(),
                                           genericBindings.end()};
   genericTypeInstantiations_[cacheKey] = instantiatedSymbol;
+  boundRoot_->genericTypes.push_back(instantiatedType);
 
   if (classDecl) {
     auto instantiatedClassType =
