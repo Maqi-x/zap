@@ -56,7 +56,6 @@ bool sameFunctionSignature(const FunctionSymbol &lhs,
                            const FunctionSymbol &rhs);
 bool stmtAlwaysReturns(const BoundStatement *stmt);
 bool blockAlwaysReturns(const BoundBlock *block);
-bool accessesImmutableRecordField(const BoundExpression &expression);
 std::unique_ptr<BoundExpression>
 deriveValueExpressionFromBlock(const BoundBlock &block);
 std::unique_ptr<BoundExpression>
@@ -75,8 +74,7 @@ public:
   void visit(FunDecl &node) override;
   void visit(ExtDecl &node) override;
   void visit(BodyNode &node) override;
-  void visit(VarDecl &node) override;
-  void visit(ConstDecl &node) override;
+  void visit(BindingDecl &node) override;
   void visit(ReturnNode &node) override;
   void visit(BinExpr &node) override;
   void visit(TernaryExpr &node) override;
@@ -116,6 +114,13 @@ public:
   void visit(FailNode &node) override;
 
 private:
+  enum class MutablePlaceUse {
+    Assignment,
+    MutableReference,
+    Address,
+    AsmOutput,
+  };
+
   zap::DiagnosticEngine &_diag;
   SemanticInfo *semanticInfo_ = nullptr;
   TargetInfo targetInfo_;
@@ -139,6 +144,8 @@ private:
 
   void pushScope();
   void popScope();
+  bool requireMutablePlace(const BoundExpression &expression, SourceSpan span,
+                           MutablePlaceUse use);
 
   std::shared_ptr<FunctionSymbol> currentFunction_ = nullptr;
   std::shared_ptr<FunctionSymbol> stringIndexFunction_ = nullptr;

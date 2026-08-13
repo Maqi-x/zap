@@ -25,9 +25,32 @@ SPECIAL_CASES = {
     "tests/modulo_test.zp": {"type": "compile", "exit": 0, "desc": "Modulo operator test"},
     "tests/failable_error_class_compile_test.zp": {"type": "compile", "exit": 0, "desc": "Failable: @error class can be used as error type E in T!E"},
     "tests/global_numeric_pointer_compile_test.zp": {"type": "compile", "exit": 0, "desc": "Numeric constants initialize global pointers"},
+    "tests/let_mutation_error.zp": {
+        "type": "diagnostic",
+        "exit": 1,
+        "diagnostics": ["S2014"],
+        "desc": "Immutable let storage rejects every mutation path"
+    },
+    "tests/let_missing_initializer_error.zp": {
+        "type": "diagnostic",
+        "exit": 1,
+        "diagnostics": ["S2014"],
+        "desc": "Let bindings require an initializer"
+    },
+    "tests/for_in_immutable_error.zp": {
+        "type": "diagnostic",
+        "exit": 1,
+        "diagnostics": ["S2014"],
+        "desc": "For-in bindings are immutable"
+    },
+    "tests/const_runtime_initializer_error.zp": {
+        "type": "diagnostic",
+        "exit": 1,
+        "diagnostics": ["S2015"],
+        "desc": "Const bindings reject runtime initializers"
+    },
 
     # Compile-only exit 1 (non-matching filename)
-    "tests/array_const_size.zp": {"type": "compile", "exit": 1, "desc": "Array size as a constant is currently rejected"},
     "tests/import_module_alias_conflict/main.zp": {"type": "compile", "exit": 1, "desc": "Different modules cannot reuse the same alias"},
     "tests/import_cycle/main.zp": {"type": "compile", "exit": 1, "desc": "Cyclic imports are rejected"},
     "tests/import_private_fail/main.zp": {"type": "compile", "exit": 1, "desc": "Private module member access is rejected"},
@@ -472,18 +495,18 @@ def build_compiler():
     """Builds the Zap compiler using build.sh."""
     print(f"{YELLOW}Building compiler...{NC}")
     if os.name == 'posix':
-        res = subprocess.run(["./build.sh"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        res = subprocess.run(["./build.sh", "--debug"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        zapc = "./build-debug/zapc"
     else:
         res = subprocess.run(["build.bat"], shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        zapc = "./build/zapc.exe"
         
     if res.returncode != 0:
         print(f"{RED}Failed to build the compiler!{NC}")
+        if res.stdout:
+            print(res.stdout.decode(errors='replace'))
         print(res.stderr.decode(errors='replace'))
         sys.exit(1)
-        
-    zapc = "./build/zapc"
-    if os.name == 'nt':
-        zapc += ".exe"
         
     if not os.path.exists(zapc):
         print(f"{RED}Compiler executable not found at {zapc}{NC}")
@@ -498,7 +521,7 @@ def main():
     parser.add_argument("-j", "--jobs", type=int, default=None, help="Number of parallel test jobs (default: CPU cores - 1)")
     parser.add_argument("-l", "--list", action="store_true", help="List discovered tests and exit")
     parser.add_argument("-v", "--verbose", action="store_true", help="Print detailed failure reasons")
-    parser.add_argument("--zapc", help="Path to a prebuilt Zap compiler instead of building ./build/zapc")
+    parser.add_argument("--zapc", help="Path to a prebuilt Zap compiler instead of building the debug compiler")
     args = parser.parse_args()
 
     # Step 1: Discover test files

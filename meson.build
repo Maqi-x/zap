@@ -63,6 +63,7 @@ zap_type_layout_dep = declare_dependency(link_with : zap_type_layout, include_di
 zap_syntax = static_library('zap_syntax',
                             'src/lexer/lexer.cpp',
                             'src/parser/parser.cpp',
+                            'src/parser/parser_declarations.cpp',
                             include_directories : inc
 )
 zap_syntax_dep = declare_dependency(link_with : zap_syntax, include_directories : inc)
@@ -108,6 +109,8 @@ zapc_sources = [
     'src/sema/binder_calls.cpp', 'src/sema/binder_conversions.cpp',
     'src/sema/binder_declaration_binding.cpp', 'src/sema/binder_module_predeclare.cpp',
     'src/sema/binder_stmts.cpp', 'src/sema/binder_exprs.cpp',
+    'src/sema/binder_mutability.cpp',
+    'src/sema/constant_evaluator.cpp',
     'src/sema/binder_generic_functions.cpp', 'src/sema/binder_generic_types.cpp',
     'src/sema/binder_types.cpp', 'src/codegen/llvm_codegen.cpp',
     'src/codegen/llvm_codegen_constants.cpp', 'src/codegen/llvm_codegen_zir.cpp',

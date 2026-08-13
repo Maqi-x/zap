@@ -1,7 +1,9 @@
 #include "ir_generator.hpp"
+#include "../sema/constant_evaluator.hpp"
 #include "failable_type.hpp"
 #include <cstdint>
 #include <iostream>
+#include <optional>
 
 namespace zir {
 namespace {
@@ -110,6 +112,9 @@ ParameterEscape parameterEscapeFor(const sema::FunctionSymbol &function,
 
 std::shared_ptr<Value> BoundIRGenerator::lowerConstantExpression(
     const sema::BoundExpression &expression) {
+  if (!sema::ConstantEvaluator::isConstant(expression)) {
+    return nullptr;
+  }
   std::set<const sema::VariableSymbol *> resolvingConstants;
   return lowerConstantExpression(expression, resolvingConstants);
 }
@@ -157,7 +162,7 @@ std::shared_ptr<Value> BoundIRGenerator::lowerConstantExpression(
   if (auto variable =
           dynamic_cast<const sema::BoundVariableExpression *>(&expression)) {
     auto symbol = variable->symbol;
-    if (symbol && symbol->is_const && symbol->constant_value) {
+    if (symbol && symbol->isCompileTimeConstant() && symbol->constant_value) {
       if (!resolvingConstants.insert(symbol.get()).second) {
         return nullptr;
       }
@@ -165,6 +170,81 @@ std::shared_ptr<Value> BoundIRGenerator::lowerConstantExpression(
           lowerConstantExpression(*symbol->constant_value, resolvingConstants);
       resolvingConstants.erase(symbol.get());
       return value;
+    }
+    return nullptr;
+  }
+
+  if (auto binary = dynamic_cast<const sema::BoundBinaryExpression *>(&expression)) {
+    auto left = lowerConstantExpression(*binary->left, resolvingConstants);
+    auto right = lowerConstantExpression(*binary->right, resolvingConstants);
+    auto leftConstant = std::dynamic_pointer_cast<Constant>(left);
+    auto rightConstant = std::dynamic_pointer_cast<Constant>(right);
+    if (!leftConstant || !rightConstant) {
+      return nullptr;
+    }
+
+    try {
+      if (binary->type->isFloatingPoint()) {
+        const double lhs = std::stod(leftConstant->getLiteral());
+        const double rhs = std::stod(rightConstant->getLiteral());
+        std::optional<double> result;
+        if (binary->op == "+") result = lhs + rhs;
+        else if (binary->op == "-") result = lhs - rhs;
+        else if (binary->op == "*") result = lhs * rhs;
+        else if (binary->op == "/" && rhs != 0.0) result = lhs / rhs;
+        if (result) {
+          return std::make_shared<Constant>(std::to_string(*result), binary->type);
+        }
+        return nullptr;
+      }
+
+      if ((binary->type->getIntrinsicKind() == IntrinsicTypeKind::String ||
+           binary->type->getIntrinsicKind() == IntrinsicTypeKind::StringView) &&
+          binary->op == "+") {
+        return std::make_shared<Constant>(leftConstant->getLiteral() +
+                                              rightConstant->getLiteral(),
+                                          binary->type);
+      }
+
+      if (!binary->type->isInteger()) {
+        return nullptr;
+      }
+      const int64_t lhs = std::stoll(leftConstant->getLiteral(), nullptr, 0);
+      const int64_t rhs = std::stoll(rightConstant->getLiteral(), nullptr, 0);
+      std::optional<int64_t> result;
+      if (binary->op == "+") result = lhs + rhs;
+      else if (binary->op == "-") result = lhs - rhs;
+      else if (binary->op == "*") result = lhs * rhs;
+      else if (binary->op == "/" && rhs != 0) result = lhs / rhs;
+      else if (binary->op == "%" && rhs != 0) result = lhs % rhs;
+      else if (binary->op == "&") result = lhs & rhs;
+      else if (binary->op == "|") result = lhs | rhs;
+      else if (binary->op == "^") result = lhs ^ rhs;
+      else if (binary->op == "<<" && rhs >= 0) result = lhs << rhs;
+      else if (binary->op == ">>" && rhs >= 0) result = lhs >> rhs;
+      if (result) {
+        return std::make_shared<Constant>(std::to_string(*result), binary->type);
+      }
+    } catch (const std::exception &) {
+    }
+    return nullptr;
+  }
+
+  if (auto unary = dynamic_cast<const sema::BoundUnaryExpression *>(&expression)) {
+    auto value = lowerConstantExpression(*unary->expr, resolvingConstants);
+    auto constant = std::dynamic_pointer_cast<Constant>(value);
+    if (!constant || !unary->type->isInteger()) {
+      return nullptr;
+    }
+    try {
+      const int64_t operand = std::stoll(constant->getLiteral(), nullptr, 0);
+      if (unary->op == "-") {
+        return std::make_shared<Constant>(std::to_string(-operand), unary->type);
+      }
+      if (unary->op == "~") {
+        return std::make_shared<Constant>(std::to_string(~operand), unary->type);
+      }
+    } catch (const std::exception &) {
     }
     return nullptr;
   }
@@ -180,6 +260,19 @@ std::shared_ptr<Value> BoundIRGenerator::lowerConstantExpression(
       elements.push_back(std::move(value));
     }
     return std::make_shared<ArrayConstant>(array->type, std::move(elements));
+  }
+
+  if (auto record = dynamic_cast<const sema::BoundStructLiteral *>(&expression)) {
+    std::vector<AggregateConstant::FieldValue> fields;
+    fields.reserve(record->fields.size());
+    for (const auto &field : record->fields) {
+      auto value = lowerConstantExpression(*field.second, resolvingConstants);
+      if (!value) {
+        return nullptr;
+      }
+      fields.push_back({field.first, std::move(value)});
+    }
+    return std::make_shared<AggregateConstant>(record->type, std::move(fields));
   }
 
   if (auto cast = dynamic_cast<const sema::BoundCast *>(&expression)) {
@@ -411,9 +504,9 @@ void BoundIRGenerator::visit(sema::BoundVariableDeclaration &node) {
         }
       }
     }
-    auto global =
-        std::make_shared<Global>(node.symbol->name, node.symbol->linkName, type,
-                                 initializer, node.symbol->is_const);
+    auto global = std::make_shared<Global>(
+        node.symbol->name, node.symbol->linkName, type, initializer,
+        node.symbol->isCompileTimeConstant());
     module_->addGlobal(global);
     globalSymbolMap_[node.symbol] = global;
     return;

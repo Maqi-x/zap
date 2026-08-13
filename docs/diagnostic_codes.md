@@ -186,6 +186,24 @@ Typical messages:
 
 ---
 
+### `S2014` — Invalid immutable binding usage
+Emitted when an immutable `let` binding has no initializer or an operation
+would mutate its value storage.
+
+Typical messages:
+- `Immutable binding '...' must be initialized.`
+- `Cannot mutate immutable binding '...'.`
+
+---
+
+### `S2015` — Invalid constant initializer
+Emitted when a `const` initializer needs runtime evaluation.
+
+Typical messages:
+- `Constant '...' must be initialized with a compile-time expression: ...`
+
+---
+
 ## Warnings (`W1xxx`)
 
 ### `W1001` — Non-void function may not return on all paths

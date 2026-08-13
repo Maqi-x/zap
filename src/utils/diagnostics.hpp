@@ -650,6 +650,14 @@ private:
         message.find("' is ambiguous between ") != std::string::npos) {
       return "S2013";
     }
+    if (message.find("immutable binding") != std::string::npos ||
+        message.find("Immutable binding") != std::string::npos) {
+      return "S2014";
+    }
+    if (message.find("must be initialized with a compile-time expression") !=
+        std::string::npos) {
+      return "S2015";
+    }
 
     if (message.find("Expected ';'") != std::string::npos) {
       return "P1001";

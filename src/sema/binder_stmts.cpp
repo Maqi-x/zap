@@ -93,27 +93,7 @@ void Binder::visit(AsmStmtNode &node) {
     auto bound = std::move(expressionStack_.top());
     expressionStack_.pop();
 
-    bool isLValue =
-        dynamic_cast<BoundVariableExpression *>(bound.get()) ||
-        dynamic_cast<BoundIndexAccess *>(bound.get()) ||
-        dynamic_cast<BoundMemberAccess *>(bound.get()) ||
-        (dynamic_cast<BoundUnaryExpression *>(bound.get()) &&
-         static_cast<BoundUnaryExpression *>(bound.get())->op == "*");
-    if (!isLValue) {
-      error(node.span, "Inline 'asm' output operand must be an l-value.");
-      return;
-    }
-    if (auto varExpr = dynamic_cast<BoundVariableExpression *>(bound.get())) {
-      if (varExpr->symbol->is_const) {
-        error(node.span, "Cannot assign to constant '" + varExpr->symbol->name +
-                             "' through inline 'asm'.");
-        return;
-      }
-    }
-    if (accessesImmutableRecordField(*bound)) {
-      error(node.span,
-            "Cannot use a field of immutable record as an inline 'asm' "
-            "output.");
+    if (!requireMutablePlace(*bound, node.span, MutablePlaceUse::AsmOutput)) {
       return;
     }
     outputs.push_back({operand.constraint, std::move(bound)});
@@ -195,9 +175,11 @@ void Binder::visit(ReturnNode &node) {
   }
 
   if (expr && currentFunction_ && currentFunction_->returnsRef &&
-      accessesImmutableRecordField(*expr)) {
-    error(node.span,
-          "Cannot return a mutable reference to a field of immutable record.");
+      !requireMutablePlace(*expr, node.span,
+                           MutablePlaceUse::MutableReference)) {
+    statementStack_.push(std::make_unique<BoundReturnStatement>(
+        std::move(expr), currentFunction_->returnsRef));
+    return;
   }
 
   statementStack_.push(std::make_unique<BoundReturnStatement>(
@@ -391,13 +373,13 @@ void Binder::visit(ForInNode &node) {
 
   auto iterableName = makeSyntheticLoopName("iter");
   auto iterableSymbol = std::make_shared<VariableSymbol>(
-      iterableName, iterableValue->type, false, false, iterableName, moduleName,
-      Visibility::Private);
+      iterableName, iterableValue->type, BindingKind::Mutable, false,
+      iterableName, moduleName, Visibility::Private);
   currentScope_->declare(iterableName, iterableSymbol);
 
   auto indexName = makeSyntheticLoopName("idx");
   auto indexSymbol = std::make_shared<VariableSymbol>(
-      indexName, intType, false, false, indexName, moduleName,
+      indexName, intType, BindingKind::Mutable, false, indexName, moduleName,
       Visibility::Private);
   currentScope_->declare(indexName, indexSymbol);
 
@@ -421,8 +403,8 @@ void Binder::visit(ForInNode &node) {
     auto sliceName = makeSyntheticLoopName("slice");
     auto sliceType = makeVariadicViewType(arr->getBaseType());
     auto sliceSymbol = std::make_shared<VariableSymbol>(
-        sliceName, sliceType, false, false, sliceName, moduleName,
-        Visibility::Private);
+        sliceName, sliceType, BindingKind::Mutable, false, sliceName,
+        moduleName, Visibility::Private);
     currentScope_->declare(sliceName, sliceSymbol);
     initBlock->statements.push_back(std::make_unique<BoundVariableDeclaration>(
         sliceSymbol,
@@ -492,8 +474,8 @@ void Binder::visit(ForInNode &node) {
 
   pushScope();
   auto itemSymbol = std::make_shared<VariableSymbol>(
-      node.itemName_, elementValue->type, false, false, node.itemName_,
-      moduleName, Visibility::Private);
+      node.itemName_, elementValue->type, BindingKind::Immutable, false,
+      node.itemName_, moduleName, Visibility::Private);
   if (!currentScope_->declare(node.itemName_, itemSymbol)) {
     error(node.span, "Variable '" + node.itemName_ + "' already declared.");
   }
@@ -506,8 +488,8 @@ void Binder::visit(ForInNode &node) {
   std::shared_ptr<VariableSymbol> indexUserSymbol = nullptr;
   if (!node.indexName_.empty()) {
     indexUserSymbol = std::make_shared<VariableSymbol>(
-        node.indexName_, intType, false, false, node.indexName_, moduleName,
-        Visibility::Private);
+        node.indexName_, intType, BindingKind::Immutable, false,
+        node.indexName_, moduleName, Visibility::Private);
     if (!currentScope_->declare(node.indexName_, indexUserSymbol)) {
       error(node.span, "Variable '" + node.indexName_ + "' already declared.");
     }
