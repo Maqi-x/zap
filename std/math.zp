@@ -194,7 +194,11 @@ pub fun isPowerOfTwo(n: Int) Bool {
 pub fun nextPowerOfTwo(n: Int) Int {
     if n <= 0 { return 1; }
     var p: Int = 1;
+    var maxInt: Int = ((-1 as UInt) >> 1) as Int;
     while p < n {
+        if p > maxInt / 2 {
+            return 0;
+        }
         p = p * 2;
     }
     return p;

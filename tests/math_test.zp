@@ -66,6 +66,9 @@ fun main() Int {
     if math.nextPowerOfTwo(10) != 16 {
         return 20;
     }
+    if math.nextPowerOfTwo(4611686018427387905) != 0 {
+        return 21;
+    }
 
     return 0;
 }
