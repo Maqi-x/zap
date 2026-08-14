@@ -105,7 +105,7 @@ stdlib_o = custom_target('zap_stdlib',
 )
 
 zapc_sources = [
-    'src/main.cpp', 'src/ir/ir_generator.cpp', 'src/sema/binder.cpp',
+    'src/main.cpp', 'src/ir/ir_generator.cpp', 'src/ir/function_reachability.cpp', 'src/sema/binder.cpp',
     'src/sema/binder_calls.cpp', 'src/sema/binder_conversions.cpp',
     'src/sema/binder_declaration_binding.cpp', 'src/sema/binder_module_predeclare.cpp',
     'src/sema/binder_stmts.cpp', 'src/sema/binder_exprs.cpp',
@@ -151,6 +151,27 @@ if get_option('build_testing')
     test('zir-verifier', executable('zap-zir-verifier-tests', 'tests/cpp/zir_verifier_test.cpp', dependencies : zap_zir_verifier_dep))
     test('ownership-lowering', executable('zap-ownership-lowering-tests', 'tests/cpp/ownership_lowering_test.cpp', dependencies : zap_zir_verifier_dep))
     test('borrow-analysis', executable('zap-borrow-analysis-tests', 'tests/cpp/borrow_analysis_test.cpp', dependencies : zap_zir_verifier_dep))
+    test('function-reachability', executable('zap-function-reachability-tests', ['tests/cpp/function_reachability_test.cpp', 'src/ir/function_reachability.cpp'], dependencies : zap_type_system_dep))
+    test('zir-reachability',
+         files('tests/scripts/check_zir_reachability.sh'),
+         args : [
+             zapc.full_path(),
+             meson.current_source_dir() / 'tests/zir_reachability/main.zp',
+             meson.current_source_dir() / 'tests/zir_reachability/caller.c',
+             meson.current_source_dir() / 'tests/zir_reachability/library.zp',
+             meson.current_build_dir() / 'zir-reachability-test'
+         ],
+         depends : zapc
+    )
+    test('zir-class-reachability',
+         files('tests/scripts/check_zir_class_reachability.sh'),
+         args : [
+             zapc.full_path(),
+             meson.current_source_dir() / 'tests/zir_class_reachability/main.zp',
+             meson.current_build_dir() / 'zir-class-reachability-test.zir'
+         ],
+         depends : zapc
+    )
 
     runtime_test = executable('zap-runtime-instrumentation-tests',
                               'tests/cpp/runtime_instrumentation_test.c', 'src/stdlib.c',

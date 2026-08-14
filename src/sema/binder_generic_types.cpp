@@ -364,6 +364,7 @@ std::shared_ptr<TypeSymbol> Binder::instantiateGenericTypeSymbol(
           methodDecl->name_, std::move(params), std::move(retType), "",
           moduleIt->second.info->moduleName, methodDecl->visibility_,
           methodDecl->isUnsafe_);
+      methodSymbol->isEntryModule = moduleIt->second.info->isEntry;
       for (const auto &genericParam : methodDecl->genericParams_) {
         if (genericParam) {
           methodSymbol->genericParameterNames.push_back(genericParam->typeName);
@@ -378,8 +379,8 @@ std::shared_ptr<TypeSymbol> Binder::instantiateGenericTypeSymbol(
           instantiatedClassType->getCodegenName();
       methodSymbol->resultBorrow = resolveResultBorrowContract(
           methodDecl->resultBorrowSource_, methodSymbol->parameters,
-          methodSymbol->returnType, methodSymbol->returnsRef,
-          methodDecl->span);
+          methodSymbol->returnType, methodSymbol->returnsRef, methodDecl->span);
+      validateAndApplyFunctionAttributes(*methodDecl, methodSymbol, false);
       if (methodSymbol->isMethod && !methodSymbol->isStatic &&
           !methodSymbol->isConstructor && !methodSymbol->isDestructor) {
         methodSymbol->vtableSlot =
@@ -388,12 +389,17 @@ std::shared_ptr<TypeSymbol> Binder::instantiateGenericTypeSymbol(
           methodSymbol->vtableSlot = classInfo.nextVirtualSlot++;
         }
       }
-      methodSymbol->linkName = mangleName(
-          moduleIt->second.info->linkPath.empty()
-              ? moduleIt->second.info->moduleId
-              : moduleIt->second.info->linkPath,
-          instantiatedClassType->getCodegenName() + "$" + methodDecl->name_ +
-              "$" + functionSignatureKey(*methodSymbol));
+      if (methodSymbol->hasNoMangle ||
+          (methodSymbol->hasExternC && methodSymbol->externAbi == "C")) {
+        methodSymbol->linkName = methodSymbol->name;
+      } else {
+        methodSymbol->linkName = mangleName(
+            moduleIt->second.info->linkPath.empty()
+                ? moduleIt->second.info->moduleId
+                : moduleIt->second.info->linkPath,
+            instantiatedClassType->getCodegenName() + "$" + methodDecl->name_ +
+                "$" + functionSignatureKey(*methodSymbol));
+      }
       functionDeclarationNodes_[methodSymbol.get()] = methodDecl.get();
       functionDeclarationModuleIds_[methodSymbol.get()] =
           moduleIt->second.info->moduleId;

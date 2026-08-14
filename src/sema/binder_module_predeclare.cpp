@@ -564,6 +564,7 @@ void Binder::predeclareModuleValues(ModuleState &module) {
       auto symbol = std::make_shared<FunctionSymbol>(
           funDecl->name_, std::move(params), std::move(retType), "",
           module.info->moduleName, funDecl->visibility_, funDecl->isUnsafe_);
+      symbol->isEntryModule = module.info->isEntry;
       symbol->returnsRef = funDecl->returnsRef_;
       symbol->resultBorrow = resolveResultBorrowContract(
           funDecl->resultBorrowSource_, symbol->parameters, symbol->returnType,
@@ -764,6 +765,7 @@ void Binder::predeclareModuleValues(ModuleState &module) {
             methodDecl->name_, std::move(params), std::move(retType), "",
             module.info->moduleName, methodDecl->visibility_,
             methodDecl->isUnsafe_);
+        symbol->isEntryModule = module.info->isEntry;
         for (const auto &genericParam : methodDecl->genericParams_) {
           if (genericParam) {
             symbol->genericParameterNames.push_back(genericParam->typeName);
@@ -778,6 +780,7 @@ void Binder::predeclareModuleValues(ModuleState &module) {
         symbol->resultBorrow = resolveResultBorrowContract(
             methodDecl->resultBorrowSource_, symbol->parameters,
             symbol->returnType, symbol->returnsRef, methodDecl->span);
+        validateAndApplyFunctionAttributes(*methodDecl, symbol, false);
         if (symbol->isMethod && !symbol->isStatic && !symbol->isConstructor &&
             !symbol->isDestructor) {
           symbol->vtableSlot = findOverriddenVtableSlot(classInfo, *symbol);
@@ -785,11 +788,16 @@ void Binder::predeclareModuleValues(ModuleState &module) {
             symbol->vtableSlot = classInfo.nextVirtualSlot++;
           }
         }
-        symbol->linkName =
-            mangleName(module.info->linkPath.empty() ? module.info->moduleId
-                                                     : module.info->linkPath,
-                       classDecl->name_ + "$" + methodDecl->name_ + "$" +
-                           functionSignatureKey(*symbol));
+        if (symbol->hasNoMangle ||
+            (symbol->hasExternC && symbol->externAbi == "C")) {
+          symbol->linkName = symbol->name;
+        } else {
+          symbol->linkName =
+              mangleName(module.info->linkPath.empty() ? module.info->moduleId
+                                                       : module.info->linkPath,
+                         classDecl->name_ + "$" + methodDecl->name_ + "$" +
+                             functionSignatureKey(*symbol));
+        }
         declaredFunctionSymbols_[methodDecl.get()] = symbol;
         functionDeclarationNodes_[symbol.get()] = methodDecl.get();
         if (semanticInfo_) {
@@ -867,6 +875,7 @@ void Binder::predeclareModuleValues(ModuleState &module) {
           module.info->moduleName, extDecl->visibility_, false,
           extDecl->isCVariadic_);
       symbol->isExternal = true;
+      symbol->isEntryModule = module.info->isEntry;
       symbol->resultBorrow = resolveResultBorrowContract(
           extDecl->resultBorrowSource_, symbol->parameters, symbol->returnType,
           false, extDecl->span);
