@@ -1,0 +1,187 @@
+import "std/collection";
+
+fun testStack() Int {
+    var s: collection.Stack<Int> = new collection.Stack<Int>();
+
+    if !s.isEmpty() {
+        return 1;
+    }
+    if s.len() != 0 {
+        return 2;
+    }
+
+    s.push(10);
+    s.push(20);
+    s.push(30);
+
+    if s.len() != 3 {
+        return 3;
+    }
+    if s.isEmpty() {
+        return 4;
+    }
+    if s.peek() != 30 {
+        return 5;
+    }
+
+    if s.pop() != 30 {
+        return 6;
+    }
+    if s.len() != 2 {
+        return 7;
+    }
+    if s.peek() != 20 {
+        return 8;
+    }
+
+    if s.pop() != 20 {
+        return 9;
+    }
+    if s.pop() != 10 {
+        return 10;
+    }
+
+    if !s.isEmpty() {
+        return 11;
+    }
+
+    s.push(100);
+    s.clear();
+    if !s.isEmpty() {
+        return 12;
+    }
+
+    return 0;
+}
+
+fun testQueue() Int {
+    var q: collection.Queue<Int> = new collection.Queue<Int>();
+
+    if !q.isEmpty() {
+        return 1;
+    }
+    if q.len() != 0 {
+        return 2;
+    }
+
+    q.enqueue(1);
+    q.enqueue(2);
+    q.enqueue(3);
+
+    if q.len() != 3 {
+        return 3;
+    }
+    if q.isEmpty() {
+        return 4;
+    }
+    if q.peek() != 1 {
+        return 5;
+    }
+
+    if q.dequeue() != 1 {
+        return 6;
+    }
+    if q.len() != 2 {
+        return 7;
+    }
+    if q.peek() != 2 {
+        return 8;
+    }
+
+    if q.dequeue() != 2 {
+        return 9;
+    }
+    if q.dequeue() != 3 {
+        return 10;
+    }
+
+    if !q.isEmpty() {
+        return 11;
+    }
+
+    q.enqueue(50);
+    q.clear();
+    if !q.isEmpty() {
+        return 12;
+    }
+
+    return 0;
+}
+
+fun testHashSet() Int {
+    var set: collection.HashSet = new collection.HashSet();
+
+    if !set.isEmpty() {
+        return 1;
+    }
+    if set.len() != 0 {
+        return 2;
+    }
+
+    if !set.add("apple") {
+        return 3;
+    }
+    if !set.add("banana") {
+        return 4;
+    }
+
+    if set.len() != 2 {
+        return 5;
+    }
+    if !set.contains("apple") {
+        return 6;
+    }
+    if !set.contains("banana") {
+        return 7;
+    }
+    if set.contains("orange") {
+        return 8;
+    }
+
+    if set.add("apple") {
+        return 9;
+    }
+    if set.len() != 2 {
+        return 10;
+    }
+
+    if !set.remove("apple") {
+        return 11;
+    }
+    if set.contains("apple") {
+        return 12;
+    }
+    if set.len() != 1 {
+        return 13;
+    }
+
+    if set.remove("apple") {
+        return 14;
+    }
+
+    set.clear();
+    if !set.isEmpty() {
+        return 15;
+    }
+
+    return 0;
+}
+
+fun main() Int {
+    var err: Int = testStack();
+    if err != 0 {
+       return 100 + err;
+    }
+
+    err = testQueue();
+    if err != 0 {
+       return 200 + err;
+    }
+
+    err = testHashSet();
+    if err != 0 {
+       return 300 + err;
+    }
+
+    return 0;
+}

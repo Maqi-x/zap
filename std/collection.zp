@@ -201,6 +201,197 @@ pub class List<T> {
     }
 }
 
+class StackNode<T> {
+    priv value: T;
+    priv next: StackNode<T>;
+
+    fun init(value: T) {
+        self.value = value;
+        self.next = null;
+    }
+
+    pub fun getValue() T {
+        return self.value;
+    }
+
+    pub fun getNext() StackNode<T> {
+        return self.next;
+    }
+
+    pub fun setNext(next: StackNode<T>) {
+        self.next = next;
+    }
+}
+
+pub class Stack<T> {
+    priv topNode: StackNode<T>;
+    priv size: Int;
+
+    fun init() {
+        self.topNode = null;
+        self.size = 0;
+    }
+
+    pub fun len() Int {
+        return self.size;
+    }
+
+    pub fun isEmpty() Bool {
+        return self.size == 0;
+    }
+
+    pub fun clear() {
+        self.topNode = null;
+        self.size = 0;
+    }
+
+    pub fun push(value: T) {
+        var node: StackNode<T> = new StackNode<T>(value);
+        node.setNext(self.topNode);
+        self.topNode = node;
+        self.size = self.size + 1;
+    }
+
+    pub fun pop() T {
+        if self.topNode == null {
+            panic("Stack.pop() on empty stack");
+        }
+
+        var node: StackNode<T> = self.topNode;
+        var value: T = node.getValue();
+        self.topNode = node.getNext();
+        self.size = self.size - 1;
+        return value;
+    }
+
+    pub fun peek() T {
+        if self.topNode == null {
+            panic("Stack.peek() on empty stack");
+        }
+
+        return self.topNode.getValue();
+    }
+}
+
+class QueueNode<T> {
+    priv value: T;
+    priv next: QueueNode<T>;
+
+    fun init(value: T) {
+        self.value = value;
+        self.next = null;
+    }
+
+    pub fun getValue() T {
+        return self.value;
+    }
+
+    pub fun getNext() QueueNode<T> {
+        return self.next;
+    }
+
+    pub fun setNext(next: QueueNode<T>) {
+        self.next = next;
+    }
+}
+
+pub class Queue<T> {
+    priv head: QueueNode<T>;
+    priv tail: QueueNode<T>;
+    priv size: Int;
+
+    fun init() {
+        self.head = null;
+        self.tail = null;
+        self.size = 0;
+    }
+
+    pub fun len() Int {
+        return self.size;
+    }
+
+    pub fun isEmpty() Bool {
+        return self.size == 0;
+    }
+
+    pub fun clear() {
+        self.head = null;
+        self.tail = null;
+        self.size = 0;
+    }
+
+    pub fun enqueue(value: T) {
+        var node: QueueNode<T> = new QueueNode<T>(value);
+        if self.tail == null {
+            self.head = node;
+            self.tail = node;
+        } else {
+            self.tail.setNext(node);
+            self.tail = node;
+        }
+        self.size = self.size + 1;
+    }
+
+    pub fun dequeue() T {
+        if self.head == null {
+            panic("Queue.dequeue() on empty queue");
+        }
+
+        var node: QueueNode<T> = self.head;
+        var value: T = node.getValue();
+        self.head = node.getNext();
+        if self.head == null {
+            self.tail = null;
+        }
+        self.size = self.size - 1;
+        return value;
+    }
+
+    pub fun peek() T {
+        if self.head == null {
+            panic("Queue.peek() on empty queue");
+        }
+
+        return self.head.getValue();
+    }
+}
+
+pub class HashSet {
+    priv map: HashMap<Bool>;
+
+    fun init() {
+        self.map = new HashMap<Bool>();
+    }
+
+    pub fun len() Int {
+        return self.map.len();
+    }
+
+    pub fun isEmpty() Bool {
+        return self.map.isEmpty();
+    }
+
+    pub fun clear() {
+        self.map.clear();
+    }
+
+    pub fun add(key: String) Bool {
+        if self.map.contains(key) {
+            return false;
+        }
+        self.map.put(key, true);
+        return true;
+    }
+
+    pub fun contains(key: String) Bool {
+        return self.map.contains(key);
+    }
+
+    pub fun remove(key: String) Bool {
+        return self.map.remove(key);
+    }
+}
+
 class HashMapNode<V> {
     priv key: String;
     priv value: V;
