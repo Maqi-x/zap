@@ -10,7 +10,7 @@
   <a href="https://discord.gg/tfbE5Cps5j">Discord</a> ·
   <a href="ROADMAP.md">Roadmap</a> ·
   <a href="https://zaplang.xyz">Website</a> ·
-  <a href="https://zaplang.xyz/getting-started/Documentation</a>
+  <a href="https://zaplang.xyz/getting-started/">Documentation</a>
 </p>
 
 ## What is Zap?
