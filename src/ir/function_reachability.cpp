@@ -39,6 +39,9 @@ public:
   }
   void visit(sema::BoundLiteral &) override {}
   void visit(sema::BoundVariableExpression &) override {}
+  void visit(sema::BoundClassTypeTest &node) override {
+    visitNode(node.expression);
+  }
   void visit(sema::BoundCompoundTargetLoad &) override {}
   void visit(sema::BoundBinaryExpression &node) override {
     visitNode(node.left);

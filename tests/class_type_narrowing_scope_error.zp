@@ -1,0 +1,14 @@
+class Element {}
+
+class Panel : Element {
+    pub title: String;
+}
+
+fun main() {
+    var element: Element = new Panel();
+    if element is Panel {
+        element.title = "inside";
+    }
+
+    element.title = "outside";
+}

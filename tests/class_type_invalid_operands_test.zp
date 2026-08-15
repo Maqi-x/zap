@@ -1,0 +1,10 @@
+class Element {}
+class Panel : Element {}
+
+fun main() {
+    var element: Element = new Element();
+    var number: Int = 1;
+
+    if number is Panel {}
+    if element is Int {}
+}

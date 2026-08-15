@@ -82,6 +82,7 @@ enum TokenType {
   WEAK,
   WHERE,
   IFTYPE,
+  IS,
   FAIL,
   PLUS_ASSIGN,    ///< '+=' symbol.
   MINUS_ASSIGN,   ///< '-=' symbol.
@@ -283,6 +284,8 @@ inline std::string tokenTypeToString(TokenType type) {
     return "where";
   case TokenType::IFTYPE:
     return "iftype";
+  case TokenType::IS:
+    return "is";
   case TokenType::FAIL:
     return "fail";
   case TokenType::NEW:

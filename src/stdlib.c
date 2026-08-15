@@ -1083,6 +1083,21 @@ _Bool zap_fs_is_dir(zap_string_t path) {
   return S_ISDIR(st.st_mode);
 }
 
+_Bool zap_fs_is_symlink(zap_string_t path) {
+  char *buffer = zap_copy_path(path);
+  if (!buffer) {
+    return 0;
+  }
+
+  struct stat st;
+  int result = lstat(buffer, &st);
+  free(buffer);
+  if (result != 0) {
+    return 0;
+  }
+  return S_ISLNK(st.st_mode);
+}
+
 long zap_fs_mkdir(zap_string_t path) {
   char *buffer = zap_copy_path(path);
   if (!buffer) {

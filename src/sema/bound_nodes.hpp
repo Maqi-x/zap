@@ -18,6 +18,7 @@ class BoundExpressionStatement;
 class BoundExpression;
 class BoundLiteral;
 class BoundVariableExpression;
+class BoundClassTypeTest;
 class BoundCompoundTargetLoad;
 class BoundBinaryExpression;
 class BoundTernaryExpression;
@@ -62,6 +63,7 @@ public:
   virtual void visit(BoundExpressionStatement &node) = 0;
   virtual void visit(BoundLiteral &node) = 0;
   virtual void visit(BoundVariableExpression &node) = 0;
+  virtual void visit(BoundClassTypeTest &node) = 0;
   virtual void visit(BoundCompoundTargetLoad &node) = 0;
   virtual void visit(BoundBinaryExpression &node) = 0;
   virtual void visit(BoundTernaryExpression &node) = 0;
@@ -174,6 +176,23 @@ public:
   void accept(BoundVisitor &v) override { v.visit(*this); }
   std::unique_ptr<BoundExpression> clone() const override {
     return std::make_unique<BoundVariableExpression>(symbol);
+  }
+};
+
+class BoundClassTypeTest : public BoundExpression {
+public:
+  std::unique_ptr<BoundExpression> expression;
+  std::shared_ptr<zir::ClassType> targetType;
+
+  BoundClassTypeTest(std::unique_ptr<BoundExpression> value,
+                     std::shared_ptr<zir::ClassType> target)
+      : BoundExpression(
+            std::make_shared<zir::PrimitiveType>(zir::TypeKind::Bool)),
+        expression(std::move(value)), targetType(std::move(target)) {}
+  void accept(BoundVisitor &v) override { v.visit(*this); }
+  std::unique_ptr<BoundExpression> clone() const override {
+    return std::make_unique<BoundClassTypeTest>(expression->clone(),
+                                                targetType);
   }
 };
 
@@ -387,7 +406,8 @@ public:
   BoundIndexAccess(std::unique_ptr<BoundExpression> l,
                    std::unique_ptr<BoundExpression> i,
                    std::shared_ptr<zir::Type> t)
-      : BoundExpression(std::move(t)), left(std::move(l)), index(std::move(i)) {}
+      : BoundExpression(std::move(t)), left(std::move(l)), index(std::move(i)) {
+  }
   void accept(BoundVisitor &v) override { v.visit(*this); }
   std::unique_ptr<BoundExpression> clone() const override {
     return std::make_unique<BoundIndexAccess>(left->clone(), index->clone(),
@@ -525,17 +545,23 @@ public:
   std::unique_ptr<BoundExpression> condition;
   std::unique_ptr<BoundBlock> thenBody;
   std::unique_ptr<BoundBlock> elseBody;
+  std::shared_ptr<VariableSymbol> narrowedSource;
+  std::shared_ptr<VariableSymbol> narrowedVariable;
 
   BoundIfStatement(std::unique_ptr<BoundExpression> cond,
                    std::unique_ptr<BoundBlock> thenB,
-                   std::unique_ptr<BoundBlock> elseB)
+                   std::unique_ptr<BoundBlock> elseB,
+                   std::shared_ptr<VariableSymbol> source = nullptr,
+                   std::shared_ptr<VariableSymbol> narrowed = nullptr)
       : condition(std::move(cond)), thenBody(std::move(thenB)),
-        elseBody(std::move(elseB)) {}
+        elseBody(std::move(elseB)), narrowedSource(std::move(source)),
+        narrowedVariable(std::move(narrowed)) {}
   void accept(BoundVisitor &v) override { v.visit(*this); }
   std::unique_ptr<BoundStatement> cloneStatement() const override {
     return std::make_unique<BoundIfStatement>(
         condition->clone(), thenBody->cloneBlock(),
-        elseBody ? elseBody->cloneBlock() : nullptr);
+        elseBody ? elseBody->cloneBlock() : nullptr, narrowedSource,
+        narrowedVariable);
   }
 };
 

@@ -653,6 +653,7 @@ bool Parser::isTryPostfixContext(TokenType type) const {
   case TokenType::LSHIFT:
   case TokenType::RSHIFT:
   case TokenType::AS:
+  case TokenType::IS:
     return true;
   default:
     return false;
@@ -1692,6 +1693,7 @@ int Parser::getPrecedence(TokenType type) {
     return 6;
   case TokenType::EQUAL:
   case TokenType::NOTEQUAL:
+  case TokenType::IS:
   case TokenType::LESS:
   case TokenType::LESSEQUAL:
   case TokenType::GREATER:

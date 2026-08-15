@@ -81,18 +81,17 @@ ValueOwnership ownershipForCast(const std::shared_ptr<Value> &source,
                                                    : ValueOwnership::Borrowed;
 }
 
-ParameterOwnership parameterOwnershipFor(
-    const sema::FunctionSymbol &function, size_t parameterIndex) {
+ParameterOwnership parameterOwnershipFor(const sema::FunctionSymbol &function,
+                                         size_t parameterIndex) {
   if (parameterIndex >= function.parameters.size()) {
     return ParameterOwnership::Borrow;
   }
   const auto &parameter = function.parameters[parameterIndex];
-  const bool borrowedSelf =
-      parameterIndex == 0 && !function.ownerTypeCodegenName.empty() &&
-      parameter->name == "self";
-  if (function.isExternal || parameter->is_ref ||
-      parameter->is_variadic_pack || borrowedSelf ||
-      !containsManagedValues(parameter->type)) {
+  const bool borrowedSelf = parameterIndex == 0 &&
+                            !function.ownerTypeCodegenName.empty() &&
+                            parameter->name == "self";
+  if (function.isExternal || parameter->is_ref || parameter->is_variadic_pack ||
+      borrowedSelf || !containsManagedValues(parameter->type)) {
     return ParameterOwnership::Borrow;
   }
   return parameter->is_sink ? ParameterOwnership::Sink
@@ -174,7 +173,8 @@ std::shared_ptr<Value> BoundIRGenerator::lowerConstantExpression(
     return nullptr;
   }
 
-  if (auto binary = dynamic_cast<const sema::BoundBinaryExpression *>(&expression)) {
+  if (auto binary =
+          dynamic_cast<const sema::BoundBinaryExpression *>(&expression)) {
     auto left = lowerConstantExpression(*binary->left, resolvingConstants);
     auto right = lowerConstantExpression(*binary->right, resolvingConstants);
     auto leftConstant = std::dynamic_pointer_cast<Constant>(left);
@@ -188,12 +188,17 @@ std::shared_ptr<Value> BoundIRGenerator::lowerConstantExpression(
         const double lhs = std::stod(leftConstant->getLiteral());
         const double rhs = std::stod(rightConstant->getLiteral());
         std::optional<double> result;
-        if (binary->op == "+") result = lhs + rhs;
-        else if (binary->op == "-") result = lhs - rhs;
-        else if (binary->op == "*") result = lhs * rhs;
-        else if (binary->op == "/" && rhs != 0.0) result = lhs / rhs;
+        if (binary->op == "+")
+          result = lhs + rhs;
+        else if (binary->op == "-")
+          result = lhs - rhs;
+        else if (binary->op == "*")
+          result = lhs * rhs;
+        else if (binary->op == "/" && rhs != 0.0)
+          result = lhs / rhs;
         if (result) {
-          return std::make_shared<Constant>(std::to_string(*result), binary->type);
+          return std::make_shared<Constant>(std::to_string(*result),
+                                            binary->type);
         }
         return nullptr;
       }
@@ -212,25 +217,37 @@ std::shared_ptr<Value> BoundIRGenerator::lowerConstantExpression(
       const int64_t lhs = std::stoll(leftConstant->getLiteral(), nullptr, 0);
       const int64_t rhs = std::stoll(rightConstant->getLiteral(), nullptr, 0);
       std::optional<int64_t> result;
-      if (binary->op == "+") result = lhs + rhs;
-      else if (binary->op == "-") result = lhs - rhs;
-      else if (binary->op == "*") result = lhs * rhs;
-      else if (binary->op == "/" && rhs != 0) result = lhs / rhs;
-      else if (binary->op == "%" && rhs != 0) result = lhs % rhs;
-      else if (binary->op == "&") result = lhs & rhs;
-      else if (binary->op == "|") result = lhs | rhs;
-      else if (binary->op == "^") result = lhs ^ rhs;
-      else if (binary->op == "<<" && rhs >= 0) result = lhs << rhs;
-      else if (binary->op == ">>" && rhs >= 0) result = lhs >> rhs;
+      if (binary->op == "+")
+        result = lhs + rhs;
+      else if (binary->op == "-")
+        result = lhs - rhs;
+      else if (binary->op == "*")
+        result = lhs * rhs;
+      else if (binary->op == "/" && rhs != 0)
+        result = lhs / rhs;
+      else if (binary->op == "%" && rhs != 0)
+        result = lhs % rhs;
+      else if (binary->op == "&")
+        result = lhs & rhs;
+      else if (binary->op == "|")
+        result = lhs | rhs;
+      else if (binary->op == "^")
+        result = lhs ^ rhs;
+      else if (binary->op == "<<" && rhs >= 0)
+        result = lhs << rhs;
+      else if (binary->op == ">>" && rhs >= 0)
+        result = lhs >> rhs;
       if (result) {
-        return std::make_shared<Constant>(std::to_string(*result), binary->type);
+        return std::make_shared<Constant>(std::to_string(*result),
+                                          binary->type);
       }
     } catch (const std::exception &) {
     }
     return nullptr;
   }
 
-  if (auto unary = dynamic_cast<const sema::BoundUnaryExpression *>(&expression)) {
+  if (auto unary =
+          dynamic_cast<const sema::BoundUnaryExpression *>(&expression)) {
     auto value = lowerConstantExpression(*unary->expr, resolvingConstants);
     auto constant = std::dynamic_pointer_cast<Constant>(value);
     if (!constant || !unary->type->isInteger()) {
@@ -239,10 +256,12 @@ std::shared_ptr<Value> BoundIRGenerator::lowerConstantExpression(
     try {
       const int64_t operand = std::stoll(constant->getLiteral(), nullptr, 0);
       if (unary->op == "-") {
-        return std::make_shared<Constant>(std::to_string(-operand), unary->type);
+        return std::make_shared<Constant>(std::to_string(-operand),
+                                          unary->type);
       }
       if (unary->op == "~") {
-        return std::make_shared<Constant>(std::to_string(~operand), unary->type);
+        return std::make_shared<Constant>(std::to_string(~operand),
+                                          unary->type);
       }
     } catch (const std::exception &) {
     }
@@ -262,7 +281,8 @@ std::shared_ptr<Value> BoundIRGenerator::lowerConstantExpression(
     return std::make_shared<ArrayConstant>(array->type, std::move(elements));
   }
 
-  if (auto record = dynamic_cast<const sema::BoundStructLiteral *>(&expression)) {
+  if (auto record =
+          dynamic_cast<const sema::BoundStructLiteral *>(&expression)) {
     std::vector<AggregateConstant::FieldValue> fields;
     fields.reserve(record->fields.size());
     for (const auto &field : record->fields) {
@@ -704,9 +724,28 @@ void BoundIRGenerator::visit(sema::BoundVariableExpression &node) {
     valueStack_.push(addr);
     return;
   }
+  auto storedType =
+      std::static_pointer_cast<PointerType>(addr->getType())->getBaseType();
+  auto loaded = createRegister(storedType);
+  currentBlock_->addInstruction(std::make_unique<LoadInst>(loaded, addr));
+  if (storedType->toString() == node.type->toString()) {
+    valueStack_.push(loaded);
+    return;
+  }
   auto reg = createRegister(node.type);
-  currentBlock_->addInstruction(std::make_unique<LoadInst>(reg, addr));
+  currentBlock_->addInstruction(
+      std::make_unique<CastInst>(reg, loaded, node.type));
   valueStack_.push(reg);
+}
+
+void BoundIRGenerator::visit(sema::BoundClassTypeTest &node) {
+  node.expression->accept(*this);
+  auto object = valueStack_.top();
+  valueStack_.pop();
+  auto result = createRegister(node.type);
+  currentBlock_->addInstruction(
+      std::make_unique<ClassIsInst>(result, object, node.targetType));
+  valueStack_.push(result);
 }
 
 void BoundIRGenerator::visit(sema::BoundBinaryExpression &node) {
@@ -974,15 +1013,14 @@ void BoundIRGenerator::visit(sema::BoundIndirectCall &node) {
   }
 
   const bool returnsRef = functionType->returnsRef();
-  auto resultType = returnsRef
-                        ? std::static_pointer_cast<zir::Type>(
-                              std::make_shared<PointerType>(node.type))
-                        : node.type;
+  auto resultType = returnsRef ? std::static_pointer_cast<zir::Type>(
+                                     std::make_shared<PointerType>(node.type))
+                               : node.type;
   const bool ownsResult = !returnsRef && containsManagedValues(node.type);
   auto reg = createRegister(resultType, ownsResult ? ownedForType(node.type)
                                                    : ValueOwnership::Borrowed);
-  currentBlock_->addInstruction(std::make_unique<CallInst>(
-      reg, calleeVal, std::move(args)));
+  currentBlock_->addInstruction(
+      std::make_unique<CallInst>(reg, calleeVal, std::move(args)));
   if (returnsRef && !evaluateAsAddress_) {
     auto loadReg = createRegister(node.type);
     currentBlock_->addInstruction(std::make_unique<LoadInst>(loadReg, reg));
@@ -1041,9 +1079,8 @@ void BoundIRGenerator::prepareCallArgument(
     return;
   }
 
-  const bool moveOwnedValue =
-      parameterOwnership == ParameterOwnership::Sink &&
-      isOwned(value->getOwnership());
+  const bool moveOwnedValue = parameterOwnership == ParameterOwnership::Sink &&
+                              isOwned(value->getOwnership());
   const auto resultOwnership =
       moveOwnedValue ? value->getOwnership() : ownedForType(value->getType());
   auto prepared = createRegister(value->getType(), resultOwnership);
@@ -1755,8 +1792,19 @@ void BoundIRGenerator::visit(sema::BoundIfStatement &node) {
   currentFunction_->addBlock(std::move(thenBlock));
   currentBlock_ = thenBlockPtr;
 
+  std::shared_ptr<Value> narrowedAddress;
+  if (node.narrowedSource && node.narrowedVariable) {
+    auto sourceIt = symbolMap_.find(node.narrowedSource);
+    if (sourceIt != symbolMap_.end()) {
+      narrowedAddress = sourceIt->second;
+      symbolMap_[node.narrowedVariable] = narrowedAddress;
+    }
+  }
   if (node.thenBody)
     node.thenBody->accept(*this);
+  if (node.narrowedVariable && narrowedAddress) {
+    symbolMap_.erase(node.narrowedVariable);
+  }
 
   std::string actualThenLabel = currentBlock_->label;
 

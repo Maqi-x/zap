@@ -5,6 +5,7 @@ import "std/collection";
 ext fun zap_fs_exists(path: String) Bool;
 ext fun zap_fs_is_file(path: String) Bool;
 ext fun zap_fs_is_dir(path: String) Bool;
+ext fun zap_fs_is_symlink(path: String) Bool;
 ext fun zap_fs_mkdir(path: String) Int;
 ext fun zap_fs_read_file(path: String) String;
 ext fun zap_fs_write_file(path: String, content: String) Int;
@@ -67,6 +68,10 @@ pub fun isFile(target: String) Bool {
 
 pub fun isDir(target: String) Bool {
   return zap_fs_is_dir(target);
+}
+
+pub fun isSymlink(target: String) Bool {
+  return zap_fs_is_symlink(target);
 }
 
 pub fun mkdir(target: String) Void!FsError {

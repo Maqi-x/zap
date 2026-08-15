@@ -673,6 +673,23 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
     zirValueMap_[cmpInst.getResult().get()] = result;
     return;
   }
+  case OpCode::ClassIs: {
+    const auto &classIs = static_cast<const ClassIsInst &>(inst);
+    auto *object = lowerZIRRValue(classIs.getObject());
+    auto sourceType = std::static_pointer_cast<zir::ClassType>(
+        classIs.getObject()->getType());
+    auto *objectTy = structCache_.at(sourceType->getCodegenName() + ".obj");
+    auto *metadataAddr = builder_.CreateStructGEP(
+        objectTy, object, kClassMetadataIndex, "classis.metadata.addr");
+    auto *metadata = builder_.CreateLoad(llvm::PointerType::getUnqual(ctx_),
+                                         metadataAddr, "classis.metadata");
+    auto *target = llvm::ConstantExpr::getBitCast(
+        classMetadataGlobals_.at(classIs.getTargetType()->getCodegenName()),
+        llvm::PointerType::getUnqual(ctx_));
+    zirValueMap_[classIs.getResult().get()] =
+        builder_.CreateICmpEQ(metadata, target, "classis");
+    return;
+  }
   case OpCode::Br: {
     const auto &branchInst = static_cast<const BranchInst &>(inst);
     builder_.CreateBr(zirBlockMap_.at(branchInst.getTarget()));

@@ -43,6 +43,32 @@ std::shared_ptr<zir::Type> Binder::currentExpectedExpressionType() const {
 }
 
 void Binder::visit(BinExpr &node) {
+  if (node.op_ == "is") {
+    auto left = bindExpressionWithExpected(node.left_.get(), nullptr);
+    auto *targetId = dynamic_cast<ConstId *>(node.right_.get());
+    if (!left || !targetId) {
+      error(node.span, "'is' expects a class type on its right-hand side.");
+      return;
+    }
+    auto targetSymbol = std::dynamic_pointer_cast<TypeSymbol>(
+        currentScope_->lookup(targetId->value_));
+    if (!targetSymbol ||
+        targetSymbol->type->getKind() != zir::TypeKind::Class) {
+      error(targetId->span,
+            "'is' expects a class type, got '" + targetId->value_ + "'.");
+      return;
+    }
+    if (left->type->getKind() != zir::TypeKind::Class) {
+      error(node.left_->span,
+            "'is' expects a class reference on its left-hand side.");
+      return;
+    }
+    expressionStack_.push(std::make_unique<BoundClassTypeTest>(
+        std::move(left),
+        std::static_pointer_cast<zir::ClassType>(targetSymbol->type)));
+    return;
+  }
+
   std::unique_ptr<BoundExpression> left;
   std::unique_ptr<BoundExpression> right;
 

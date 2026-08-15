@@ -679,6 +679,18 @@ private:
       }
       return;
     }
+    case OpCode::ClassIs: {
+      const auto &classIs = static_cast<const ClassIsInst &>(instruction);
+      verifyValue(classIs.getObject(), block, index);
+      if (!classIs.getResult() || !classIs.getObject() ||
+          !classIs.getTargetType() ||
+          classIs.getResult()->getType()->getKind() != TypeKind::Bool ||
+          classIs.getObject()->getType()->getKind() != TypeKind::Class) {
+        error(VerificationErrorCode::InvalidOperand, &block, index,
+              "classis requires a class operand and Bool result");
+      }
+      return;
+    }
     case OpCode::InlineAsm: {
       const auto &assembly = static_cast<const InlineAsmInst &>(instruction);
       for (const auto &operand : assembly.getOutputs()) {

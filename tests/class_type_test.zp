@@ -1,0 +1,68 @@
+class Element {
+    pub fun name() String {
+        return "element";
+    }
+}
+
+class Panel : Element {
+    pub title: String;
+
+    pub fun init(title: String) {
+        self.title = title;
+    }
+}
+
+class Button : Element {}
+
+fun panel_title_length(element: Element) Int {
+    if element is Panel {
+        if element.title == "settings" {
+            return 8;
+        }
+        return 1;
+    }
+    return 0;
+}
+
+fun main() Int {
+    var panel: Element = new Panel("settings");
+    var button: Element = new Button();
+
+    if panel is Panel {
+        if panel.title != "settings" {
+            return 1;
+        }
+    } else {
+        return 2;
+    }
+
+    if button is Panel {
+        return 3;
+    }
+
+    if panel_title_length(panel) != 8 {
+        return 4;
+    }
+
+    if panel_title_length(button) != 0 {
+        return 5;
+    }
+
+    if panel is Panel {
+        if panel is Button {
+            return 6;
+        }
+    } else {
+        return 7;
+    }
+
+    if button is Button {
+        if button.name() != "element" {
+            return 8;
+        }
+    } else {
+        return 9;
+    }
+
+    return 0;
+}
