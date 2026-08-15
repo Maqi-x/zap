@@ -1,84 +1,94 @@
-<h1 align="center">Zap Programming Language</h1>
-<br>
-<p>
-  <img src="art/Logo.svg" alt="Zap Logo" width="220"  align="left"/>
+<p align="center">
+  <img src="art/Logo.svg" alt="Zap logo" width="220" />
 </p>
-Systems programming that doesn't get in your way.
 
-You want predictable performance. No collector work on ordinary releases. Real enums.
-Error handling that doesn't look like noise.
+<h1 align="center">Zap Programming Language</h1>
 
-**Zap is a memory-safe systems language with ownership-aware ARC.** Write low-level
-software without low-level frustration.
-<br>
-[Discord](https://discord.gg/cVGqffBA6m) · [Roadmap](ROADMAP.md) · [Documentation](docs/README.md)
-<br clear="left">
-<br>
-<br>
-## Why Zap?
+<p align="center">Systems programming that doesn't get in your way.</p>
 
+<p align="center">
+  <a href="https://discord.gg/tfbE5Cps5j">Discord</a> ·
+  <a href="ROADMAP.md">Roadmap</a> ·
+  <a href="https://zaplang.xyz">Website</a> ·
+  <a href="https://zaplang.xyz/getting-started/Documentation</a>
+</p>
 
-<ul>
-<li><b>predictable memory management</b>: ordinary ARC releases are immediate; unreachable cycles are reclaimed at controlled safe points.</li>
-<li><b>productivity</b>: Zap allows you to use an object-oriented approach, has a very fast compile-time, and has its own <a href="https://github.com/thezaplang/thor">build tool</a>
-<li><b>performance</b>: Zap, thanks to being free from the bloat of other languages, has a very fast compile time, and, thanks to LLVM and its own IR, the resulting application is really efficient.</li>
-</ul>
+## What is Zap?
 
-<br>
+Zap is a systems programming language created to bring back the joy of
+programming. Zap provides safe, automatic memory management without the Stop the world behavior typical of garbage collectors.
+Instead, Zap uses predictable and deterministic ownership-aware ARC.
 
-## Cycles
+Zap is an OOP language, so it allows you to design your code around clean, well-defined models.
 
-If you know what ARC is, you probably also know that when two objects point to each other, ARC will never delete them even though they are not needed.
-Swift added `weak` to prevent this. We also added weak in Zap, but it often happens that you simply don't see that there is a cycle somewhere.
-Zap detects candidate cycles after ARC releases and reclaims confirmed unreachable cycles at controlled safe points. The collector traces the candidate graph, so cycle destruction is not promised at the same instant as an ordinary ARC release.
+## The main assumptions of the language
 
----
+- **Programming should feel good.** The language should stay approachable and
+  let you focus on solving the problem.
+- **Memory management must be predictable.** Automatic memory management
+  should not introduce unexpected global pauses.
+- **Safety belongs in everyday code.** Safe defaults should make the common
+  path reliable without turning programming into ceremony.
+- **Code should scale with the project.** Object-oriented design, strong types,
+  and explicit control flow help keep programs understandable as they grow.
+- **Systems programming should stay practical.** Zap targets native software
+  while keeping the language pleasant to use.
 
-## Error Handling
+## Key features
 
-Zap uses **failable functions**: functions that can fail declare it explicitly in their return type.
+- **Error handling** with explicitly failable functions.
+- **Pattern matching** *(WIP)*.
+- **Classes** with inheritance and polymorphism.
+- **Attributes** for expressing compiler and runtime intent.
+- **Macros** *(WIP)*.
+- **Ownership-aware ARC** for automatic, predictable memory management.
 
-```zap
-@error
-enum MathError { DivisionByZero, Overflow }
+## Support
 
-fun divide(a: Int, b: Int) Int!MathError {
-    if b == 0 { fail MathError.DivisionByZero; }
-    return a / b;
-}
+| Platform | Architecture | Status |
+| --- | --- | --- |
+| Linux | x86_64 | Officially supported |
+| Linux | AArch64 | Works; not officially supported yet |
 
-fun main() Int {
-    // propagate up with ?
-    var x: Int = divide(10, 2)?;
+## First steps
 
-    // fallback value
-    var y: Int = divide(10, 0) or 0;
+Install the Zap toolchain with `zapup`:
 
-    // handle locally
-    var z: Int = divide(10, 0) or err {
-        return 1;
-    };
-
-    return 0;
-}
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://zaplang.xyz/install.sh | sh
 ```
 
----
+Create and run your first project with [Thor](https://github.com/thezaplang/thor):
 
-## Examples
+```bash
+thor new world
+cd world
+thor run
+```
 
-The curated [example gallery](example/README.md) contains small, runnable
-programs for safe domain modeling, local error handling, collections,
-predictable ARC lifetimes, C FFI, isolated `unsafe`, modules, and more.
+## Compiling from source
 
----
+To build Zap yourself, you need:
+
+- Clang 21.
+- LLVM 21 development libraries.
+- Meson and Ninja.
+- OpenSSL development libraries.
+- Python 3.
+
+Clone the repository and run the build script:
+
+```bash
+git clone https://github.com/thezaplang/zap.git
+cd zap
+./build.sh
+```
+
+The compiler will be available as `build/zapc`.
 
 ## Contributing
 
-Zap is in early alpha. **Your feedback directly shapes the language.**
-
-- open issues
-- discuss language design
-- implement features
-- improve diagnostics
-- write documentation
+Zap is in early alpha, and feedback directly shapes the language. You can
+report bugs, discuss language design, improve documentation, or contribute
+code. Start with the [contribution guide](CONTRIBUTING.md), then join us on
+[Discord](https://discord.gg/tfbE5Cps5j).
