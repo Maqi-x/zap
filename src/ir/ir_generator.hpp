@@ -25,6 +25,7 @@ public:
   void visit(sema::BoundExpressionStatement &node) override;
   void visit(sema::BoundLiteral &node) override;
   void visit(sema::BoundVariableExpression &node) override;
+  void visit(sema::BoundClassTypeTest &node) override;
   void visit(sema::BoundCompoundTargetLoad &node) override;
   void visit(sema::BoundBinaryExpression &node) override;
   void visit(sema::BoundTernaryExpression &node) override;

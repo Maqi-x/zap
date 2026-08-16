@@ -1,0 +1,13 @@
+import "models";
+
+fun main() Int {
+    var element: panel.Element = new panel.Panel("qualified");
+    if element is panel.Panel {
+        if element.title != "qualified" {
+            return 1;
+        }
+    } else {
+        return 2;
+    }
+    return 0;
+}

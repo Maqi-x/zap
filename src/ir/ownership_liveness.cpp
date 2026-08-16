@@ -123,6 +123,10 @@ void addInstructionUses(ValueSet &values, const Instruction &instruction,
            static_cast<const WeakAliveInst &>(instruction).getWeakValue(),
            provenance);
     return;
+  case OpCode::ClassIs:
+    addUse(values, static_cast<const ClassIsInst &>(instruction).getObject(),
+           provenance);
+    return;
   case OpCode::InlineAsm: {
     const auto &inlineAsm = static_cast<const InlineAsmInst &>(instruction);
     for (const auto &operand : inlineAsm.getOutputs()) {
@@ -188,6 +192,8 @@ std::shared_ptr<Value> instructionResult(const Instruction &instruction) {
     return static_cast<const WeakLockInst &>(instruction).getResult();
   case OpCode::WeakAlive:
     return static_cast<const WeakAliveInst &>(instruction).getResult();
+  case OpCode::ClassIs:
+    return static_cast<const ClassIsInst &>(instruction).getResult();
   case OpCode::Store:
   case OpCode::Br:
   case OpCode::CondBr:

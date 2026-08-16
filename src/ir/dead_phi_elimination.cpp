@@ -59,7 +59,8 @@ void visitInstructionOperands(const Instruction &instruction,
                visitor);
     return;
   case OpCode::Ret:
-    visitValue(static_cast<const ReturnInst &>(instruction).getValue(), visitor);
+    visitValue(static_cast<const ReturnInst &>(instruction).getValue(),
+               visitor);
     return;
   case OpCode::Call: {
     const auto &call = static_cast<const CallInst &>(instruction);
@@ -77,7 +78,8 @@ void visitInstructionOperands(const Instruction &instruction,
     visitValue(static_cast<const MoveInst &>(instruction).getSource(), visitor);
     return;
   case OpCode::Borrow:
-    visitValue(static_cast<const BorrowInst &>(instruction).getOwner(), visitor);
+    visitValue(static_cast<const BorrowInst &>(instruction).getOwner(),
+               visitor);
     return;
   case OpCode::Destroy:
     visitValue(static_cast<const DestroyInst &>(instruction).getValue(),
@@ -105,6 +107,10 @@ void visitInstructionOperands(const Instruction &instruction,
     return;
   case OpCode::WeakAlive:
     visitValue(static_cast<const WeakAliveInst &>(instruction).getWeakValue(),
+               visitor);
+    return;
+  case OpCode::ClassIs:
+    visitValue(static_cast<const ClassIsInst &>(instruction).getObject(),
                visitor);
     return;
   case OpCode::InlineAsm: {

@@ -154,8 +154,7 @@ void Binder::visit(ReturnNode &node) {
                                      expectedType);
       }
     } else {
-      auto conversion =
-          conversions_.classifyImplicit(actualType, expectedType);
+      auto conversion = conversions_.classifyImplicit(actualType, expectedType);
       if (!conversion) {
         if (expressionHadDiagnostic) {
           statementStack_.push(std::make_unique<BoundReturnStatement>(
@@ -163,11 +162,10 @@ void Binder::visit(ReturnNode &node) {
               currentFunction_ && currentFunction_->returnsRef));
           return;
         }
-        error(node.span, "Function '" + currentFunction_->name +
-                             "' expects return type '" +
-                             renderTypeForUser(expectedType) +
-                             "', but received '" +
-                             renderTypeForUser(actualType) + "'");
+        error(node.span,
+              "Function '" + currentFunction_->name +
+                  "' expects return type '" + renderTypeForUser(expectedType) +
+                  "', but received '" + renderTypeForUser(actualType) + "'");
       } else if (expr) {
         expr = applyConversion(std::move(expr), *conversion);
       }
@@ -228,7 +226,33 @@ void Binder::visit(IfNode &node) {
                                      renderTypeForUser(cond->type) + "'");
   }
 
-  auto thenBody = bindBody(node.thenBody_.get(), true);
+  std::shared_ptr<VariableSymbol> narrowedSource;
+  std::shared_ptr<VariableSymbol> narrowedVariable;
+  BoundClassTypeTest *typeTest = dynamic_cast<BoundClassTypeTest *>(cond.get());
+  if (!typeTest) {
+    if (auto *binary = dynamic_cast<BoundBinaryExpression *>(cond.get());
+        binary && binary->op == "&&") {
+      typeTest = dynamic_cast<BoundClassTypeTest *>(binary->left.get());
+    }
+  }
+  if (typeTest) {
+    if (auto *variable = dynamic_cast<BoundVariableExpression *>(
+            typeTest->expression.get())) {
+      narrowedSource = variable->symbol;
+      narrowedVariable = std::make_shared<VariableSymbol>(*narrowedSource);
+      narrowedVariable->type = typeTest->targetType;
+    }
+  }
+
+  std::unique_ptr<BoundBlock> thenBody;
+  if (narrowedVariable) {
+    pushScope();
+    currentScope_->declare(narrowedVariable->name, narrowedVariable);
+    thenBody = bindBody(node.thenBody_.get(), false);
+    popScope();
+  } else {
+    thenBody = bindBody(node.thenBody_.get(), true);
+  }
 
   std::unique_ptr<BoundBlock> elseBody = nullptr;
   if (node.elseBody_) {
@@ -236,7 +260,8 @@ void Binder::visit(IfNode &node) {
   }
 
   statementStack_.push(std::make_unique<BoundIfStatement>(
-      std::move(cond), std::move(thenBody), std::move(elseBody)));
+      std::move(cond), std::move(thenBody), std::move(elseBody),
+      std::move(narrowedSource), std::move(narrowedVariable)));
 }
 
 void Binder::visit(IfTypeNode &node) {

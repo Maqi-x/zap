@@ -38,6 +38,7 @@ enum class OpCode {
   Cast,
   WeakLock,
   WeakAlive,
+  ClassIs,
   InlineAsm
 };
 
@@ -269,7 +270,8 @@ class ReturnInst : public Instruction {
   std::shared_ptr<Value> value;
 
 public:
-  explicit ReturnInst(std::shared_ptr<Value> v = nullptr) : value(std::move(v)) {}
+  explicit ReturnInst(std::shared_ptr<Value> v = nullptr)
+      : value(std::move(v)) {}
   OpCode getOpCode() const override { return OpCode::Ret; }
   const std::shared_ptr<Value> &getValue() const { return value; }
   std::string toString() const override {
@@ -371,6 +373,25 @@ public:
   std::string toString() const override {
     return result->getName() + " = icmp " + predicate + " " +
            lhs->getTypeName() + " " + lhs->getName() + ", " + rhs->getName();
+  }
+};
+
+class ClassIsInst : public Instruction {
+  std::shared_ptr<Value> result, object;
+  std::shared_ptr<ClassType> targetType;
+
+public:
+  ClassIsInst(std::shared_ptr<Value> res, std::shared_ptr<Value> value,
+              std::shared_ptr<ClassType> target)
+      : result(std::move(res)), object(std::move(value)),
+        targetType(std::move(target)) {}
+  OpCode getOpCode() const override { return OpCode::ClassIs; }
+  const std::shared_ptr<Value> &getResult() const { return result; }
+  const std::shared_ptr<Value> &getObject() const { return object; }
+  const std::shared_ptr<ClassType> &getTargetType() const { return targetType; }
+  std::string toString() const override {
+    return result->getName() + " = classis " + object->getName() + ", " +
+           targetType->getName();
   }
 };
 

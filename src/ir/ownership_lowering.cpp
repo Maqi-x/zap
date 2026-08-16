@@ -56,6 +56,8 @@ std::shared_ptr<Value> instructionResult(const Instruction &instruction) {
     return static_cast<const WeakLockInst &>(instruction).getResult();
   case OpCode::WeakAlive:
     return static_cast<const WeakAliveInst &>(instruction).getResult();
+  case OpCode::ClassIs:
+    return static_cast<const ClassIsInst &>(instruction).getResult();
   case OpCode::Store:
   case OpCode::Br:
   case OpCode::CondBr:

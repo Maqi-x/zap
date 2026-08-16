@@ -73,6 +73,10 @@ SPECIAL_CASES = {
 
     # Runtime with non-zero exit
     "tests/type_inference_test.zp": {"type": "runtime", "exit": 0, "desc": "Type inference: var/const without annotation, struct field type-directed binding"},
+    "tests/class_type_test.zp": {"type": "runtime", "exit": 0, "desc": "Class type test narrows a base reference in the matching branch"},
+    "tests/class_type_invalid_operands_test.zp": {"type": "compile", "exit": 1, "desc": "Class type test rejects non-class operands"},
+    "tests/class_type_narrowing_scope_error.zp": {"type": "compile", "exit": 1, "desc": "Class type narrowing is limited to the matching branch"},
+    "tests/class_type_qualified/main.zp": {"type": "runtime", "exit": 0, "desc": "Class type test accepts a qualified class name"},
     "tests/return_type_infer_test.zp": {"type": "runtime", "exit": 0, "desc": "Type inference: function return type inferred from return statements"},
     "tests/generic_struct_infer_test.zp": {"type": "runtime", "exit": 0, "desc": "Type inference: generic struct type args inferred from field values"},
     "tests/enum_test.zp": {"type": "runtime", "exit": 1, "desc": "Enum test"},
