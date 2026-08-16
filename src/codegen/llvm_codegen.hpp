@@ -49,6 +49,7 @@ private:
   std::map<std::string, llvm::Function *> classTraceFns_;
   std::map<std::string, llvm::Function *> classDestructorFns_;
   std::map<std::string, llvm::GlobalVariable *> classMetadataGlobals_;
+  std::map<std::string, std::shared_ptr<zir::ClassType>> classTypes_;
   std::unordered_set<std::string> cyclicClasses_;
   std::unique_ptr<ClassArcEmitter> arcEmitter_;
   std::unordered_map<const zir::Value *, llvm::Value *> zirValueMap_;

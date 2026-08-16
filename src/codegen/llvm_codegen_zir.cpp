@@ -24,8 +24,13 @@ void LLVMCodeGen::generate(const zir::Module &module) {
   globalValues_.clear();
   zirValueMap_.clear();
   zirBlockMap_.clear();
+  classTypes_.clear();
 
   for (const auto &type : module.getTypes()) {
+    if (type->getKind() == zir::TypeKind::Class) {
+      auto classType = std::static_pointer_cast<zir::ClassType>(type);
+      classTypes_[classType->getCodegenName()] = classType;
+    }
     if (type->getKind() == zir::TypeKind::Record ||
         type->getKind() == zir::TypeKind::TaggedUnion ||
         type->getKind() == zir::TypeKind::Class) {
@@ -683,11 +688,26 @@ void LLVMCodeGen::emitZIRInstruction(const zir::Instruction &inst) {
         objectTy, object, kClassMetadataIndex, "classis.metadata.addr");
     auto *metadata = builder_.CreateLoad(llvm::PointerType::getUnqual(ctx_),
                                          metadataAddr, "classis.metadata");
-    auto *target = llvm::ConstantExpr::getBitCast(
-        classMetadataGlobals_.at(classIs.getTargetType()->getCodegenName()),
-        llvm::PointerType::getUnqual(ctx_));
-    zirValueMap_[classIs.getResult().get()] =
-        builder_.CreateICmpEQ(metadata, target, "classis");
+    llvm::Value *result = llvm::ConstantInt::getFalse(ctx_);
+    for (const auto &[name, classType] : classTypes_) {
+      bool matches = false;
+      for (auto current = classType; current; current = current->getBase()) {
+        if (current->getCodegenName() ==
+            classIs.getTargetType()->getCodegenName()) {
+          matches = true;
+          break;
+        }
+      }
+      if (!matches) {
+        continue;
+      }
+      auto *candidate = llvm::ConstantExpr::getBitCast(
+          classMetadataGlobals_.at(name), llvm::PointerType::getUnqual(ctx_));
+      auto *isCandidate =
+          builder_.CreateICmpEQ(metadata, candidate, "classis");
+      result = builder_.CreateOr(result, isCandidate, "classis.any");
+    }
+    zirValueMap_[classIs.getResult().get()] = result;
     return;
   }
   case OpCode::Br: {

@@ -4,7 +4,9 @@ class Panel : Element {}
 fun main() {
     var element: Element = new Element();
     var number: Int = 1;
+    var weakElement: weak Element = new Element();
 
     if number is Panel {}
     if element is Int {}
+    if weakElement is Panel {}
 }

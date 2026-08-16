@@ -228,7 +228,14 @@ void Binder::visit(IfNode &node) {
 
   std::shared_ptr<VariableSymbol> narrowedSource;
   std::shared_ptr<VariableSymbol> narrowedVariable;
-  if (auto *typeTest = dynamic_cast<BoundClassTypeTest *>(cond.get())) {
+  BoundClassTypeTest *typeTest = dynamic_cast<BoundClassTypeTest *>(cond.get());
+  if (!typeTest) {
+    if (auto *binary = dynamic_cast<BoundBinaryExpression *>(cond.get());
+        binary && binary->op == "&&") {
+      typeTest = dynamic_cast<BoundClassTypeTest *>(binary->left.get());
+    }
+  }
+  if (typeTest) {
     if (auto *variable = dynamic_cast<BoundVariableExpression *>(
             typeTest->expression.get())) {
       narrowedSource = variable->symbol;

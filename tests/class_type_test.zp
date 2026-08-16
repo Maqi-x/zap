@@ -14,6 +14,12 @@ class Panel : Element {
 
 class Button : Element {}
 
+class FancyPanel : Panel {
+    pub fun init(title: String) {
+        self.title = title;
+    }
+}
+
 fun panel_title_length(element: Element) Int {
     if element is Panel {
         if element.title == "settings" {
@@ -27,6 +33,7 @@ fun panel_title_length(element: Element) Int {
 fun main() Int {
     var panel: Element = new Panel("settings");
     var button: Element = new Button();
+    var fancy: Element = new FancyPanel("advanced");
 
     if panel is Panel {
         if panel.title != "settings" {
@@ -48,20 +55,28 @@ fun main() Int {
         return 5;
     }
 
-    if panel is Panel {
-        if panel is Button {
+    if fancy is Panel && true {
+        if fancy.title != "advanced" {
             return 6;
         }
     } else {
         return 7;
     }
 
-    if button is Button {
-        if button.name() != "element" {
+    if panel is Panel {
+        if panel is Button {
             return 8;
         }
     } else {
         return 9;
+    }
+
+    if button is Button {
+        if button.name() != "element" {
+            return 10;
+        }
+    } else {
+        return 11;
     }
 
     return 0;

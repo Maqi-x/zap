@@ -1,0 +1,9 @@
+pub class Element {}
+
+pub class Panel : Element {
+    pub title: String;
+
+    pub fun init(title: String) {
+        self.title = title;
+    }
+}
