@@ -60,6 +60,32 @@ def notify(proc, method, params):
     send(proc, {"jsonrpc": "2.0", "method": method, "params": params})
 
 
+def watched_files_changed(proc, paths):
+    notify(
+        proc,
+        "workspace/didChangeWatchedFiles",
+        {
+            "changes": [
+                {"uri": file_uri(path), "type": 2}
+                for path in paths
+            ]
+        },
+    )
+
+
+def workspace_folders_changed(proc, folder):
+    notify(
+        proc,
+        "workspace/didChangeWorkspaceFolders",
+        {
+            "event": {
+                "added": [{"uri": file_uri(folder), "name": folder.name}],
+                "removed": [],
+            }
+        },
+    )
+
+
 def read_diagnostics(proc, expected_uri):
     while True:
         message = read_message(proc)
@@ -178,27 +204,29 @@ def main():
     if not SERVER.exists():
         raise SystemExit(f"missing {SERVER}; build zap-lsp first")
 
-    env = os.environ.copy()
-
     with tempfile.TemporaryDirectory(prefix="zap-lsp-workspace-") as workspace_dir:
         workspace_root = pathlib.Path(workspace_dir)
-        env["ZAPC_CORE_DIR"] = str(workspace_root / "invalid-core")
-        env["ZAPC_STDLIB_DIR"] = str(workspace_root / "invalid-std")
-        (workspace_root / "zaplsp.json").write_text(
-            json.dumps(
-                {
-                    "zapRoot": str(ROOT),
-                    "corePath": "core",
-                    "stdlibPath": "std",
-                }
-            )
+        (workspace_root / "thor.toml").write_text(
+            """entry = "src/main.zp"
+
+[imports]
+"@vendor" = "./vendor/package"
+            """
+        )
+        alternate_project = workspace_root / "alternate"
+        alternate_project.mkdir()
+        (alternate_project / "thor.toml").write_text(
+            """entry = "src/main.zp"
+
+[imports]
+"@alternate" = "./packages/alternate"
+"""
         )
         proc = subprocess.Popen(
             [str(SERVER)],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            env=env,
         )
 
         try:
@@ -214,6 +242,9 @@ def main():
             )
             assert "capabilities" in init["result"]
             assert init["result"]["serverInfo"]["version"] == "0.1.0"
+            assert init["result"]["capabilities"]["workspace"][
+                "workspaceFolders"
+            ] == {"supported": True, "changeNotifications": True}
             notify(proc, "initialized", {})
             temp = workspace_root
 
@@ -274,6 +305,25 @@ fun main() Int {
             diagnostics = read_diagnostics(proc, imported_uri)
             assert diagnostics, "imported-file diagnostic was not published"
 
+            missing_import_source = """import "does_not_exist.zp";
+
+fun main() Int {
+    var retained: Int = 1;
+    retained;
+    return 0;
+}
+"""
+            missing_import_uri = open_document(
+                proc, temp / "missing_import.zp", missing_import_source
+            )
+            assert read_diagnostics(proc, missing_import_uri), (
+                "missing import did not produce a diagnostic on its declaration"
+            )
+            labels = completion_labels(proc, missing_import_uri, 4, 12, 93)
+            assert "retained" in labels, (
+                "missing import prevented completion for an independent local symbol"
+            )
+
             open_document(
                 proc,
                 imported_path,
@@ -284,6 +334,129 @@ fun main() Int {
             )
             assert read_diagnostics(proc, imported_uri) == [], (
                 "resolved diagnostics were not cleared for the imported file"
+            )
+
+            alias_module_path = temp / "vendor" / "package" / "answer.zp"
+            alias_module_path.parent.mkdir(parents=True, exist_ok=True)
+            alias_module_path.write_text(
+                """pub fun answer() Int {
+    return 42;
+}
+"""
+            )
+            alias_source = """import "@vendor/answer";
+
+fun main() Int {
+    return answer();
+}
+"""
+            alias_uri = open_document(proc, temp / "thor_import_map.zp", alias_source)
+            assert read_diagnostics(proc, alias_uri) == [], (
+                "thor.toml import map produced diagnostics"
+            )
+
+            (temp / "thor.toml").write_text("entry =")
+            workspace_folders_changed(proc, temp)
+            assert read_diagnostics(proc, alias_uri), (
+                "changing workspace folders did not refresh cached Thor configuration"
+            )
+
+            (temp / "thor.toml").write_text(
+                """entry = "src/main.zp"
+
+[imports]
+"@vendor" = "./vendor/package"
+"""
+            )
+            workspace_folders_changed(proc, temp)
+            assert read_diagnostics(proc, alias_uri) == [], (
+                "workspace folder refresh did not restore Thor configuration"
+            )
+
+            legacy_project = temp / "legacy_flags"
+            legacy_project.mkdir()
+            legacy_module = legacy_project / "package" / "answer.zp"
+            legacy_module.parent.mkdir()
+            legacy_module.write_text(
+                """pub fun answer() Int {
+    return 42;
+}
+"""
+            )
+            (legacy_project / "zap_flags.txt").write_text(
+                "--import-map @legacy=./package\n"
+            )
+            legacy_uri = open_document(
+                proc,
+                legacy_project / "main.zp",
+                """import "@legacy/answer";
+
+fun main() Int {
+    return answer();
+}
+""",
+            )
+            assert read_diagnostics(proc, legacy_uri), (
+                "zap_flags.txt was still used for project imports"
+            )
+
+            (temp / "thor.toml").write_text("entry =")
+            watched_files_changed(proc, [temp / "thor.toml"])
+            assert read_diagnostics(proc, alias_uri), (
+                "changing thor.toml did not refresh dependent diagnostics"
+            )
+
+            (temp / "thor.toml").write_text(
+                """entry = "src/main.zp"
+
+[imports]
+"@vendor" = "./vendor/package"
+"""
+            )
+            watched_files_changed(proc, [temp / "thor.toml"])
+            assert read_diagnostics(proc, alias_uri) == [], (
+                "restoring thor.toml did not clear dependent diagnostics"
+            )
+
+            alias_module_path.write_text("fun answer() Int {\n")
+            watched_files_changed(proc, [alias_module_path])
+            assert read_diagnostics(proc, file_uri(alias_module_path)), (
+                "changing an unopened imported file did not refresh diagnostics"
+            )
+
+            alias_module_path.write_text(
+                """pub fun answer() Int {
+    return 42;
+}
+"""
+            )
+            watched_files_changed(proc, [alias_module_path])
+            assert read_diagnostics(proc, file_uri(alias_module_path)) == [], (
+                "repairing an unopened imported file did not clear diagnostics"
+            )
+
+            alternate_module_path = (
+                alternate_project / "packages" / "alternate" / "answer.zp"
+            )
+            alternate_module_path.parent.mkdir(parents=True)
+            alternate_module_path.write_text(
+                """pub fun answer() Int {
+    return 7;
+}
+"""
+            )
+            alternate_source = """import "@alternate/answer";
+
+fun main() Int {
+    return answer();
+}
+"""
+            (alternate_project / "src").mkdir()
+            alternate_uri = open_document(
+                proc, alternate_project / "src" / "main.zp", alternate_source
+            )
+            assert read_diagnostics(proc, alternate_uri) == [], (
+                "nested Thor project did not use its own import map"
             )
 
             loop_source = """fun main() Int {

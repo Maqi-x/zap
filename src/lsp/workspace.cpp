@@ -1,7 +1,7 @@
 #include "lsp/workspace.hpp"
 
 #include "frontend/frontend_session.hpp"
-#include "lsp/configuration.hpp"
+#include "frontend/project_configuration.hpp"
 #include "lsp/protocol_utils.hpp"
 #include "sema/binder.hpp"
 #include <utility>
@@ -9,25 +9,57 @@
 
 namespace zap::lsp {
 
+namespace {
+
+void appendConfigurationDiagnostics(AnalysisResult &analysis,
+                                    const SourceSnapshot &document,
+                                    const std::vector<std::string> &errors) {
+  auto &diagnostics = analysis.diagnosticsByUri[document.uri];
+  for (const auto &error : errors) {
+    diagnostics.push_back({zap::DiagnosticLevel::Error,
+                           "",
+                           error,
+                           document.path.string(),
+                           document.text,
+                           {},
+                           {}});
+  }
+}
+
+} // namespace
+
 Workspace::Workspace()
     : runtimePaths_{
           std::filesystem::path(), std::filesystem::path(ZAPC_CORE_DIR),
           std::filesystem::path(ZAPC_STDLIB_DIR), std::filesystem::path(),
           zap::frontend::EnvironmentOverrides::Ignore} {}
 
-std::vector<std::string>
-Workspace::configure(const std::filesystem::path &workspaceRoot,
-                     const std::optional<std::string> &corePath,
-                     const std::optional<std::string> &stdlibPath) {
-  auto configuration =
-      loadRuntimePathConfiguration(workspaceRoot, corePath, stdlibPath);
-  if (configuration.coreDir) {
-    runtimePaths_.coreDirOverride = std::move(*configuration.coreDir);
+void Workspace::configure() {
+  projectConfigurations_.clear();
+}
+
+AnalysisResult Workspace::workspaceFoldersChanged() {
+  projectConfigurations_.clear();
+  strictSnapshots_.clear();
+  tolerantSnapshots_.clear();
+
+  AnalysisResult result;
+  for (const auto &uri : sourceManager_.openUris()) {
+    auto project = loadProject(uri);
+    if (!project) {
+      continue;
+    }
+    for (const auto &[diagnosticUri, diagnostics] :
+         project->analysis.diagnosticsByUri) {
+      auto &merged = result.diagnosticsByUri[diagnosticUri];
+      merged.insert(merged.end(), diagnostics.begin(), diagnostics.end());
+    }
+    if (result.diagnosticsByUri.count(uri) == 0) {
+      result.diagnosticsByUri[uri] = {};
+    }
   }
-  if (configuration.stdlibDir) {
-    runtimePaths_.stdlibDirOverride = std::move(*configuration.stdlibDir);
-  }
-  return configuration.errors;
+  clearStaleDiagnostics(result);
+  return result;
 }
 
 const SourceSnapshot *Workspace::document(const std::string &uri) const {
@@ -69,6 +101,61 @@ bool Workspace::contains(const std::string &uri) const {
 std::optional<std::string> Workspace::sourceForUri(const std::string &uri) {
   auto source = sourceManager_.sourceForUri(uri);
   return source ? std::optional<std::string>((*source)->text) : std::nullopt;
+}
+
+AnalysisResult Workspace::watchedFilesChanged(
+    const std::vector<std::filesystem::path> &paths) {
+  std::set<std::string> changedProjects;
+  bool changedUnconfiguredFile = false;
+  for (const auto &path : paths) {
+    const auto canonical = std::filesystem::weakly_canonical(path).string();
+    sourceManager_.invalidatePath(path);
+    invalidateSnapshotsForPath(path);
+    if (path.filename() == "thor.toml") {
+      projectConfigurations_.erase(canonical);
+      changedProjects.insert(canonical);
+      continue;
+    }
+    if (const auto manifest =
+            zap::frontend::findProjectConfigurationManifest(path)) {
+      changedProjects.insert(manifest->string());
+    } else {
+      changedUnconfiguredFile = true;
+    }
+  }
+
+  std::vector<std::string> affectedUris;
+  for (const auto &uri : sourceManager_.openUris()) {
+    const auto *document = this->document(uri);
+    if (!document) {
+      continue;
+    }
+    const auto manifest =
+        zap::frontend::findProjectConfigurationManifest(document->path);
+    if ((manifest && changedProjects.count(manifest->string()) != 0) ||
+        (!manifest && changedUnconfiguredFile)) {
+      invalidateSnapshots(uri);
+      affectedUris.push_back(uri);
+    }
+  }
+
+  AnalysisResult result;
+  for (const auto &uri : affectedUris) {
+    auto project = loadProject(uri);
+    if (!project) {
+      continue;
+    }
+    for (const auto &[diagnosticUri, diagnostics] :
+         project->analysis.diagnosticsByUri) {
+      auto &merged = result.diagnosticsByUri[diagnosticUri];
+      merged.insert(merged.end(), diagnostics.begin(), diagnostics.end());
+    }
+    if (result.diagnosticsByUri.count(uri) == 0) {
+      result.diagnosticsByUri[uri] = {};
+    }
+  }
+  clearStaleDiagnostics(result);
+  return result;
 }
 
 void Workspace::appendDiagnostics(
@@ -116,15 +203,41 @@ void Workspace::invalidateSnapshotsForPath(const std::filesystem::path &path) {
   invalidate(tolerantSnapshots_);
 }
 
+const zap::frontend::ProjectConfigurationResult *
+Workspace::projectConfigurationFor(const std::filesystem::path &documentPath) {
+  const auto manifest =
+      zap::frontend::findProjectConfigurationManifest(documentPath);
+  if (!manifest) {
+    return nullptr;
+  }
+  const auto key = manifest->string();
+  auto configuration = projectConfigurations_.find(key);
+  if (configuration == projectConfigurations_.end()) {
+    configuration = projectConfigurations_
+                        .emplace(key,
+                                 zap::frontend::loadProjectConfiguration(
+                                     *manifest))
+                        .first;
+  }
+  return &configuration->second;
+}
+
 std::shared_ptr<const SemanticSnapshot>
 Workspace::buildSnapshot(const SourceSnapshot &document,
                          bool allowEntryErrors) {
   auto snapshot = std::make_shared<SemanticSnapshot>();
   snapshot->documentVersion = document.version;
-  auto flags = findAndReadFlags(document.path);
+  const auto configuration = projectConfigurationFor(document.path);
+  const auto importMap = configuration && configuration->configuration
+                             ? configuration->configuration->importMap
+                             : zap::frontend::ImportMap{};
+  if (configuration) {
+    appendConfigurationDiagnostics(snapshot->project.analysis, document,
+                                   configuration->errors);
+  }
 
   zap::frontend::FrontendSession session(
-      {runtimePaths_, flags.importMap, true, allowEntryErrors},
+      {runtimePaths_, importMap, true, allowEntryErrors},
       [this](const std::filesystem::path &path) -> std::optional<std::string> {
         auto source = sourceManager_.sourceForPath(path);
         return source ? std::optional<std::string>((*source)->text)
@@ -132,12 +245,9 @@ Workspace::buildSnapshot(const SourceSnapshot &document,
       });
   auto project = session.load(document.path);
   snapshot->project.dependencyModuleIds = std::move(project.visitedModuleIds);
-  if (!project.loaded) {
-    appendDiagnostics(snapshot->project.analysis, project.diagnostics,
-                      sourceManager_.uriForPath(document.path));
-    return snapshot;
+  if (!project.modules.empty()) {
+    session.bind(project);
   }
-  session.bind(project);
   appendDiagnostics(snapshot->project.analysis, project.diagnostics,
                     sourceManager_.uriForPath(document.path));
   snapshot->project.boundRoot = std::move(project.boundRoot);

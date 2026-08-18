@@ -10,13 +10,13 @@
 #include <condition_variable>
 #include <cstdio>
 #include <deque>
-#include <filesystem>
 #include <mutex>
 #include <optional>
 #include <string>
 #include <thread>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 namespace zap::lsp {
 namespace {
@@ -56,6 +56,13 @@ JsonObject makeCapabilities() {
       "triggerCharacters",
       JsonObject(JsonObject::List{JsonObject("("), JsonObject(",")}));
 
+  JsonObject::Object workspaceFolders;
+  workspaceFolders.emplace("supported", JsonObject(true));
+  workspaceFolders.emplace("changeNotifications", JsonObject(true));
+  JsonObject::Object workspace;
+  workspace.emplace("workspaceFolders",
+                    JsonObject(std::move(workspaceFolders)));
+
   JsonObject::Object capabilities;
   capabilities.emplace("textDocumentSync", JsonObject(std::move(syncOptions)));
   capabilities.emplace("definitionProvider", JsonObject(true));
@@ -64,6 +71,7 @@ JsonObject makeCapabilities() {
                        JsonObject(std::move(completionOptions)));
   capabilities.emplace("signatureHelpProvider",
                        JsonObject(std::move(signatureHelpOptions)));
+  capabilities.emplace("workspace", JsonObject(std::move(workspace)));
 
   JsonObject::Object serverInfo;
   serverInfo.emplace("name", JsonObject("zap-lsp"));
@@ -126,22 +134,8 @@ class RequestScheduler {
 
     if (*method == "initialize") {
       shutdownRequested_ = false;
-      std::filesystem::path workspaceRoot = std::filesystem::current_path();
-      auto params = decodeInitialize(request);
-      if (params && params->rootUri) {
-        if (auto rootPath = uriToPath(*params->rootUri)) {
-          workspaceRoot = std::move(*rootPath);
-        }
-      } else if (params && params->rootPath) {
-        workspaceRoot = std::move(*params->rootPath);
-      }
-      auto errors = workspace_.configure(
-          workspaceRoot, params ? params->corePath : std::nullopt,
-          params ? params->stdlibPath : std::nullopt);
+      workspace_.configure();
       server_.sendMessage(makeResponse(id, makeCapabilities()));
-      for (const auto &error : errors) {
-        server_.logMessage(Server::MessageType::Error, error);
-      }
     } else if (*method == "initialized") {
       return;
     } else if (*method == "shutdown") {
@@ -169,6 +163,19 @@ class RequestScheduler {
         workspace_.close(*uri);
         server_.sendMessage(makePublishDiagnostics(*uri, {}));
       }
+    } else if (*method == "workspace/didChangeWatchedFiles") {
+      if (auto changes = decodeWatchedFiles(request)) {
+        std::vector<std::filesystem::path> paths;
+        paths.reserve(changes->size());
+        for (const auto &change : *changes) {
+          if (auto path = uriToPath(change.uri)) {
+            paths.push_back(std::move(*path));
+          }
+        }
+        publishAnalysis(server_, workspace_.watchedFilesChanged(paths));
+      }
+    } else if (*method == "workspace/didChangeWorkspaceFolders") {
+      publishAnalysis(server_, workspace_.workspaceFoldersChanged());
     } else if (*method == "textDocument/completion") {
       if (id) {
         if (auto context = documentRequestContext(workspace_, request)) {

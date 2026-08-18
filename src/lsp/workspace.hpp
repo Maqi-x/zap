@@ -1,7 +1,7 @@
 #pragma once
 
-#include "driver/args/argparse.hpp"
 #include "frontend/module_loader.hpp"
+#include "frontend/project_configuration.hpp"
 #include "lsp/source_manager.hpp"
 #include "sema/module_info.hpp"
 #include "workspace_types.hpp"
@@ -19,6 +19,8 @@ class Workspace {
   SourceManager sourceManager_;
   std::set<std::string> publishedDiagnosticUris_;
   zap::frontend::RuntimePaths runtimePaths_;
+  std::unordered_map<std::string, zap::frontend::ProjectConfigurationResult>
+      projectConfigurations_;
   std::unordered_map<std::string, std::shared_ptr<const SemanticSnapshot>>
       strictSnapshots_;
   std::unordered_map<std::string, std::shared_ptr<const SemanticSnapshot>>
@@ -30,15 +32,15 @@ class Workspace {
   void clearStaleDiagnostics(AnalysisResult &result);
   std::shared_ptr<const SemanticSnapshot>
   buildSnapshot(const SourceSnapshot &document, bool allowEntryErrors);
+  const zap::frontend::ProjectConfigurationResult *
+  projectConfigurationFor(const std::filesystem::path &documentPath);
   void invalidateSnapshots(const std::string &uri);
   void invalidateSnapshotsForPath(const std::filesystem::path &path);
 
 public:
   Workspace();
-  std::vector<std::string>
-  configure(const std::filesystem::path &workspaceRoot,
-            const std::optional<std::string> &corePath,
-            const std::optional<std::string> &stdlibPath);
+  void configure();
+  AnalysisResult workspaceFoldersChanged();
   const SourceSnapshot *document(const std::string &uri) const;
   void open(const std::string &uri, std::filesystem::path path,
             std::string text, int64_t version);
@@ -50,6 +52,8 @@ public:
   std::optional<SemanticQuery> query(const std::string &uri,
                                      bool allowEntryErrors = true);
   std::optional<std::string> sourceForUri(const std::string &uri);
+  AnalysisResult
+  watchedFilesChanged(const std::vector<std::filesystem::path> &paths);
   AnalysisResult analyze(const std::string &uri);
 };
 

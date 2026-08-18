@@ -46,17 +46,22 @@ std::optional<std::string> decodeCloseDocument(const JsonObject &request) {
   return getStringField(request, {"params", "textDocument", "uri"});
 }
 
-std::optional<InitializeParams> decodeInitialize(const JsonObject &request) {
-  const JsonObject *params = getField(request, "params");
-  if (!params || !params->isObject()) {
+std::optional<std::vector<WatchedFileChange>>
+decodeWatchedFiles(const JsonObject &request) {
+  const JsonObject *changes = getPath(request, {"params", "changes"});
+  if (!changes || !changes->isList()) {
     return std::nullopt;
   }
-  return InitializeParams{
-      getStringField(request, {"params", "rootUri"}),
-      getStringField(request, {"params", "rootPath"}),
-      getStringField(request, {"params", "initializationOptions", "corePath"}),
-      getStringField(request, {"params", "initializationOptions", "stdlibPath"}),
-  };
+  std::vector<WatchedFileChange> result;
+  result.reserve(changes->getAsList().size());
+  for (const auto &change : changes->getAsList()) {
+    auto uri = getStringField(change, {"uri"});
+    if (!uri) {
+      return std::nullopt;
+    }
+    result.push_back({std::move(*uri)});
+  }
+  return result;
 }
 
 } // namespace zap::lsp
