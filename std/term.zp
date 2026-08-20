@@ -1,0 +1,120 @@
+import "std/convert" as convert;
+import "std/io" as io;
+import "std/string" as string;
+
+pub enum Color {
+    Default,
+    Black, Red, Green, Yellow, Blue, Magenta, Cyan, White,
+    BrightBlack, BrightRed, BrightGreen, BrightYellow,
+    BrightBlue, BrightMagenta, BrightCyan, BrightWhite,
+}
+
+pub struct Style {
+    foreground: Color,
+    background: Color,
+    bold: Bool,
+    dim: Bool,
+    underline: Bool,
+    inverse: Bool,
+}
+
+fun csi(code: String) Void {
+    io.print(string.fromChar(27 as Char) + "[" + code);
+}
+
+fun sgr(code: Int) Void {
+    csi(convert.toString(code) + "m");
+}
+
+fun colorOffset(color: Color) Int {
+    var value: Int = color as Int;
+    if value == 0 {
+        return 9;
+    }
+    if value <= 8 {
+        return value - 1;
+    }
+    return value + 51;
+}
+
+pub fun setStyle(style: Style) Void {
+    resetStyle();
+    sgr(30 + colorOffset(style.foreground));
+    sgr(40 + colorOffset(style.background));
+    if style.bold {
+        sgr(1);
+    }
+    if style.dim {
+        sgr(2);
+    }
+    if style.underline {
+        sgr(4);
+    }
+    if style.inverse {
+        sgr(7);
+    }
+}
+
+pub fun resetStyle() Void {
+    sgr(0);
+}
+
+pub fun clear() Void {
+    csi("2J");
+    csi("H");
+}
+
+pub fun clearLine() Void {
+    csi("2K");
+}
+
+pub fun eraseToLineEnd() Void {
+    csi("K");
+}
+
+pub fun moveTo(row: Int, column: Int) Void {
+    if row < 0 || column < 0 {
+        return;
+    }
+    csi(convert.toString(row + 1) + ";" + convert.toString(column + 1) + "H");
+}
+
+pub fun moveUp(lines: Int) Void {
+    if lines > 0 {
+        csi(convert.toString(lines) + "A");
+    }
+}
+
+pub fun moveDown(lines: Int) Void {
+    if lines > 0 {
+        csi(convert.toString(lines) + "B");
+    }
+}
+
+pub fun moveLeft(columns: Int) Void {
+    if columns > 0 {
+        csi(convert.toString(columns) + "D");
+    }
+}
+
+pub fun moveRight(columns: Int) Void {
+    if columns > 0 {
+        csi(convert.toString(columns) + "C");
+    }
+}
+
+pub fun hideCursor() Void {
+    csi("?25l");
+}
+
+pub fun showCursor() Void {
+    csi("?25h");
+}
+
+pub fun saveCursor() Void {
+    csi("s");
+}
+
+pub fun restoreCursor() Void {
+    csi("u");
+}

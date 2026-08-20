@@ -90,6 +90,12 @@ SPECIAL_CASES = {
     "tests/array_dynamic_index_test.zp": {"type": "runtime", "exit": 45, "desc": "Assigning through a runtime-computed array index"},
     "tests/global_pointer_initializer_test.zp": {"type": "runtime", "exit": 74, "desc": "Global pointers preserve scalar and array-element addresses"},
     "tests/function_call_test.zp": {"type": "runtime", "exit": 1, "desc": "Function call tests"},
+    "tests/std_term_output_test.zp": {
+        "type": "runtime",
+        "exit": 0,
+        "stdout": "\x1b[0m\x1b[96m\x1b[44m\x1b[1m\x1b[4m\x1b[0m\x1b[2J\x1b[H\x1b[2K\x1b[K\x1b[1;1H\x1b[3A\x1b[2B\x1b[4D\x1b[5C\x1b[?25l\x1b[?25h\x1b[s\x1b[u",
+        "desc": "Terminal ANSI control sequences",
+    },
 
     # Runtime with custom run arguments
     "tests/process_args_test.zp": {"type": "runtime", "exit": 0, "run_args": ["alpha", "beta", "gamma"], "desc": "Process argument access"},
@@ -394,6 +400,7 @@ def execute_test(test_item, zapc_path):
     expected_exit = test_item.get("exit", 1 if test_type == "diagnostic" else 0)
     compile_flags = test_item.get("compile_flags", [])
     run_args = test_item.get("run_args", [])
+    expected_stdout = test_item.get("stdout", None)
     stderr_pattern = test_item.get("stderr_pattern", None)
     diagnostics = test_item.get("diagnostics", [])
     output_file = test_item.get("output_file", None)
@@ -431,6 +438,13 @@ def execute_test(test_item, zapc_path):
 
             if res_run.returncode != expected_exit:
                 return False, f"Runtime failed: expected exit code {expected_exit}, got {res_run.returncode}\nStderr:\n{res_run.stderr}\nStdout:\n{res_run.stdout}"
+
+            if expected_stdout is not None and res_run.stdout != expected_stdout:
+                return False, (
+                    f"Runtime stdout did not match exactly\n"
+                    f"Expected: {expected_stdout!r}\n"
+                    f"Actual:   {res_run.stdout!r}"
+                )
 
             return True, None
 

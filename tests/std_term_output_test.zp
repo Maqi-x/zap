@@ -1,0 +1,36 @@
+import "std/term";
+
+fun main() Int {
+    term.setStyle(term.Style {
+        foreground: term.Color.BrightCyan,
+        background: term.Color.Blue,
+        bold: true,
+        dim: false,
+        underline: true,
+        inverse: false,
+    });
+    term.resetStyle();
+
+    term.clear();
+    term.clearLine();
+    term.eraseToLineEnd();
+
+    term.moveTo(0, 0);
+    term.moveUp(3);
+    term.moveDown(2);
+    term.moveLeft(4);
+    term.moveRight(5);
+    term.hideCursor();
+    term.showCursor();
+    term.saveCursor();
+    term.restoreCursor();
+
+    term.moveTo(-1, 0);
+    term.moveTo(0, -1);
+    term.moveUp(0);
+    term.moveDown(-1);
+    term.moveLeft(0);
+    term.moveRight(-1);
+
+    return 0;
+}
