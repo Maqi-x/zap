@@ -1,0 +1,83 @@
+import "std/io" as io;
+import "std/term" as term;
+
+fun showColor(color: term.Color, name: String) Void {
+    term.setStyle(term.Style {
+        foreground: color,
+        background: term.Color.Default,
+        bold: false,
+        dim: false,
+        underline: false,
+        inverse: false,
+    });
+    io.println(name);
+    term.resetStyle();
+}
+
+fun main() Int {
+    term.hideCursor();
+    term.clear();
+    term.moveTo(0, 0);
+
+    term.setStyle(term.Style {
+        foreground: term.Color.BrightCyan,
+        background: term.Color.Default,
+        bold: true,
+        dim: false,
+        underline: true,
+        inverse: false,
+    });
+    io.println("std/term ANSI demonstration");
+    term.resetStyle();
+
+    showColor(term.Color.Default, "Default");
+    showColor(term.Color.Black, "Black");
+    showColor(term.Color.Red, "Red");
+    showColor(term.Color.Green, "Green");
+    showColor(term.Color.Yellow, "Yellow");
+    showColor(term.Color.Blue, "Blue");
+    showColor(term.Color.Magenta, "Magenta");
+    showColor(term.Color.Cyan, "Cyan");
+    showColor(term.Color.White, "White");
+    showColor(term.Color.BrightBlack, "Bright black");
+    showColor(term.Color.BrightRed, "Bright red");
+    showColor(term.Color.BrightGreen, "Bright green");
+    showColor(term.Color.BrightYellow, "Bright yellow");
+    showColor(term.Color.BrightBlue, "Bright blue");
+    showColor(term.Color.BrightMagenta, "Bright magenta");
+    showColor(term.Color.BrightCyan, "Bright cyan");
+    showColor(term.Color.BrightWhite, "Bright white");
+
+    term.setStyle(term.Style {
+        foreground: term.Color.BrightYellow,
+        background: term.Color.Blue,
+        bold: true,
+        dim: true,
+        underline: true,
+        inverse: true,
+    });
+    io.println("foreground, background and text attributes");
+    term.resetStyle();
+
+    io.print("This line is cleared");
+    term.clearLine();
+    term.moveTo(20, 0);
+
+    io.print("This prefix remains; this suffix disappears");
+    term.moveLeft(23);
+    term.eraseToLineEnd();
+    io.println("");
+
+    term.saveCursor();
+    term.moveDown(1);
+    term.moveRight(4);
+    io.print("Cursor moved down and right");
+    term.moveUp(1);
+    term.moveLeft(4);
+    term.restoreCursor();
+
+    term.moveTo(23, 0);
+    term.showCursor();
+    io.println("Done.");
+    return 0;
+}
