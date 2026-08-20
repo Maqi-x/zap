@@ -1,0 +1,50 @@
+import "std/term";
+
+fun main() Int {
+    var defaults: term.Style = term.Style {};
+    if defaults.foreground != term.Color.Default ||
+       defaults.background != term.Color.Default ||
+       defaults.bold || defaults.dim || defaults.underline || defaults.inverse {
+        return 1;
+    }
+
+    var style: term.Style = term.Style {
+        foreground: term.Color.BrightCyan,
+        background: term.Color.Blue,
+        bold: true,
+        dim: true,
+        underline: true,
+        inverse: true,
+    };
+    if style.foreground != term.Color.BrightCyan ||
+       style.background != term.Color.Blue ||
+       !style.bold || !style.dim || !style.underline || !style.inverse {
+        return 2;
+    }
+
+    term.setStyle(style);
+    term.resetStyle();
+
+    term.clear();
+    term.clearLine();
+    term.eraseToLineEnd();
+
+    term.moveTo(0, 0);
+    term.moveUp(1);
+    term.moveDown(1);
+    term.moveLeft(1);
+    term.moveRight(1);
+    term.hideCursor();
+    term.showCursor();
+    term.saveCursor();
+    term.restoreCursor();
+
+    term.moveTo(-1, 0);
+    term.moveTo(0, -1);
+    term.moveUp(0);
+    term.moveDown(-1);
+    term.moveLeft(0);
+    term.moveRight(-1);
+
+    return 0;
+}
