@@ -127,7 +127,7 @@ frontend::RuntimePaths runtimePaths() {
   return frontend::RuntimePaths{g_executable_path,
                                 std::filesystem::path(ZAPC_CORE_DIR),
                                 std::filesystem::path(ZAPC_STDLIB_DIR),
-                                std::filesystem::path(ZAPC_STDLIB_PATH)};
+                                std::filesystem::path(ZAPC_RUNTIME_PATH)};
 }
 
 bool readSourceFile(const std::filesystem::path &path, std::string &content) {
@@ -532,7 +532,7 @@ bool driver::link() {
     auto paths = frontend::RuntimePaths{
         executable_path, std::filesystem::path(ZAPC_CORE_DIR),
         std::filesystem::path(ZAPC_STDLIB_DIR),
-        std::filesystem::path(ZAPC_STDLIB_PATH)};
+        std::filesystem::path(ZAPC_RUNTIME_PATH)};
     arguments.push_back(frontend::stdlibObjectPath(paths).string());
   } else {
     arguments.emplace_back("-nostdlib");

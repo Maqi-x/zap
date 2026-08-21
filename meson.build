@@ -101,7 +101,7 @@ zap_zir_verifier = static_library('zap_zir_verifier',
 )
 zap_zir_verifier_dep = declare_dependency(link_with : zap_zir_verifier, include_directories : inc)
 
-stdlib_o = custom_target('zap_stdlib',
+runtime_o = custom_target('zap_runtime',
                          input : [
                              'src/runtime/arc.c',
                              'src/runtime/string.c',
@@ -109,7 +109,7 @@ stdlib_o = custom_target('zap_stdlib',
                              'src/runtime/network.c',
                              'src/runtime/tls.c'
                          ],
-                         output : 'stdlib.o',
+                         output : 'runtime.o',
                          command : [c.cmd_array(), zap_stdlib_compile_defs, '-r', '@INPUT@', '-o', '@OUTPUT@'],
                          depend_files : [
                              'src/runtime/arc_layout.h',
@@ -137,7 +137,7 @@ zapc_sources = [
 ]
 
 zapc_args = [
-    '-DZAPC_STDLIB_PATH="' + stdlib_o.full_path() + '"',
+    '-DZAPC_RUNTIME_PATH="' + runtime_o.full_path() + '"',
     '-DZAPC_CORE_DIR="' + meson.current_source_dir() / 'core' + '"',
     '-DZAPC_STDLIB_DIR="' + meson.current_source_dir() / 'std' + '"'
 ]
@@ -208,10 +208,10 @@ if get_option('build_testing')
     test('runtime-core-exports',
          files('tests/scripts/check_runtime_exports.sh'),
          args : [
-             stdlib_o.full_path(),
+             runtime_o.full_path(),
              meson.current_source_dir() / 'tests/runtime/core_runtime_exports.txt'
          ],
-         depends : stdlib_o
+         depends : runtime_o
     )
 
     if get_option('zap_enable_runtime_instrumentation')

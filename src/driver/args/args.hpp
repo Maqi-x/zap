@@ -39,7 +39,7 @@ struct CmdlineArgs {
     bool implicit; ///< Was the output implicit or explicit.
   } output;
 
-  bool incStdlib;            ///< Include the zap stdlib.o or not.
+  bool incStdlib;            ///< Include the Zap runtime object or not.
   bool incPrelude = true;    ///< Include the implicit prelude or not.
   bool freestanding = false; ///< Compile without host OS runtime assumptions.
   bool printStdlibPath = false; ///< Print the resolved stdlib directory.
