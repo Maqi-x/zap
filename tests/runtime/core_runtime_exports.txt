@@ -1,0 +1,26 @@
+# Symbols that remain part of the Zap runtime ABI after std/ moves to FFI.
+__zap_process_set_args
+string_concat_ptrlen
+zap_arc_add_possible_root
+zap_arc_collect_at_safepoint
+zap_arc_context_create
+zap_arc_context_destroy
+zap_arc_cycle_collect
+zap_arc_deallocate
+zap_arc_default_context
+zap_arc_remove_possible_root
+zap_arc_retain_dead_object
+zap_arc_strong_refcount_overflow
+zap_arc_strong_refcount_underflow
+zap_arc_weak_refcount_overflow
+zap_arc_weak_refcount_underflow
+zap_runtime_alloc
+zap_string_from_cstr
+zap_string_from_ptrlen
+zap_string_release
+zap_string_retain
+zap_to_char_from_int
+zap_to_int_from_char
+zap_to_string_f64
+zap_to_string_i64
+zap_to_string_u64

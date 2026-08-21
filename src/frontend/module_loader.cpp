@@ -104,7 +104,7 @@ std::filesystem::path stdlibObjectPath(const RuntimePaths &paths) {
   }
 
   if (auto exePath = currentExecutablePath(paths.executablePath)) {
-    auto siblingObject = exePath->parent_path() / "stdlib.o";
+    auto siblingObject = exePath->parent_path() / "runtime.o";
     if (std::filesystem::exists(siblingObject) &&
         std::filesystem::is_regular_file(siblingObject)) {
       return siblingObject;

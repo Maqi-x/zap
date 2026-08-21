@@ -8,6 +8,7 @@ fun main() Int {
     var root: String = path.join("/tmp", "zap_fs_extra");
     var nestedDir: String = path.join(root, "a/b/c");
     var srcFile: String = path.join(root, "source.txt");
+    var sourceLink: String = path.join(root, "source-link.txt");
     var copiedFile: String = path.join(root, "copies/copied.txt");
     var movedFile: String = path.join(root, "moved/moved.txt");
     var touchFile: String = path.join(root, "touched/empty.txt");
@@ -38,6 +39,16 @@ fun main() Int {
 
     if !fs.isFile(srcFile) {
         return 6;
+    }
+
+    if process.exec("ln -s \"" + srcFile + "\" \"" + sourceLink + "\"") != 0 {
+        return 31;
+    }
+    if !fs.isSymlink(sourceLink) {
+        return 32;
+    }
+    if !fs.isFile(sourceLink) {
+        return 33;
     }
 
     var srcContent: String = fs.readFile(srcFile) or err { return 7; };
