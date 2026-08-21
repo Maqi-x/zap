@@ -16,7 +16,6 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
-#include <sys/wait.h>
 #include <unistd.h>
 
 _Static_assert(offsetof(zap_string_header_t, refs) == 0,
@@ -896,52 +895,6 @@ _Bool eq(zap_string_t a, zap_string_t b) {
   }
 
   return memcmp(a.ptr, b.ptr, (size_t)a.len) == 0;
-}
-
-long exec(zap_string_t cmd) {
-  if (!cmd.ptr) {
-    return -1;
-  }
-
-  char *buffer = (char *)malloc((size_t)cmd.len + 1);
-  if (!buffer) {
-    return -1;
-  }
-
-  memcpy(buffer, cmd.ptr, (size_t)cmd.len);
-  buffer[cmd.len] = '\0';
-
-  int result = system(buffer);
-  free(buffer);
-
-  if (result == -1) {
-    return -1;
-  }
-
-  if (WIFEXITED(result)) {
-    return WEXITSTATUS(result);
-  }
-
-  return result;
-}
-
-zap_string_t cwd() {
-  char *dir = getcwd(NULL, 0);
-  if (!dir) {
-    return (zap_string_t){.ptr = NULL, .len = 0};
-  }
-  size_t dir_len = strlen(dir);
-  char *owned = zap_string_alloc_owned(dir_len);
-  if (!owned) {
-    free(dir);
-    return (zap_string_t){.ptr = NULL, .len = 0};
-  }
-  if (dir_len > 0) {
-    memcpy(owned, dir, dir_len);
-  }
-  owned[dir_len] = '\0';
-  free(dir);
-  return (zap_string_t){.ptr = owned, .len = (long)dir_len};
 }
 
 static int zap_stat_path(zap_string_t path, struct stat *st) {

@@ -2,14 +2,15 @@ import "std/strings";
 
 import "std/mem";
 import "std/io";
+import "core" { StringView };
 
 pub ext fun exit(code: Int) Void;
 pub ext fun argc() Int;
 pub ext fun argv(i: Int) String;
-pub ext fun exec(cmd: String) Int;
-pub ext fun cwd() String;
 
 ext fun getenv(name: *Char) *Char;
+ext fun getcwd(buffer: *Char, size: UInt) *Char;
+ext fun system(command: *Char) Int32;
 
 pub fun getEnv(name: String) String {
   var nameBuf = strings.makeNullTerm(name);
@@ -19,6 +20,7 @@ pub fun getEnv(name: String) String {
 
   var value = getenv(nameBuf);
   if (value == null) {
+    mem.free(nameBuf as *Void);
     return "";
   }
 
@@ -28,6 +30,38 @@ pub fun getEnv(name: String) String {
   }
 
   mem.free(nameBuf as *Void);
+  return result;
+}
+
+pub fun exec(command: noescape StringView) Int {
+  var commandBuf = strings.makeNullTerm(command);
+  if (commandBuf == null) {
+    return -1;
+  }
+
+  var status: Int32 = system(commandBuf);
+  mem.free(commandBuf as *Void);
+
+  if (status < 0) {
+    return status as Int;
+  }
+  if (status & 0x7f) == 0 {
+    return (status >> 8) as Int;
+  }
+  return status as Int;
+}
+
+pub fun cwd() String {
+  var path = getcwd(null, 0);
+  if (path == null) {
+    return "";
+  }
+
+  var result: String;
+  unsafe {
+    result = strings.fromNullTerm(path);
+  }
+  mem.free(path as *Void);
   return result;
 }
 
