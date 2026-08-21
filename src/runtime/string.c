@@ -5,6 +5,7 @@
 
 #include <limits.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -162,3 +163,56 @@ long zap_to_int_from_char(char value) { return (unsigned char)value; }
 
 char zap_to_char_from_int(long value) { return (char)value; }
 
+long len(zap_string_t s) { return s.len; }
+
+char at(zap_string_t s, long i) {
+  if (!s.ptr || i < 0 || i >= s.len) {
+    return '\0';
+  }
+  return s.ptr[i];
+}
+
+zap_string_t slice(zap_string_t s, long start, long length) {
+  if (!s.ptr || s.len <= 0 || length <= 0 || start >= s.len) {
+    return (zap_string_t){.ptr = NULL, .len = 0};
+  }
+
+  if (start < 0) {
+    start = 0;
+  }
+
+  long available = s.len - start;
+  if (available < 0) {
+    available = 0;
+  }
+  if (length > available) {
+    length = available;
+  }
+
+  char *out = zap_string_alloc_owned((size_t)length);
+  if (!out) {
+    return (zap_string_t){.ptr = NULL, .len = 0};
+  }
+
+  if (length > 0) {
+    memcpy(out, s.ptr + start, (size_t)length);
+  }
+  out[length] = '\0';
+  return (zap_string_t){.ptr = out, .len = length};
+}
+
+bool eq(zap_string_t a, zap_string_t b) {
+  if (a.len != b.len) {
+    return 0;
+  }
+
+  if (a.len == 0) {
+    return 1;
+  }
+
+  if (!a.ptr || !b.ptr) {
+    return 0;
+  }
+
+  return memcmp(a.ptr, b.ptr, (size_t)a.len) == 0;
+}
