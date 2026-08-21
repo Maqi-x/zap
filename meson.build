@@ -192,6 +192,15 @@ if get_option('build_testing')
     )
     test('runtime-instrumentation', runtime_test)
 
+    test('runtime-core-exports',
+         files('tests/scripts/check_runtime_exports.sh'),
+         args : [
+             stdlib_o.full_path(),
+             meson.current_source_dir() / 'tests/runtime/core_runtime_exports.txt'
+         ],
+         depends : stdlib_o
+    )
+
     if get_option('zap_enable_runtime_instrumentation')
         test('runtime-instrumentation-ir',
              files('tests/scripts/check_runtime_instrumentation_ir.sh'),
