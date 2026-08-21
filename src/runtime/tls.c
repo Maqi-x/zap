@@ -13,17 +13,6 @@
 
 static long zap_tls_last_error_code = 0;
 
-long zap_sum_variadic(long count, ...) {
-  va_list args;
-  va_start(args, count);
-  long sum = 0;
-  for (long i = 0; i < count; ++i) {
-    sum += va_arg(args, long);
-  }
-  va_end(args);
-  return sum;
-}
-
 typedef struct {
   SSL_CTX *context;
   SSL *ssl;
@@ -166,4 +155,3 @@ long zap_tls_close(long handle) {
 }
 
 long zap_tls_last_error() { return zap_tls_last_error_code; }
-

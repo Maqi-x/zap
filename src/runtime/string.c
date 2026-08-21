@@ -4,6 +4,7 @@
 #include "string_internal.h"
 
 #include <limits.h>
+#include <stddef.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -11,7 +12,16 @@
 #include <stdlib.h>
 #include <string.h>
 
-
+_Static_assert(offsetof(zap_string_header_t, refs) == 0,
+               "String ABI: refs offset mismatch");
+_Static_assert(offsetof(zap_string_header_t, len) == sizeof(int64_t),
+               "String ABI: len offset mismatch");
+_Static_assert(sizeof(zap_string_header_t) == 2 * sizeof(int64_t),
+               "String ABI: unexpected header padding");
+_Static_assert(offsetof(zap_string_t, ptr) == 0,
+               "String ABI: ptr offset mismatch");
+_Static_assert(offsetof(zap_string_t, len) == sizeof(const char *),
+               "String ABI: value len offset mismatch");
 
 char *string_concat_ptrlen(const char *a, long a_len, const char *b,
                            long b_len) {

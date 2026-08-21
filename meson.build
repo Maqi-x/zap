@@ -103,7 +103,6 @@ zap_zir_verifier_dep = declare_dependency(link_with : zap_zir_verifier, include_
 
 stdlib_o = custom_target('zap_stdlib',
                          input : [
-                             'src/stdlib.c',
                              'src/runtime/arc.c',
                              'src/runtime/string.c',
                              'src/runtime/process.c',
@@ -196,7 +195,7 @@ if get_option('build_testing')
 
     runtime_test = executable('zap-runtime-instrumentation-tests',
                               'tests/cpp/runtime_instrumentation_test.c',
-                              'src/stdlib.c', 'src/runtime/arc.c',
+                              'src/runtime/arc.c',
                               'src/runtime/string.c', 'src/runtime/process.c',
                               'src/runtime/network.c',
                               'src/runtime/tls.c',

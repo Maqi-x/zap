@@ -7,6 +7,17 @@
 #include <string.h>
 #include <sys/types.h>
 
+long zap_sum_variadic(long count, ...) {
+  va_list args;
+  va_start(args, count);
+  long sum = 0;
+  for (long i = 0; i < count; ++i) {
+    sum += va_arg(args, long);
+  }
+  va_end(args);
+  return sum;
+}
+
 static long zap_process_argc = 0;
 static char **zap_process_argv = NULL;
 
@@ -85,4 +96,3 @@ zap_string_t argv(long i) {
   const char *arg = zap_process_argv[i];
   return zap_string_from_cstr(arg);
 }
-
