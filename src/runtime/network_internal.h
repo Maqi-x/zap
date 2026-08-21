@@ -4,7 +4,6 @@
 #include "string_layout.h"
 
 long netConnect(zap_string_t host, long port);
-long netLastError(void);
 
 #if defined(__GNUC__) || defined(__clang__)
 #define ZAP_RUNTIME_INTERNAL __attribute__((visibility("hidden")))

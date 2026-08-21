@@ -70,7 +70,7 @@ static void zap_tls_session_free(zap_tls_session_t *session) {
 long zap_tls_connect(zap_string_t host, long port) {
   const long fd = netConnect(host, port);
   if (fd < 0) {
-    zap_tls_last_error_code = netLastError();
+    zap_tls_last_error_code = errno;
     return 0;
   }
 

@@ -11,7 +11,6 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-static int zap_net_last_error = 0;
 char *zap_network_copy_path(zap_string_t path) {
   if (!path.ptr) {
     return NULL;
@@ -30,7 +29,7 @@ char *zap_network_copy_path(zap_string_t path) {
 static int zap_net_bind_addrinfo(const char *host, long port, int socktype,
                                  int flags, struct addrinfo **out) {
   if (!out) {
-    zap_net_last_error = EINVAL;
+    errno = EINVAL;
     return -1;
   }
 
@@ -51,26 +50,25 @@ static int zap_net_bind_addrinfo(const char *host, long port, int socktype,
   int rc = getaddrinfo(node, port_buf, &hints, out);
   if (rc != 0) {
     if (rc == EAI_SYSTEM) {
-      zap_net_last_error = errno;
     } else {
-      zap_net_last_error = EINVAL;
+      errno = EINVAL;
     }
     return -1;
   }
 
-  zap_net_last_error = 0;
+  errno = 0;
   return 0;
 }
 
 long netConnect(zap_string_t host, long port) {
   if (!host.ptr || port <= 0 || port > 65535) {
-    zap_net_last_error = EINVAL;
+    errno = EINVAL;
     return -1;
   }
 
   char *host_buf = zap_network_copy_path(host);
   if (!host_buf) {
-    zap_net_last_error = ENOMEM;
+    errno = ENOMEM;
     return -1;
   }
 
@@ -102,13 +100,13 @@ long netConnect(zap_string_t host, long port) {
   freeaddrinfo(res);
   free(host_buf);
 
-  zap_net_last_error = last_err;
+  errno = last_err;
   return out_fd;
 }
 
 long netListen(zap_string_t host, long port) {
   if (port <= 0 || port > 65535) {
-    zap_net_last_error = EINVAL;
+    errno = EINVAL;
     return -1;
   }
 
@@ -116,7 +114,7 @@ long netListen(zap_string_t host, long port) {
   if (host.ptr) {
     host_buf = zap_network_copy_path(host);
     if (!host_buf) {
-      zap_net_last_error = ENOMEM;
+      errno = ENOMEM;
       return -1;
     }
   }
@@ -160,103 +158,19 @@ long netListen(zap_string_t host, long port) {
   freeaddrinfo(res);
   free(host_buf);
 
-  zap_net_last_error = last_err;
+  errno = last_err;
   return out_fd;
-}
-
-long netAccept(long listenerFd) {
-  if (listenerFd < 0) {
-    zap_net_last_error = EINVAL;
-    return -1;
-  }
-
-  int fd = accept((int)listenerFd, NULL, NULL);
-  if (fd < 0) {
-    zap_net_last_error = errno;
-    return -1;
-  }
-
-  zap_net_last_error = 0;
-  return fd;
-}
-
-long netClose(long fd) {
-  if (fd < 0) {
-    zap_net_last_error = EINVAL;
-    return EINVAL;
-  }
-
-  if (close((int)fd) != 0) {
-    zap_net_last_error = errno;
-    return errno;
-  }
-
-  zap_net_last_error = 0;
-  return 0;
-}
-
-long netSend(long fd, zap_string_t data) {
-  if (fd < 0 || !data.ptr) {
-    zap_net_last_error = EINVAL;
-    return -1;
-  }
-
-  size_t total = 0;
-  size_t target = data.len > 0 ? (size_t)data.len : 0;
-
-  while (total < target) {
-    ssize_t n = send((int)fd, data.ptr + total, target - total, 0);
-    if (n < 0) {
-      zap_net_last_error = errno;
-      return -1;
-    }
-    if (n == 0) {
-      break;
-    }
-    total += (size_t)n;
-  }
-
-  zap_net_last_error = 0;
-  return (long)total;
-}
-
-zap_string_t netRecv(long fd, long maxLen) {
-  if (fd < 0 || maxLen <= 0) {
-    zap_net_last_error = EINVAL;
-    return (zap_string_t){.ptr = NULL, .len = 0};
-  }
-
-  size_t cap = (size_t)maxLen;
-  char *buf = zap_string_alloc_owned(cap);
-  if (!buf) {
-    zap_net_last_error = ENOMEM;
-    return (zap_string_t){.ptr = NULL, .len = 0};
-  }
-
-  ssize_t n;
-  do {
-    n = recv((int)fd, buf, cap, 0);
-  } while (n < 0 && errno == EINTR);
-  if (n < 0) {
-    zap_net_last_error = errno;
-    zap_string_release_ptr(buf);
-    return (zap_string_t){.ptr = NULL, .len = 0};
-  }
-
-  buf[n] = '\0';
-  zap_net_last_error = 0;
-  return (zap_string_t){.ptr = buf, .len = (long)n};
 }
 
 zap_string_t netResolve(zap_string_t host) {
   if (!host.ptr || host.len == 0) {
-    zap_net_last_error = EINVAL;
+    errno = EINVAL;
     return (zap_string_t){.ptr = NULL, .len = 0};
   }
 
   char *host_buf = zap_network_copy_path(host);
   if (!host_buf) {
-    zap_net_last_error = ENOMEM;
+    errno = ENOMEM;
     return (zap_string_t){.ptr = NULL, .len = 0};
   }
 
@@ -270,9 +184,8 @@ zap_string_t netResolve(zap_string_t host) {
   free(host_buf);
   if (rc != 0) {
     if (rc == EAI_SYSTEM) {
-      zap_net_last_error = errno;
     } else {
-      zap_net_last_error = EINVAL;
+      errno = EINVAL;
     }
     return (zap_string_t){.ptr = NULL, .len = 0};
   }
@@ -299,13 +212,11 @@ zap_string_t netResolve(zap_string_t host) {
   freeaddrinfo(res);
 
   if (ipbuf[0] == '\0') {
-    zap_net_last_error = EADDRNOTAVAIL;
+    errno = EADDRNOTAVAIL;
     return (zap_string_t){.ptr = NULL, .len = 0};
   }
 
-  zap_net_last_error = 0;
+  errno = 0;
   return zap_string_from_ptrlen(ipbuf, (long)strlen(ipbuf));
 }
-
-long netLastError() { return zap_net_last_error; }
 

@@ -1,15 +1,19 @@
 import "std/io" { eprintln };
 import "std/process";
 import "std/string";
+import "std/mem";
+import "core" { StringView, getDataPtr, len };
 
 pub ext fun netConnect(host: String, port: Int) Int;
 pub ext fun netListen(host: String, port: Int) Int;
-pub ext fun netAccept(listenerFd: Int) Int;
-pub ext fun netClose(fd: Int) Int;
-pub ext fun netSend(fd: Int, data: String) Int;
-pub ext fun netRecv(fd: Int, maxLen: Int) String;
 pub ext fun netResolve(host: String) String;
-pub ext fun netLastError() Int;
+
+ext fun __errno_location() *Int32;
+ext fun accept(listenerFd: Int32, address: *Void, addressLen: *Void) Int32;
+ext fun close(fd: Int32) Int32;
+ext fun send(fd: Int32, data: *Void, len: UInt, flags: Int32) Int;
+ext fun recv(fd: Int32, data: *Void, len: UInt, flags: Int32) Int;
+ext fun zap_string_from_ptrlen(ptr: *Char, len: Int) String;
 
 pub struct NetError {
   code: Int,
@@ -19,6 +23,105 @@ pub struct NetError {
 pub struct Endpoint {
   host: String,
   port: Int,
+}
+
+fun setLastError(code: Int) Void {
+  unsafe {
+    *__errno_location() = code as Int32;
+  }
+}
+
+fun clearLastError() Void {
+  setLastError(0);
+}
+
+fun lastErrno() Int {
+  unsafe {
+    return *__errno_location() as Int;
+  }
+}
+
+pub fun netAccept(listenerFd: Int) Int {
+  if listenerFd < 0 {
+    setLastError(22);
+    return -1;
+  }
+  var fd = accept(listenerFd as Int32, null, null) as Int;
+  if fd >= 0 {
+    clearLastError();
+  }
+  return fd;
+}
+
+pub fun netClose(fd: Int) Int {
+  if fd < 0 {
+    setLastError(22);
+    return 22;
+  }
+  if close(fd as Int32) != 0 {
+    return lastErrno();
+  }
+  clearLastError();
+  return 0;
+}
+
+pub fun netSend(fd: Int, data: noescape StringView) Int {
+  if fd < 0 {
+    setLastError(22);
+    return -1;
+  }
+
+  var total: Int = 0;
+  var target: Int = len(data);
+  while total < target {
+    var written: Int;
+    unsafe {
+      written = send(fd as Int32, (getDataPtr(data) + total) as *Void,
+                     (target - total) as UInt, 0);
+    }
+    if written < 0 {
+      return -1;
+    }
+    if written == 0 {
+      break;
+    }
+    total = total + written;
+  }
+  clearLastError();
+  return total;
+}
+
+pub fun netRecv(fd: Int, maxLen: Int) String {
+  if fd < 0 || maxLen <= 0 {
+    setLastError(22);
+    return "";
+  }
+
+  var buffer = mem.malloc(maxLen + 1) as *Char;
+  if buffer == null {
+    setLastError(12);
+    return "";
+  }
+
+  var received: Int;
+  while true {
+    received = recv(fd as Int32, buffer as *Void, maxLen as UInt, 0);
+    if received >= 0 || lastErrno() != 4 {
+      break;
+    }
+  }
+  if received < 0 {
+    mem.free(buffer as *Void);
+    return "";
+  }
+
+  clearLastError();
+  unsafe {
+    *(buffer + received) = '\0';
+  }
+  var result = zap_string_from_ptrlen(buffer, received);
+  mem.free(buffer as *Void);
+  return result;
 }
 
 fun tailOwned(src: String, start: Int) String {
@@ -306,7 +409,7 @@ pub fun resolve(host: String) String {
 }
 
 pub fun lastErrorCode() Int {
-  return netLastError();
+  return lastErrno();
 }
 
 pub fun makeError(code: Int, message: String) NetError {
@@ -317,7 +420,7 @@ pub fun makeError(code: Int, message: String) NetError {
 }
 
 pub fun lastError(message: String) NetError {
-  return makeError(netLastError(), message);
+  return makeError(lastErrno(), message);
 }
 
 pub fun panic(message: String) Void {
