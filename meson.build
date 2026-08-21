@@ -105,7 +105,8 @@ stdlib_o = custom_target('zap_stdlib',
                          input : [
                              'src/stdlib.c',
                              'src/runtime/arc.c',
-                             'src/runtime/string.c'
+                             'src/runtime/string.c',
+                             'src/runtime/process.c'
                          ],
                          output : 'stdlib.o',
                          command : [c.cmd_array(), zap_stdlib_compile_defs, '-r', '@INPUT@', '-o', '@OUTPUT@'],
@@ -193,7 +194,7 @@ if get_option('build_testing')
     runtime_test = executable('zap-runtime-instrumentation-tests',
                               'tests/cpp/runtime_instrumentation_test.c',
                               'src/stdlib.c', 'src/runtime/arc.c',
-                              'src/runtime/string.c',
+                              'src/runtime/string.c', 'src/runtime/process.c',
                               include_directories : inc,
                               c_args : ['-DZAP_RUNTIME_INSTRUMENTATION=1'],
                               dependencies : [m_dep, openssl_dep]
