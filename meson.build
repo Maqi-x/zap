@@ -107,7 +107,8 @@ stdlib_o = custom_target('zap_stdlib',
                              'src/runtime/arc.c',
                              'src/runtime/string.c',
                              'src/runtime/process.c',
-                             'src/runtime/network.c'
+                             'src/runtime/network.c',
+                             'src/runtime/tls.c'
                          ],
                          output : 'stdlib.o',
                          command : [c.cmd_array(), zap_stdlib_compile_defs, '-r', '@INPUT@', '-o', '@OUTPUT@'],
@@ -198,6 +199,7 @@ if get_option('build_testing')
                               'src/stdlib.c', 'src/runtime/arc.c',
                               'src/runtime/string.c', 'src/runtime/process.c',
                               'src/runtime/network.c',
+                              'src/runtime/tls.c',
                               include_directories : inc,
                               c_args : ['-DZAP_RUNTIME_INSTRUMENTATION=1'],
                               dependencies : [m_dep, openssl_dep]
