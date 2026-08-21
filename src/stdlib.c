@@ -15,7 +15,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
-#include <sys/stat.h>
 #include <unistd.h>
 
 _Static_assert(offsetof(zap_string_header_t, refs) == 0,
@@ -31,7 +30,6 @@ _Static_assert(offsetof(zap_string_t, len) == sizeof(const char *),
 
 static int zap_net_last_error = 0;
 static long zap_tls_last_error_code = 0;
-static long zap_fs_last_error_code = 0;
 
 #if defined(ZAP_RUNTIME_INSTRUMENTATION)
 static zap_runtime_ownership_counters_t zap_runtime_ownership_counters;
@@ -897,24 +895,6 @@ _Bool eq(zap_string_t a, zap_string_t b) {
   return memcmp(a.ptr, b.ptr, (size_t)a.len) == 0;
 }
 
-static int zap_stat_path(zap_string_t path, struct stat *st) {
-  if (!path.ptr) {
-    return -1;
-  }
-
-  char *buffer = (char *)malloc((size_t)path.len + 1);
-  if (!buffer) {
-    return -1;
-  }
-
-  memcpy(buffer, path.ptr, (size_t)path.len);
-  buffer[path.len] = '\0';
-
-  int result = stat(buffer, st);
-  free(buffer);
-  return result;
-}
-
 static char *zap_copy_path(zap_string_t path) {
   if (!path.ptr) {
     return NULL;
@@ -964,179 +944,6 @@ static int zap_net_bind_addrinfo(const char *host, long port, int socktype,
   zap_net_last_error = 0;
   return 0;
 }
-
-_Bool zap_fs_exists(zap_string_t path) {
-  struct stat st;
-  return zap_stat_path(path, &st) == 0;
-}
-
-_Bool zap_fs_is_file(zap_string_t path) {
-  struct stat st;
-  if (zap_stat_path(path, &st) != 0) {
-    return 0;
-  }
-
-  return S_ISREG(st.st_mode);
-}
-
-_Bool zap_fs_is_dir(zap_string_t path) {
-  struct stat st;
-  if (zap_stat_path(path, &st) != 0) {
-    return 0;
-  }
-
-  return S_ISDIR(st.st_mode);
-}
-
-_Bool zap_fs_is_symlink(zap_string_t path) {
-  char *buffer = zap_copy_path(path);
-  if (!buffer) {
-    return 0;
-  }
-
-  struct stat st;
-  int result = lstat(buffer, &st);
-  free(buffer);
-  if (result != 0) {
-    return 0;
-  }
-  return S_ISLNK(st.st_mode);
-}
-
-long zap_fs_mkdir(zap_string_t path) {
-  char *buffer = zap_copy_path(path);
-  if (!buffer) {
-    return ENOMEM;
-  }
-
-  if (mkdir(buffer, 0777) == 0) {
-    free(buffer);
-    return 0;
-  }
-
-  int err = errno;
-  free(buffer);
-  return err;
-}
-
-long zap_fs_remove(zap_string_t path) {
-  char *buffer = zap_copy_path(path);
-  if (!buffer) {
-    return ENOMEM;
-  }
-
-  if (remove(buffer) == 0) {
-    free(buffer);
-    return 0;
-  }
-
-  int err = errno;
-  free(buffer);
-  return err;
-}
-
-long zap_fs_rename(zap_string_t from, zap_string_t to) {
-  char *from_buffer = zap_copy_path(from);
-  if (!from_buffer) {
-    return ENOMEM;
-  }
-
-  char *to_buffer = zap_copy_path(to);
-  if (!to_buffer) {
-    free(from_buffer);
-    return ENOMEM;
-  }
-
-  if (rename(from_buffer, to_buffer) == 0) {
-    free(from_buffer);
-    free(to_buffer);
-    return 0;
-  }
-
-  int err = errno;
-  free(from_buffer);
-  free(to_buffer);
-  return err;
-}
-
-zap_string_t zap_fs_read_file(zap_string_t path) {
-  char *buffer = zap_copy_path(path);
-  if (!buffer) {
-    zap_fs_last_error_code = ENOMEM;
-    return (zap_string_t){.ptr = NULL, .len = 0};
-  }
-
-  FILE *file = fopen(buffer, "rb");
-  free(buffer);
-  if (!file) {
-    zap_fs_last_error_code = errno;
-    return (zap_string_t){.ptr = NULL, .len = 0};
-  }
-
-  if (fseek(file, 0, SEEK_END) != 0) {
-    zap_fs_last_error_code = errno;
-    fclose(file);
-    return (zap_string_t){.ptr = NULL, .len = 0};
-  }
-
-  long size = ftell(file);
-  if (size < 0) {
-    zap_fs_last_error_code = errno;
-    fclose(file);
-    return (zap_string_t){.ptr = NULL, .len = 0};
-  }
-
-  if (fseek(file, 0, SEEK_SET) != 0) {
-    zap_fs_last_error_code = errno;
-    fclose(file);
-    return (zap_string_t){.ptr = NULL, .len = 0};
-  }
-
-  char *content = zap_string_alloc_owned((size_t)size);
-  if (!content) {
-    zap_fs_last_error_code = ENOMEM;
-    fclose(file);
-    return (zap_string_t){.ptr = NULL, .len = 0};
-  }
-
-  size_t read = fread(content, 1, (size_t)size, file);
-  fclose(file);
-  if (read != (size_t)size) {
-    zap_fs_last_error_code = EIO;
-    zap_string_release_ptr(content);
-    return (zap_string_t){.ptr = NULL, .len = 0};
-  }
-
-  content[size] = '\0';
-  zap_fs_last_error_code = 0;
-  return (zap_string_t){.ptr = content, .len = size};
-}
-
-long zap_fs_write_file(zap_string_t path, zap_string_t content) {
-  char *buffer = zap_copy_path(path);
-  if (!buffer) {
-    return ENOMEM;
-  }
-
-  FILE *file = fopen(buffer, "wb");
-  free(buffer);
-  if (!file) {
-    return errno;
-  }
-
-  size_t written = fwrite(content.ptr, 1, (size_t)content.len, file);
-  if (fclose(file) != 0) {
-    return errno;
-  }
-
-  if (written != (size_t)content.len) {
-    return EIO;
-  }
-
-  return 0;
-}
-
-long zap_fs_last_error() { return zap_fs_last_error_code; }
 
 long netConnect(zap_string_t host, long port) {
   if (!host.ptr || port <= 0 || port > 65535) {

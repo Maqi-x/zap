@@ -1,17 +1,29 @@
 import "std/path";
 import "std/string";
 import "std/collection";
+import "std/strings";
+import "std/mem";
+import "core" { StringView, getDataPtr, len };
 
-ext fun zap_fs_exists(path: String) Bool;
-ext fun zap_fs_is_file(path: String) Bool;
-ext fun zap_fs_is_dir(path: String) Bool;
-ext fun zap_fs_is_symlink(path: String) Bool;
-ext fun zap_fs_mkdir(path: String) Int;
-ext fun zap_fs_read_file(path: String) String;
-ext fun zap_fs_write_file(path: String, content: String) Int;
-ext fun zap_fs_remove(path: String) Int;
-ext fun zap_fs_rename(from: String, to: String) Int;
-ext fun zap_fs_last_error() Int;
+alias Dir = Void;
+alias File = Void;
+
+ext fun __errno_location() *Int32;
+ext fun access(path: *Char, mode: Int32) Int32;
+ext fun opendir(path: *Char) *Dir;
+ext fun closedir(dir: *Dir) Int32;
+ext fun readlink(path: *Char, buffer: *Char, size: UInt) Int;
+ext fun realpath(path: *Char, resolved: *Char) *Char;
+ext fun mkdir(path: *Char, mode: UInt) Int32;
+ext fun remove(path: *Char) Int32;
+ext fun rename(from: *Char, to: *Char) Int32;
+ext fun fopen(path: *Char, mode: *Char) *File;
+ext fun fclose(file: *File) Int32;
+ext fun fseek(file: *File, offset: Int, origin: Int32) Int32;
+ext fun ftell(file: *File) Int;
+ext fun fread(buffer: *Void, size: UInt, count: UInt, file: *File) UInt;
+ext fun fwrite(buffer: *Void, size: UInt, count: UInt, file: *File) UInt;
+ext fun zap_string_from_ptrlen(ptr: *Char, len: Int) String;
 
 @error
 pub enum FsError {
@@ -58,49 +70,205 @@ fun failOnCode(code: Int) Void!FsError {
   return;
 }
 
-pub fun exists(target: String) Bool {
-  return zap_fs_exists(target);
+fun lastErrorCode() Int {
+  unsafe {
+    return *__errno_location() as Int;
+  }
 }
 
-pub fun isFile(target: String) Bool {
-  return zap_fs_is_file(target);
+fun pathBuffer(path: noescape StringView) *Char {
+  return strings.makeNullTerm(path);
 }
 
-pub fun isDir(target: String) Bool {
-  return zap_fs_is_dir(target);
+pub fun exists(target: noescape StringView) Bool {
+  var pathBuf = pathBuffer(target);
+  if pathBuf == null {
+    return false;
+  }
+  var result = access(pathBuf, 0) == 0;
+  mem.free(pathBuf as *Void);
+  return result;
 }
 
-pub fun isSymlink(target: String) Bool {
-  return zap_fs_is_symlink(target);
+pub fun isDir(target: noescape StringView) Bool {
+  var pathBuf = pathBuffer(target);
+  if pathBuf == null {
+    return false;
+  }
+  var dir = opendir(pathBuf);
+  mem.free(pathBuf as *Void);
+  if dir == null {
+    return false;
+  }
+  closedir(dir);
+  return true;
 }
 
-pub fun mkdir(target: String) Void!FsError {
-  failOnCode(zap_fs_mkdir(target))?;
+pub fun isSymlink(target: noescape StringView) Bool {
+  var pathBuf = pathBuffer(target);
+  if pathBuf == null {
+    return false;
+  }
+  var probe = mem.malloc(1) as *Char;
+  if probe == null {
+    mem.free(pathBuf as *Void);
+    return false;
+  }
+  var result = readlink(pathBuf, probe, 1) >= 0;
+  mem.free(probe as *Void);
+  mem.free(pathBuf as *Void);
+  return result;
+}
+
+pub fun isFile(target: noescape StringView) Bool {
+  if !exists(target) || isDir(target) {
+    return false;
+  }
+  if !isSymlink(target) {
+    return true;
+  }
+
+  var pathBuf = pathBuffer(target);
+  if pathBuf == null {
+    return false;
+  }
+  var resolved = realpath(pathBuf, null);
+  mem.free(pathBuf as *Void);
+  if resolved == null {
+    return false;
+  }
+  var dir = opendir(resolved);
+  mem.free(resolved as *Void);
+  if dir == null {
+    return true;
+  }
+  closedir(dir);
+  return false;
+}
+
+pub fun mkdir(target: noescape StringView) Void!FsError {
+  var pathBuf = pathBuffer(target);
+  if pathBuf == null {
+    fail FsError.OutOfMemory;
+    return;
+  }
+  var result = mkdir(pathBuf, 0o777);
+  var code = result == 0 ? 0 : lastErrorCode();
+  mem.free(pathBuf as *Void);
+  failOnCode(code)?;
   return;
 }
 
-pub fun readFile(filePath: String) String!FsError {
-  var content: String = zap_fs_read_file(filePath);
-  var code: Int = zap_fs_last_error();
-  if code != 0 {
+pub fun readFile(filePath: noescape StringView) String!FsError {
+  var pathBuf = pathBuffer(filePath);
+  if pathBuf == null {
+    fail FsError.OutOfMemory;
+    return "";
+  }
+  var mode = "rb";
+  var file = fopen(pathBuf, mode);
+  mem.free(pathBuf as *Void);
+  if file == null {
+    fail errorFromCode(lastErrorCode());
+    return "";
+  }
+  if fseek(file, 0, 2) != 0 {
+    var code = lastErrorCode();
+    fclose(file);
     fail errorFromCode(code);
     return "";
   }
+  var size = ftell(file);
+  if size < 0 {
+    var code = lastErrorCode();
+    fclose(file);
+    fail errorFromCode(code);
+    return "";
+  }
+  if fseek(file, 0, 0) != 0 {
+    var code = lastErrorCode();
+    fclose(file);
+    fail errorFromCode(code);
+    return "";
+  }
+  var buffer = mem.malloc(size + 1) as *Char;
+  if buffer == null {
+    fclose(file);
+    fail FsError.OutOfMemory;
+    return "";
+  }
+  var read = fread(buffer as *Void, 1, size as UInt, file);
+  var closeCode = fclose(file);
+  if (read != (size as UInt)) || closeCode != 0 {
+    mem.free(buffer as *Void);
+    fail errorFromCode(closeCode != 0 ? lastErrorCode() : 5);
+    return "";
+  }
+  unsafe {
+    *(buffer + size) = '\0';
+  }
+  var content = zap_string_from_ptrlen(buffer, size);
+  mem.free(buffer as *Void);
   return content;
 }
 
-pub fun writeFile(filePath: String, content: String) Void!FsError {
-  failOnCode(zap_fs_write_file(filePath, content))?;
+pub fun writeFile(filePath: noescape StringView, content: noescape StringView) Void!FsError {
+  var pathBuf = pathBuffer(filePath);
+  if pathBuf == null {
+    fail FsError.OutOfMemory;
+    return;
+  }
+  var mode = "wb";
+  var file = fopen(pathBuf, mode);
+  mem.free(pathBuf as *Void);
+  if file == null {
+    fail errorFromCode(lastErrorCode());
+    return;
+  }
+  var contentLen = len(content);
+  var written: UInt;
+  unsafe {
+    written = fwrite(getDataPtr(content) as *Void, 1, contentLen, file);
+  }
+  var closeCode = fclose(file);
+  if (written != (contentLen as UInt)) || closeCode != 0 {
+    fail errorFromCode(closeCode != 0 ? lastErrorCode() : 5);
+    return;
+  }
   return;
 }
 
-pub fun remove(target: String) Void!FsError {
-  failOnCode(zap_fs_remove(target))?;
+pub fun remove(target: noescape StringView) Void!FsError {
+  var pathBuf = pathBuffer(target);
+  if pathBuf == null {
+    fail FsError.OutOfMemory;
+    return;
+  }
+  var result = remove(pathBuf);
+  var code = result == 0 ? 0 : lastErrorCode();
+  mem.free(pathBuf as *Void);
+  failOnCode(code)?;
   return;
 }
 
-pub fun rename(from: String, to: String) Void!FsError {
-  failOnCode(zap_fs_rename(from, to))?;
+pub fun rename(from: noescape StringView, to: noescape StringView) Void!FsError {
+  var fromBuf = pathBuffer(from);
+  var toBuf = pathBuffer(to);
+  if fromBuf == null || toBuf == null {
+    if fromBuf != null {
+      mem.free(fromBuf as *Void);
+    }
+    if toBuf != null {
+      mem.free(toBuf as *Void);
+    }
+    fail FsError.OutOfMemory;
+    return;
+  }
+  var result = rename(fromBuf, toBuf);
+  var code = result == 0 ? 0 : lastErrorCode();
+  mem.free(fromBuf as *Void);
+  mem.free(toBuf as *Void);
+  failOnCode(code)?;
   return;
 }
 
