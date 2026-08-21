@@ -106,13 +106,15 @@ stdlib_o = custom_target('zap_stdlib',
                              'src/stdlib.c',
                              'src/runtime/arc.c',
                              'src/runtime/string.c',
-                             'src/runtime/process.c'
+                             'src/runtime/process.c',
+                             'src/runtime/network.c'
                          ],
                          output : 'stdlib.o',
                          command : [c.cmd_array(), zap_stdlib_compile_defs, '-r', '@INPUT@', '-o', '@OUTPUT@'],
                          depend_files : [
                              'src/runtime/arc_layout.h',
                              'src/runtime/allocation_internal.h',
+                             'src/runtime/network_internal.h',
                              'src/runtime/string_layout.h',
                              'src/runtime/string_internal.h'
                          ],
@@ -195,6 +197,7 @@ if get_option('build_testing')
                               'tests/cpp/runtime_instrumentation_test.c',
                               'src/stdlib.c', 'src/runtime/arc.c',
                               'src/runtime/string.c', 'src/runtime/process.c',
+                              'src/runtime/network.c',
                               include_directories : inc,
                               c_args : ['-DZAP_RUNTIME_INSTRUMENTATION=1'],
                               dependencies : [m_dep, openssl_dep]
