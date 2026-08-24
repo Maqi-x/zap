@@ -9,6 +9,7 @@ var bound__nodes_8hpp =
     [ "sema::BoundLiteral", "db/d85/classsema_1_1BoundLiteral.html", "db/d85/classsema_1_1BoundLiteral" ],
     [ "sema::BoundCast", "d2/d0f/classsema_1_1BoundCast.html", "d2/d0f/classsema_1_1BoundCast" ],
     [ "sema::BoundVariableExpression", "dc/d46/classsema_1_1BoundVariableExpression.html", "dc/d46/classsema_1_1BoundVariableExpression" ],
+    [ "sema::BoundClassTypeTest", "d1/d7f/classsema_1_1BoundClassTypeTest.html", "d1/d7f/classsema_1_1BoundClassTypeTest" ],
     [ "sema::BoundCompoundTargetLoad", "db/d2f/classsema_1_1BoundCompoundTargetLoad.html", "db/d2f/classsema_1_1BoundCompoundTargetLoad" ],
     [ "sema::BoundModuleReference", "d5/d03/classsema_1_1BoundModuleReference.html", "d5/d03/classsema_1_1BoundModuleReference" ],
     [ "sema::BoundBinaryExpression", "df/dee/classsema_1_1BoundBinaryExpression.html", "df/dee/classsema_1_1BoundBinaryExpression" ],
@@ -44,5 +45,6 @@ var bound__nodes_8hpp =
     [ "sema::BoundMemberAccess", "db/ddd/classsema_1_1BoundMemberAccess.html", "db/ddd/classsema_1_1BoundMemberAccess" ],
     [ "sema::BoundTaggedUnionLiteral", "d5/da5/classsema_1_1BoundTaggedUnionLiteral.html", "d5/da5/classsema_1_1BoundTaggedUnionLiteral" ],
     [ "sema::BoundStructLiteral", "d8/d4b/classsema_1_1BoundStructLiteral.html", "d8/d4b/classsema_1_1BoundStructLiteral" ],
-    [ "sema::BoundRootNode", "da/d3d/classsema_1_1BoundRootNode.html", "da/d3d/classsema_1_1BoundRootNode" ]
+    [ "sema::BoundRootNode", "da/d3d/classsema_1_1BoundRootNode.html", "da/d3d/classsema_1_1BoundRootNode" ],
+    [ "sema::BoundRangeExpression", "d0/df6/classsema_1_1BoundRangeExpression.html", "d0/df6/classsema_1_1BoundRangeExpression" ]
 ];

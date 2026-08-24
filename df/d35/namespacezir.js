@@ -29,6 +29,7 @@ var namespacezir =
     [ "anonymous_namespace{failable_type.cpp}", "d5/dbd/namespacezir_1_1anonymous__namespace_02failable__type_8cpp_03.html", [
       [ "asFailableRecord", "d5/dbd/namespacezir_1_1anonymous__namespace_02failable__type_8cpp_03.html#ac60dc893cce0a03277740b35d2c4b898", null ]
     ] ],
+    [ "anonymous_namespace{function_reachability.cpp}", "d3/df4/namespacezir_1_1anonymous__namespace_02function__reachability_8cpp_03.html", "d3/df4/namespacezir_1_1anonymous__namespace_02function__reachability_8cpp_03" ],
     [ "anonymous_namespace{ir_generator.cpp}", "d5/d7d/namespacezir_1_1anonymous__namespace_02ir__generator_8cpp_03.html", [
       [ "isTerminated", "d5/d7d/namespacezir_1_1anonymous__namespace_02ir__generator_8cpp_03.html#a7a49b539be9da056c4afc82d0469aca2", null ],
       [ "ownershipForCast", "d5/d7d/namespacezir_1_1anonymous__namespace_02ir__generator_8cpp_03.html#ae06c02595c20e82f8e34734320754e53", null ],
@@ -84,6 +85,8 @@ var namespacezir =
     [ "ControlFlowGraph", "d6/de1/classzir_1_1ControlFlowGraph.html", "d6/de1/classzir_1_1ControlFlowGraph" ],
     [ "FailableTypeLayout", "d4/d3c/structzir_1_1FailableTypeLayout.html", "d4/d3c/structzir_1_1FailableTypeLayout" ],
     [ "Function", "dc/d90/classzir_1_1Function.html", "dc/d90/classzir_1_1Function" ],
+    [ "FunctionReachability", "d9/d35/structzir_1_1FunctionReachability.html", "d9/d35/structzir_1_1FunctionReachability" ],
+    [ "FunctionReachabilityAnalyzer", "dd/d82/classzir_1_1FunctionReachabilityAnalyzer.html", "dd/d82/classzir_1_1FunctionReachabilityAnalyzer" ],
     [ "Instruction", "d0/dad/classzir_1_1Instruction.html", "d0/dad/classzir_1_1Instruction" ],
     [ "BinaryInst", "df/d0a/classzir_1_1BinaryInst.html", "df/d0a/classzir_1_1BinaryInst" ],
     [ "StoreInst", "dc/d2e/classzir_1_1StoreInst.html", "dc/d2e/classzir_1_1StoreInst" ],
@@ -99,6 +102,7 @@ var namespacezir =
     [ "DestroyInst", "d3/d6b/classzir_1_1DestroyInst.html", "d3/d6b/classzir_1_1DestroyInst" ],
     [ "AllocInst", "d1/dc3/classzir_1_1AllocInst.html", "d1/dc3/classzir_1_1AllocInst" ],
     [ "CmpInst", "d1/d56/classzir_1_1CmpInst.html", "d1/d56/classzir_1_1CmpInst" ],
+    [ "ClassIsInst", "d1/d05/classzir_1_1ClassIsInst.html", "d1/d05/classzir_1_1ClassIsInst" ],
     [ "GetElementPtrInst", "db/dee/classzir_1_1GetElementPtrInst.html", "db/dee/classzir_1_1GetElementPtrInst" ],
     [ "PhiInst", "d7/de6/classzir_1_1PhiInst.html", "d7/de6/classzir_1_1PhiInst" ],
     [ "CastInst", "d8/d42/classzir_1_1CastInst.html", "d8/d42/classzir_1_1CastInst" ],
@@ -184,6 +188,7 @@ var namespacezir =
       [ "Cast", "df/d35/namespacezir.html#ab4e12cb1b0618e9ddeb42f32bacb847aa4cd9f3996d60790cd11c04f842ebc43c", null ],
       [ "WeakLock", "df/d35/namespacezir.html#ab4e12cb1b0618e9ddeb42f32bacb847aac6ac0837d2c489cbc30e0670ff970d47", null ],
       [ "WeakAlive", "df/d35/namespacezir.html#ab4e12cb1b0618e9ddeb42f32bacb847aad0a98cdd30a9fb21eee7e12be36a541c", null ],
+      [ "ClassIs", "df/d35/namespacezir.html#ab4e12cb1b0618e9ddeb42f32bacb847aaa148149fdad124659480a05952a44999", null ],
       [ "InlineAsm", "df/d35/namespacezir.html#ab4e12cb1b0618e9ddeb42f32bacb847aa17ad1a14b4b00de404f75cf67a4e25c4", null ]
     ] ],
     [ "OwnershipDestroyPlacementKind", "df/d35/namespacezir.html#a964f2c1533dfb1d4f4a65c0532f1fed5", [

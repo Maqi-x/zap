@@ -80,6 +80,7 @@ var token_8hpp =
       [ "WEAK", "d4/d44/token_8hpp.html#aa520fbf142ba1e7e659590c07da31921afe4722ca9de2cfd88591a69de2430c0a", null ],
       [ "WHERE", "d4/d44/token_8hpp.html#aa520fbf142ba1e7e659590c07da31921a0116b78582fbf1fd6e069fde8dd308c4", null ],
       [ "IFTYPE", "d4/d44/token_8hpp.html#aa520fbf142ba1e7e659590c07da31921a2571f230a967d9d250465039c30ecd45", null ],
+      [ "IS", "d4/d44/token_8hpp.html#aa520fbf142ba1e7e659590c07da31921a6cc1972e6d9d37556d516f78205a682b", null ],
       [ "FAIL", "d4/d44/token_8hpp.html#aa520fbf142ba1e7e659590c07da31921a936c4a5547a9360243178f726f6b2715", null ],
       [ "PLUS_ASSIGN", "d4/d44/token_8hpp.html#aa520fbf142ba1e7e659590c07da31921a286e4cffb49dac1c03238aea860ad140", null ],
       [ "MINUS_ASSIGN", "d4/d44/token_8hpp.html#aa520fbf142ba1e7e659590c07da31921a774b6288dc9072f0a38f90179cb074f5", null ],
@@ -94,7 +95,8 @@ var token_8hpp =
       [ "INCREMENT", "d4/d44/token_8hpp.html#aa520fbf142ba1e7e659590c07da31921a5d249e853c4031947f979fe903390dfb", null ],
       [ "DECREMENT", "d4/d44/token_8hpp.html#aa520fbf142ba1e7e659590c07da31921acd27a3a13d233019cec19a2423d65a84", null ],
       [ "ASM", "d4/d44/token_8hpp.html#aa520fbf142ba1e7e659590c07da31921a3183e1d9ee10bc541acdbf4d55cf9ecf", null ],
-      [ "LET", "d4/d44/token_8hpp.html#aa520fbf142ba1e7e659590c07da31921afb72619a5a922e816967c4aa49301754", null ]
+      [ "LET", "d4/d44/token_8hpp.html#aa520fbf142ba1e7e659590c07da31921afb72619a5a922e816967c4aa49301754", null ],
+      [ "DOTDOT", "d4/d44/token_8hpp.html#aa520fbf142ba1e7e659590c07da31921aaf40bb46e66376286beeb28ad11c9c95", null ]
     ] ],
     [ "tokenTypeToString", "d4/d44/token_8hpp.html#adcf4232d1b543f396684ab4b9d3d4bc5", null ]
 ];

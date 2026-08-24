@@ -20,6 +20,7 @@ var classzir_1_1BoundIRGenerator =
     [ "visit", "d4/da0/classzir_1_1BoundIRGenerator.html#a28a32dc4d57b74b9c3e4dfa5124f41e1", null ],
     [ "visit", "d4/da0/classzir_1_1BoundIRGenerator.html#ac79ee8c2ad1306d097bab81be6c96bba", null ],
     [ "visit", "d4/da0/classzir_1_1BoundIRGenerator.html#ab3d3bc40f759554b6180c452e9a706ec", null ],
+    [ "visit", "d4/da0/classzir_1_1BoundIRGenerator.html#a594c2f0ec9b13b378da2eebec76bbb76", null ],
     [ "visit", "d4/da0/classzir_1_1BoundIRGenerator.html#a6d26b3e5f19aba9ad49cdb7a573186e5", null ],
     [ "visit", "d4/da0/classzir_1_1BoundIRGenerator.html#aa1063895d70a00713a8fdf64cdcea32b", null ],
     [ "visit", "d4/da0/classzir_1_1BoundIRGenerator.html#a939c9891330bc492a4a89151031cbfe9", null ],
@@ -39,6 +40,7 @@ var classzir_1_1BoundIRGenerator =
     [ "visit", "d4/da0/classzir_1_1BoundIRGenerator.html#a66c586afbf4b0e2e494bbde63fdfc27f", null ],
     [ "visit", "d4/da0/classzir_1_1BoundIRGenerator.html#a87b31eae181c3de54153841d08f1a479", null ],
     [ "visit", "d4/da0/classzir_1_1BoundIRGenerator.html#ae620f21a0c6f866a20f623a3bdd48608", null ],
+    [ "visit", "d4/da0/classzir_1_1BoundIRGenerator.html#a1c3851760b3efcfa547c8e9618b3ed32", null ],
     [ "visit", "d4/da0/classzir_1_1BoundIRGenerator.html#a27a583ea3b727c41d34508def8c49da0", null ],
     [ "visit", "d4/da0/classzir_1_1BoundIRGenerator.html#a1e5740c75e8e2fcce5d0b5679ef123ac", null ],
     [ "visit", "d4/da0/classzir_1_1BoundIRGenerator.html#ad7c3f1c0c341ebf0e04c6bf86482d80b", null ],
@@ -63,6 +65,7 @@ var classzir_1_1BoundIRGenerator =
     [ "module_", "d4/da0/classzir_1_1BoundIRGenerator.html#a6f4dc9fe3389e2df321acb83917e6912", null ],
     [ "nextBlockId_", "d4/da0/classzir_1_1BoundIRGenerator.html#a90aec8c572fe1ccc5641b0322f83515f", null ],
     [ "nextRegisterId_", "d4/da0/classzir_1_1BoundIRGenerator.html#a6faa8e516073a281ad62101206891e18", null ],
+    [ "reachability_", "d4/da0/classzir_1_1BoundIRGenerator.html#ab690bf4ba4974f223237ab7ee312cbd9", null ],
     [ "symbolMap_", "d4/da0/classzir_1_1BoundIRGenerator.html#a7e94129151ed9095a91bca695953dc60", null ],
     [ "valueStack_", "d4/da0/classzir_1_1BoundIRGenerator.html#af54372f2f252aa081e39f30aa09d4c22", null ]
 ];

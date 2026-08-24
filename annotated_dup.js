@@ -18,6 +18,7 @@ var annotated_dup =
       [ "BoundLiteral", "db/d85/classsema_1_1BoundLiteral.html", "db/d85/classsema_1_1BoundLiteral" ],
       [ "BoundCast", "d2/d0f/classsema_1_1BoundCast.html", "d2/d0f/classsema_1_1BoundCast" ],
       [ "BoundVariableExpression", "dc/d46/classsema_1_1BoundVariableExpression.html", "dc/d46/classsema_1_1BoundVariableExpression" ],
+      [ "BoundClassTypeTest", "d1/d7f/classsema_1_1BoundClassTypeTest.html", "d1/d7f/classsema_1_1BoundClassTypeTest" ],
       [ "BoundCompoundTargetLoad", "db/d2f/classsema_1_1BoundCompoundTargetLoad.html", "db/d2f/classsema_1_1BoundCompoundTargetLoad" ],
       [ "BoundModuleReference", "d5/d03/classsema_1_1BoundModuleReference.html", "d5/d03/classsema_1_1BoundModuleReference" ],
       [ "BoundBinaryExpression", "df/dee/classsema_1_1BoundBinaryExpression.html", "df/dee/classsema_1_1BoundBinaryExpression" ],
@@ -54,6 +55,7 @@ var annotated_dup =
       [ "BoundTaggedUnionLiteral", "d5/da5/classsema_1_1BoundTaggedUnionLiteral.html", "d5/da5/classsema_1_1BoundTaggedUnionLiteral" ],
       [ "BoundStructLiteral", "d8/d4b/classsema_1_1BoundStructLiteral.html", "d8/d4b/classsema_1_1BoundStructLiteral" ],
       [ "BoundRootNode", "da/d3d/classsema_1_1BoundRootNode.html", "da/d3d/classsema_1_1BoundRootNode" ],
+      [ "BoundRangeExpression", "d0/df6/classsema_1_1BoundRangeExpression.html", "d0/df6/classsema_1_1BoundRangeExpression" ],
       [ "ConstantEvaluator", "d9/d63/classsema_1_1ConstantEvaluator.html", "d9/d63/classsema_1_1ConstantEvaluator" ],
       [ "Conversion", "dc/d73/structsema_1_1Conversion.html", "dc/d73/structsema_1_1Conversion" ],
       [ "TypeJoin", "dc/df4/structsema_1_1TypeJoin.html", "dc/df4/structsema_1_1TypeJoin" ],
@@ -82,17 +84,21 @@ var annotated_dup =
         [ "Result", "db/dd4/structzap_1_1process_1_1Result.html", "db/dd4/structzap_1_1process_1_1Result" ]
       ] ],
       [ "frontend", "df/ddd/namespacezap_1_1frontend.html", [
+        [ "anonymous_namespace{project_configuration.cpp}", "d5/da6/namespacezap_1_1frontend_1_1anonymous__namespace_02project__configuration_8cpp_03.html", [
+          [ "ParsedToml", "d7/d34/classzap_1_1frontend_1_1anonymous__namespace_02project__configuration_8cpp_03_1_1ParsedToml.html", "d7/d34/classzap_1_1frontend_1_1anonymous__namespace_02project__configuration_8cpp_03_1_1ParsedToml" ]
+        ] ],
         [ "FrontendSessionConfig", "d6/dff/structzap_1_1frontend_1_1FrontendSessionConfig.html", "d6/dff/structzap_1_1frontend_1_1FrontendSessionConfig" ],
         [ "FrontendProject", "df/d8d/structzap_1_1frontend_1_1FrontendProject.html", "df/d8d/structzap_1_1frontend_1_1FrontendProject" ],
         [ "FrontendSession", "d0/d02/classzap_1_1frontend_1_1FrontendSession.html", "d0/d02/classzap_1_1frontend_1_1FrontendSession" ],
-        [ "RuntimePaths", "d9/d3e/structzap_1_1frontend_1_1RuntimePaths.html", "d9/d3e/structzap_1_1frontend_1_1RuntimePaths" ]
+        [ "RuntimePaths", "d9/d3e/structzap_1_1frontend_1_1RuntimePaths.html", "d9/d3e/structzap_1_1frontend_1_1RuntimePaths" ],
+        [ "ProjectConfiguration", "d9/dec/structzap_1_1frontend_1_1ProjectConfiguration.html", "d9/dec/structzap_1_1frontend_1_1ProjectConfiguration" ],
+        [ "ProjectConfigurationResult", "dc/d97/structzap_1_1frontend_1_1ProjectConfigurationResult.html", "dc/d97/structzap_1_1frontend_1_1ProjectConfigurationResult" ]
       ] ],
       [ "lsp", "d5/d23/namespacezap_1_1lsp.html", [
         [ "anonymous_namespace{request_dispatcher.cpp}", "d1/de7/namespacezap_1_1lsp_1_1anonymous__namespace_02request__dispatcher_8cpp_03.html", [
           [ "RequestScheduler", "d8/d85/classzap_1_1lsp_1_1anonymous__namespace_02request__dispatcher_8cpp_03_1_1RequestScheduler.html", "d8/d85/classzap_1_1lsp_1_1anonymous__namespace_02request__dispatcher_8cpp_03_1_1RequestScheduler" ]
         ] ],
         [ "StructLiteralCompletionContext", "d7/d91/structzap_1_1lsp_1_1StructLiteralCompletionContext.html", "d7/d91/structzap_1_1lsp_1_1StructLiteralCompletionContext" ],
-        [ "RuntimePathConfiguration", "d3/d1e/structzap_1_1lsp_1_1RuntimePathConfiguration.html", "d3/d1e/structzap_1_1lsp_1_1RuntimePathConfiguration" ],
         [ "DocumentRequestContext", "d4/d44/structzap_1_1lsp_1_1DocumentRequestContext.html", "d4/d44/structzap_1_1lsp_1_1DocumentRequestContext" ],
         [ "LspSymbol", "df/d17/structzap_1_1lsp_1_1LspSymbol.html", "df/d17/structzap_1_1lsp_1_1LspSymbol" ],
         [ "JsonObject", "d2/dba/classzap_1_1lsp_1_1JsonObject.html", "d2/dba/classzap_1_1lsp_1_1JsonObject" ],
@@ -103,7 +109,7 @@ var annotated_dup =
         [ "TextDocumentPosition", "db/d26/structzap_1_1lsp_1_1TextDocumentPosition.html", "db/d26/structzap_1_1lsp_1_1TextDocumentPosition" ],
         [ "OpenDocumentParams", "d1/ddf/structzap_1_1lsp_1_1OpenDocumentParams.html", "d1/ddf/structzap_1_1lsp_1_1OpenDocumentParams" ],
         [ "ChangeDocumentParams", "d5/de5/structzap_1_1lsp_1_1ChangeDocumentParams.html", "d5/de5/structzap_1_1lsp_1_1ChangeDocumentParams" ],
-        [ "InitializeParams", "d6/d34/structzap_1_1lsp_1_1InitializeParams.html", "d6/d34/structzap_1_1lsp_1_1InitializeParams" ],
+        [ "WatchedFileChange", "d0/dcc/structzap_1_1lsp_1_1WatchedFileChange.html", "d0/dcc/structzap_1_1lsp_1_1WatchedFileChange" ],
         [ "SourceSnapshot", "dd/d5b/structzap_1_1lsp_1_1SourceSnapshot.html", "dd/d5b/structzap_1_1lsp_1_1SourceSnapshot" ],
         [ "SourceManager", "df/d88/classzap_1_1lsp_1_1SourceManager.html", "df/d88/classzap_1_1lsp_1_1SourceManager" ],
         [ "VisibleSymbolInfo", "d1/ddf/structzap_1_1lsp_1_1VisibleSymbolInfo.html", "d1/ddf/structzap_1_1lsp_1_1VisibleSymbolInfo" ],
@@ -131,6 +137,9 @@ var annotated_dup =
       [ "SFStream", "d2/d02/classzap_1_1SFStream.html", "d2/d02/classzap_1_1SFStream" ]
     ] ],
     [ "zir", "df/d35/namespacezir.html", [
+      [ "anonymous_namespace{function_reachability.cpp}", "d3/df4/namespacezir_1_1anonymous__namespace_02function__reachability_8cpp_03.html", [
+        [ "ReachabilityVisitor", "da/dbd/classzir_1_1anonymous__namespace_02function__reachability_8cpp_03_1_1ReachabilityVisitor.html", "da/dbd/classzir_1_1anonymous__namespace_02function__reachability_8cpp_03_1_1ReachabilityVisitor" ]
+      ] ],
       [ "anonymous_namespace{ownership_lowering.cpp}", "dd/d79/namespacezir_1_1anonymous__namespace_02ownership__lowering_8cpp_03.html", [
         [ "PendingEdgeClosure", "d1/d85/structzir_1_1anonymous__namespace_02ownership__lowering_8cpp_03_1_1PendingEdgeClosure.html", "d1/d85/structzir_1_1anonymous__namespace_02ownership__lowering_8cpp_03_1_1PendingEdgeClosure" ]
       ] ],
@@ -143,6 +152,8 @@ var annotated_dup =
       [ "ControlFlowGraph", "d6/de1/classzir_1_1ControlFlowGraph.html", "d6/de1/classzir_1_1ControlFlowGraph" ],
       [ "FailableTypeLayout", "d4/d3c/structzir_1_1FailableTypeLayout.html", "d4/d3c/structzir_1_1FailableTypeLayout" ],
       [ "Function", "dc/d90/classzir_1_1Function.html", "dc/d90/classzir_1_1Function" ],
+      [ "FunctionReachability", "d9/d35/structzir_1_1FunctionReachability.html", "d9/d35/structzir_1_1FunctionReachability" ],
+      [ "FunctionReachabilityAnalyzer", "dd/d82/classzir_1_1FunctionReachabilityAnalyzer.html", "dd/d82/classzir_1_1FunctionReachabilityAnalyzer" ],
       [ "Instruction", "d0/dad/classzir_1_1Instruction.html", "d0/dad/classzir_1_1Instruction" ],
       [ "BinaryInst", "df/d0a/classzir_1_1BinaryInst.html", "df/d0a/classzir_1_1BinaryInst" ],
       [ "StoreInst", "dc/d2e/classzir_1_1StoreInst.html", "dc/d2e/classzir_1_1StoreInst" ],
@@ -158,6 +169,7 @@ var annotated_dup =
       [ "DestroyInst", "d3/d6b/classzir_1_1DestroyInst.html", "d3/d6b/classzir_1_1DestroyInst" ],
       [ "AllocInst", "d1/dc3/classzir_1_1AllocInst.html", "d1/dc3/classzir_1_1AllocInst" ],
       [ "CmpInst", "d1/d56/classzir_1_1CmpInst.html", "d1/d56/classzir_1_1CmpInst" ],
+      [ "ClassIsInst", "d1/d05/classzir_1_1ClassIsInst.html", "d1/d05/classzir_1_1ClassIsInst" ],
       [ "GetElementPtrInst", "db/dee/classzir_1_1GetElementPtrInst.html", "db/dee/classzir_1_1GetElementPtrInst" ],
       [ "PhiInst", "d7/de6/classzir_1_1PhiInst.html", "d7/de6/classzir_1_1PhiInst" ],
       [ "CastInst", "d8/d42/classzir_1_1CastInst.html", "d8/d42/classzir_1_1CastInst" ],
@@ -245,6 +257,7 @@ var annotated_dup =
     [ "NewExpr", "d9/d59/classNewExpr.html", "d9/d59/classNewExpr" ],
     [ "Node", "df/dd0/classNode.html", "df/dd0/classNode" ],
     [ "ParameterNode", "d9/dd3/classParameterNode.html", "d9/dd3/classParameterNode" ],
+    [ "RangeExpr", "d3/d94/classRangeExpr.html", "d3/d94/classRangeExpr" ],
     [ "RecordDecl", "d9/d3d/classRecordDecl.html", "d9/d3d/classRecordDecl" ],
     [ "ReturnNode", "dd/d80/classReturnNode.html", "dd/d80/classReturnNode" ],
     [ "RootNode", "d8/d7a/classRootNode.html", "d8/d7a/classRootNode" ],
